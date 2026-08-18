@@ -1,0 +1,11 @@
+# Dark fintech theme: near-black page, raised cards, coral accent.
+[theme]
+base = "dark"
+primaryColor = "#FF6B5B"
+backgroundColor = "#0F1115"
+secondaryBackgroundColor = "#171A21"
+textColor = "#E6E8EC"
+font = "sans serif"
+
+[server]
+runOnSave = true
