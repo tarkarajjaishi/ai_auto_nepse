@@ -217,12 +217,18 @@ def _breakout_detail(c, o, h, l, v, vsma, a, res):
     # band beneath it, capped at one year. The old version counted "sessions since the close was
     # last 2% above the level", which collapsed to 0 exactly when a breakout surfaced it, and
     # ran to thousands of bars when the level had never been exceeded.
-    floor_ = res - max(4 * a, res * 0.08)
+    floor_, ceil_ = res - max(4 * a, res * 0.08), res * 1.02
+    # Walk back over the ENTIRE current breakout/retest episode before measuring anything: a
+    # breakout that popped above and pulled back still has today's close near the level, so
+    # counting from today collapses the base to ~1 on exactly the setups that surface it.
+    i = len(c) - 1
+    while i > 0 and c[i] > res * 0.98:
+        i -= 1
     consol = 0
-    for i in range(len(c) - 1, max(0, len(c) - 250), -1):
-        if c[i] > res * 1.02 or c[i] < floor_:
-            break
+    stop_at = max(0, i - 250)
+    while i > stop_at and floor_ <= c[i] <= ceil_:
         consol += 1
+        i -= 1
     rng = h[-1] - l[-1]
     return dict(res_tests=tests, consol_days=consol,
                 bo_candle=(abs(c[-1] - o[-1]) / a) if a else None,
@@ -836,7 +842,9 @@ def _bull_evidence(f):
         e.append("bullish RSI divergence at the lows")
     if f["reclaim"]:
         e.append("support reclaimed after a break")
-    if f["room_r"] >= 3:
+    if f["room_r"] == float("inf"):
+        e.append("no resistance overhead inside the 250-day window — unlimited room")
+    elif f["room_r"] >= 3:
         e.append(f"{f['room_r']:.1f}R of room before resistance")
     return e or ["nothing on the bullish side clears the bar today"]
 
@@ -1016,7 +1024,8 @@ def report(f):
     L += [f"  - {x}" for x in f["bear_evidence"]]
     L += ["",
           f"Why This Trade Could Profit:  {f['bull_evidence'][0]}"
-          + (f"; {f['room_r']:.1f}R of room to resistance" if f["room_r"] else "")
+          + ("; unlimited room — no resistance overhead" if f["room_r"] == float("inf")
+             else f"; {f['room_r']:.1f}R of room to resistance")
           + f"; risk is capped at {f['risk_pct']:.2f}% with a {f['stop_width']} stop.",
           f"Why This Trade Could Fail:    {f['bear_evidence'][0]}.",
           "",
