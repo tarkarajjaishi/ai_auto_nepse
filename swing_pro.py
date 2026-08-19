@@ -431,11 +431,12 @@ def _pullback(o, c, l, v, vsma, e20, e50, lows):
         return "TREND BREAKDOWN"
     if broke_low or (vx > 1.5 and c[-1] < c[-2]):        # heavy selling / lower low
         return "DANGEROUS"
-    if weakening is False and not confirmed:             # sellers still getting bigger
-        return "WAIT"
-    if close >= e20 and vx < 1.0 and confirmed:
+    # `weakening is not False` — None means too few down candles to judge, which must not veto.
+    # This has to sit INSIDE the healthy branches: as a separate pre-check it was dead code,
+    # because every path reaching it without `confirmed` already fell through to WAIT anyway.
+    if close >= e20 and vx < 1.0 and confirmed and weakening is not False:
         return "BUY ZONE"
-    if close >= e50 and vx < 1.2 and confirmed:
+    if close >= e50 and vx < 1.2 and confirmed and weakening is not False:
         return "HEALTHY PULLBACK"
     return "WAIT"
 
@@ -806,6 +807,25 @@ def analyse(symbol, funds=None, calendar=None):
     f["performer"] = _performer(f)
     f["setup"] = _setup(f)
     f["decision"], f["why"] = _decision(f, f["score"], f["flags"])
+    # Section 21 — "Before issuing BUY, answer this question ... If the answer to the critical
+    # questions is NO, return NO TRADE." So it has to run BEFORE the decision stands, not after
+    # it as a printed footnote. Participation is judged in context: a breakout needs volume, a
+    # pullback needs the confirmation candle on DRY volume, which is what section 5 asks for.
+    participation = (f["vol_x"] >= 1.5 if f["breakout"] in ("Confirmed Breakout",
+                                                            "Attempting Breakout")
+                     else (f["confirmed_candle"] and f["accum"] != "Distribution"))
+    f["critical"] = [
+        ("strong trend evidence", f["trend"] == "Bullish" and f["hh"] and f["hl"]),
+        ("confirmed participation", bool(participation)),
+        ("logical invalidation", f["near_support"] is not None and f["stop_width"] == "sensible"),
+        ("at least 1:2 reward-to-risk", f["rr"] >= MIN_RR),
+        ("not merely chasing", (f["ext_atr"] or 0) <= 3
+         and f["breakout"] != "Extended Breakout" and not f["chasing"]),
+    ]
+    failed = [n for n, ok in f["critical"] if not ok]
+    if failed and f["decision"].startswith("BUY"):
+        f["decision"] = "WAIT"
+        f["why"] = "critical questions answered NO: " + ", ".join(failed)
     # Name the level the stop is ACTUALLY at. A swing low 3.5+ ATR away is discarded by
     # _levels, and calling the 2 ATR fallback "the last swing low" misdescribed the trade's
     # invalidation on 9 of 307 symbols — while Q11 still answered YES for every one of them.
@@ -843,15 +863,8 @@ def analyse(symbol, funds=None, calendar=None):
         "trend evidence, confirmed participation, a logical invalidation level, and at least "
         "1:2 realistic reward-to-risk — or am I simply chasing a stock because it has already "
         "risen?")
-    parts_ok = [("strong trend evidence", f["trend"] == "Bullish" and f["hh"] and f["hl"]),
-                ("confirmed participation", f["vol_x"] >= 1.2),
-                ("logical invalidation", f["near_support"] is not None
-                 and f["stop_width"] == "sensible"),
-                ("at least 1:2 reward-to-risk", f["rr"] >= MIN_RR),
-                ("not merely chasing", (f["ext_atr"] or 0) <= 3
-                 and f["breakout"] != "Extended Breakout" and not f["chasing"])]
-    have = [n for n, ok in parts_ok if ok]
-    lack = [n for n, ok in parts_ok if not ok]
+    have = [n for n, ok in f["critical"] if ok]
+    lack = [n for n, ok in f["critical"] if not ok]
     f["capital_answer"] = (
         ("YES — " + ", ".join(have) + ".") if not lack else
         ("NO — has " + (", ".join(have) if have else "none of it")

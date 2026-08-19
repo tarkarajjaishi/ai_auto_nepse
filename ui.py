@@ -336,11 +336,19 @@ def archive_state():
     if spike.exists():
         f = last_line(spike).split("	")
         spike_day = f[2] if len(f) > 2 else ""
-    out["Volume spike"] = (spike_day, 0, sum(1 for _ in spike.open(encoding="utf-8")) - 1 if spike.exists() else 0)
+    spike_n = sum(1 for _ in spike.open(encoding="utf-8")) - 1 if spike.exists() else 0
+    out["Volume spike"] = (spike_day, 0, spike_n)   # one row per window, not per symbol
 
     scan = MASTER / "scan.txt"
     scan_day = last_line(scan).split("	")[1] if scan.exists() else ""
-    out["Signal scan"] = (scan_day, 0, sum(1 for _ in scan.open(encoding="utf-8")) - 1 if scan.exists() else 0)
+    scan_rows, scan_behind = 0, 0
+    if scan.exists():
+        for line in scan.read_text(encoding="utf-8").splitlines()[1:]:
+            f = line.split("	")
+            if len(f) > 1:
+                scan_rows += 1
+                scan_behind += (f[1] != scan_day)      # a real count, not a hardcoded zero
+    out["Signal scan"] = (scan_day, scan_behind, scan_rows)
     return out
 
 
@@ -1328,9 +1336,13 @@ def paint(rows, columns=None):
             tint(lambda v: f"color:{GREEN};font-weight:600" if v == "Bullish"
                  else (f"color:{RED};font-weight:600" if v == "Bearish" else ""), col)
         elif col == "grade":
-            tint(lambda v: f"background-color:rgba(18,184,134,.22);color:{GREEN};font-weight:700"
-                 if str(v).startswith("A") else (f"color:{GOLD};font-weight:600"
-                 if str(v).startswith("B") else f"color:{GREY}"), col)
+            # NB: match the whole grade, never a prefix — "AVOID" also starts with "A", and for a
+            # while it rendered in the green success chip, identical to "A+ ELITE".
+            tint(lambda v: (f"background-color:rgba(18,184,134,.22);color:{GREEN};font-weight:700"
+                            if str(v).startswith(("A+", "A ")) else
+                            f"color:{GOLD};font-weight:600" if str(v).startswith("B") else
+                            f"color:{RED};font-weight:600" if str(v) == "AVOID" else
+                            f"color:{GREY}"), col)
         elif col == "decision":
             tint(lambda v: f"color:{GREEN};font-weight:700" if v == "BUY"
                  else (f"color:{GOLD};font-weight:600" if str(v).startswith("BUY")
@@ -1851,7 +1863,7 @@ if page == "Chart":
     st.markdown(
         f"<div class='tv-head'>"
         f"<span class='tv-sym'>{symbol}</span>"
-        f"<span class='tv-meta'>· {unit} · NEPSE</span>"
+        f"<span class='tv-meta'>· {unit} · NEPSE · {str(data['when'][-1])[:16]}</span>"
         f"<span class='tv-ohlc' style='color:{tone}'>"
         f"O<b>{o:,.2f}</b> H<b>{h:,.2f}</b> L<b>{l:,.2f}</b> C<b>{c:,.2f}</b>"
         f"&nbsp;{diff:+,.2f} ({(diff / prev_c * 100 if prev_c else 0):+.2f}%)</span>"
@@ -2403,10 +2415,12 @@ if page == "Master operator":
                  "anything about motive or direction. A manipulator, a fund building a position "
                  "and a prop desk are identical here, and none of this predicts price — every "
                  "predictive version was tested and died (table below).")
-        if st.button("↻ Re-run the operator test", key="ov_run"):
-            run_job("Operator verdict", "operator_verdict.py")
-            st.rerun()
         st.divider()
+    if not vrows:
+        st.info("No verdict yet — press **↻ Re-run the operator test** below to build it.")
+    if st.button("↻ Re-run the operator test", key="ov_run"):
+        run_job("Operator verdict", "operator_verdict.py")
+        st.rerun()
 
     ghdr, grows = _tsv("operator_now.txt")
     if grows:
@@ -2492,11 +2506,14 @@ if page == "Master operator":
         st.warning("**Unusual ≠ profitable.** This ranks how abnormal today's concentration is and "
                    "attaches no expected return, deliberately — every predictive version of this "
                    "was tested and died (verdict table below).")
-        if st.button("↻ Rescan the tape", key="on_run"):
-            run_job("Operator grip scan", "operator_now.py")
-            st.rerun()
         st.divider()
-        st.markdown("#### Why the *predictive* version does not exist")
+    if not grows:
+        st.info("No grip scan yet — press **↻ Rescan the tape** below to build it.")
+    if st.button("↻ Rescan the tape", key="on_run"):
+        run_job("Operator grip scan", "operator_now.py")
+        st.rerun()
+    st.divider()
+    st.markdown("#### Why the *predictive* version does not exist")
     st.caption("Built from the **per-trade floorsheet alone** (1,056 sessions, 2022→2026) — no "
                "OHLC indicators, no fundamentals, none of the earlier signal logic. Every measure "
                "is expressed across the four lookbacks you asked for: **1 month · 15d · 7d · 3d**. "
@@ -2844,7 +2861,7 @@ if page == "Swing Trader Pro":
             "is backtested on NEPSE; it is a disciplined framework, not a proven edge.")
 
         keeps = {"Actionable": lambda r: r["decision"].startswith("BUY"),
-                 "A + B grade": lambda r: r["grade"][0] in "AB",
+                 "A + B grade": lambda r: r["grade"].startswith(("A+", "A ", "B")),
                  "Watch": lambda r: r["decision"] == "WAIT",
                  "Everything": lambda r: True}
         counts = {k: sum(1 for r in rows if f(r)) for k, f in keeps.items()}
@@ -2871,9 +2888,16 @@ if page == "Swing Trader Pro":
                 "pullback": r["pullback"], "vol_x": float(r["vol_x"]),
                 "rsi": float(r["rsi"]), "ret20": float(r["ret20"]), "flags": r["flags"],
             } for r in block]
-            ev = st.dataframe(paint(table), width="stretch", hide_index=True,
-                              height=min(560, 38 * len(table) + 44),
-                              on_select="rerun", selection_mode="single-row", key="sp_tbl")
+            ev = st.dataframe(
+                paint(table), width="stretch", hide_index=True,
+                height=min(560, 38 * len(table) + 44),
+                # decision numbers first — on a phone the later columns are off-screen, and
+                # "what do I pay and where is the stop" must not be the part you scroll to
+                column_order=["symbol", "decision", "entry", "stop", "target1", "rr",
+                              "risk_pct", "score", "grade", "setup", "performer", "target2",
+                              "trend", "stage", "breakout", "pullback", "vol_x", "rsi",
+                              "ret20", "flags"],
+                on_select="rerun", selection_mode="single-row", key="sp_tbl")
             st.caption("👆 **Click any row for its full 22-section report** — every section, the "
                        "100-point scorecard broken out, and the fifteen final questions.")
 
@@ -2889,7 +2913,7 @@ if page == "Swing Trader Pro":
                 else:
                     st.markdown(f"<div class='section'>{sym} — {f['grade']} · {f['decision']}"
                                 "</div>", unsafe_allow_html=True)
-                    st.code(swing_pro.report(f))
+                    st.code(swing_pro.report(f), wrap_lines=True)
                     c1, c2 = st.columns(2)
                     with c1:
                         st.markdown("<div class='section'>Section 20 — the 100-point scorecard"
@@ -3003,39 +3027,45 @@ if page == "Indicator cron":
                 "risk_pct": float(r["risk_pct"]),
                 "dist_pct": float(r["dist_pct"]),
             } for r in block]
-            ev = st.dataframe(paint(table), width="stretch", hide_index=True,
-                              height=min(620, 38 * len(table) + 44),
-                              on_select="rerun", selection_mode="single-row", key="sd_tbl")
+            ev = st.dataframe(
+                paint(table), width="stretch", hide_index=True,
+                height=min(620, 38 * len(table) + 44),
+                column_order=["symbol", "signal", "order", "entry", "sl", "tp", "confirmed",
+                              "vol_x", "trend", "in_zone", "direction", "zone_history", "age",
+                              "close", "risk_pct", "dist_pct"],
+                on_select="rerun", selection_mode="single-row", key="sd_tbl")
             st.caption("👆 **Click any row to chart it** — the Buy/Sell badge is pinned to the "
                        "last traded candle, with the zones and SL/TP lines behind it.")
-            st.caption(
-                "**order** — what you would actually place. `AT ENTRY` means the last candle "
-                "closed inside the zone, so the level is live now; `LIMIT` means price has not "
-                "come back yet, so the entry is a resting order at that price, not a fill today. "
-                "**confirmed** — the zone is being touched AND the day traded ≥1.5× its own "
-                "20-day average volume AND it is liquid enough to fill AND **trend** agrees. That "
-                "last clause matters: the rule backtest.py validated was volume confirmation *on "
-                "a confirmed uptrend*, and without it heavy volume into a FALLING stock at a "
-                "demand zone counts as confirmation — which is distribution, not accumulation. "
-                "**trend** is trade_setup's own verdict, the same one the Scanner shows. "
-                "This is the only column "
-                "here backed by measurement rather than by the vendor: across backtest.py's "
-                "7,349 replayed trades, volume confirmation was the single ingredient that kept "
-                "its edge out of sample (ADX and breakout filters both collapsed). Their "
-                "indicator reads no volume at all — this column is the bridge to **Master "
-                "signal**. **vol_x** — that volume multiple. "
-                "**in_zone** — did the last candle *close* inside the zone? A `signal` can fire "
-                "on a single wick that price left again; `in_zone = yes` is the one still standing "
-                "at tomorrow's open, which is why it sorts first. Do not read it as rare: about a "
-                "third of the market qualifies on any day, because the board picks the zone "
-                "*nearest* the close and the median zone is ~2.5% wide against a median distance "
-                "of ~1.2% — the close lands inside it often, by construction. "
-                "**direction** — Bullish is a demand zone (buy the retest), Bearish a supply zone. "
-                "**age** — bars since the zone formed. **zone_history** — how the ZONE has behaved, *not* a rating of the trade: `strong` does NOT mean strong buy, it means price came back to this zone exactly once and it held. Nothing on this board grades conviction. *untested* nobody has come back "
-                "yet, *strong* it was retested once and held, *weak* worn out by repeat visits; a "
-                "zone price CLOSED through is a *turncoat* and is dropped. **risk_pct** — entry to "
-                "stop, so a wide zone on a volatile stock costs more; **dist_pct** — how far price "
-                "sits from entry, negative meaning entry is below.")
+            with st.expander("ⓘ  What each column means"):
+                with st.expander("ⓘ  What each column means"):
+                    st.caption(
+                        "**order** — what you would actually place. `AT ENTRY` means the last candle "
+                        "closed inside the zone, so the level is live now; `LIMIT` means price has not "
+                        "come back yet, so the entry is a resting order at that price, not a fill today. "
+                        "**confirmed** — the zone is being touched AND the day traded ≥1.5× its own "
+                        "20-day average volume AND it is liquid enough to fill AND **trend** agrees. That "
+                        "last clause matters: the rule backtest.py validated was volume confirmation *on "
+                        "a confirmed uptrend*, and without it heavy volume into a FALLING stock at a "
+                        "demand zone counts as confirmation — which is distribution, not accumulation. "
+                        "**trend** is trade_setup's own verdict, the same one the Scanner shows. "
+                        "This is the only column "
+                        "here backed by measurement rather than by the vendor: across backtest.py's "
+                        "7,349 replayed trades, volume confirmation was the single ingredient that kept "
+                        "its edge out of sample (ADX and breakout filters both collapsed). Their "
+                        "indicator reads no volume at all — this column is the bridge to **Master "
+                        "signal**. **vol_x** — that volume multiple. "
+                        "**in_zone** — did the last candle *close* inside the zone? A `signal` can fire "
+                        "on a single wick that price left again; `in_zone = yes` is the one still standing "
+                        "at tomorrow's open, which is why it sorts first. Do not read it as rare: about a "
+                        "third of the market qualifies on any day, because the board picks the zone "
+                        "*nearest* the close and the median zone is ~2.5% wide against a median distance "
+                        "of ~1.2% — the close lands inside it often, by construction. "
+                        "**direction** — Bullish is a demand zone (buy the retest), Bearish a supply zone. "
+                        "**age** — bars since the zone formed. **zone_history** — how the ZONE has behaved, *not* a rating of the trade: `strong` does NOT mean strong buy, it means price came back to this zone exactly once and it held. Nothing on this board grades conviction. *untested* nobody has come back "
+                        "yet, *strong* it was retested once and held, *weak* worn out by repeat visits; a "
+                        "zone price CLOSED through is a *turncoat* and is dropped. **risk_pct** — entry to "
+                        "stop, so a wide zone on a volatile stock costs more; **dist_pct** — how far price "
+                        "sits from entry, negative meaning entry is below.")
 
             # --- the chart, for whichever row was clicked ------------------------------------
             picked = list(ev.selection.rows) if ev and ev.selection else []
@@ -3059,7 +3089,11 @@ if page == "Indicator cron":
                     show.add("weak")
                 if t3.checkbox("Turncoat zones", value=False, key="sd_z_turn"):
                     show.add("turncoat")
-                nbars = t4.slider("Bars", 60, 400, 180, 20, key="sd_z_bars")
+                nbars = t4.slider("Bars", 60, 400, 180, 20, key="sd_z_bars",
+                                  help="Window shown. Always widened to include this row's own "
+                                       "zone, however old it is.")
+                # never crop out the zone the row is about — the chart would contradict the table
+                nbars = max(nbars, int(r["age"]) + 10)
                 fig, drawn = sd_chart(r["symbol"], show, nbars)
                 if fig is None:
                     st.info(f"Not enough history to chart {r['symbol']}.")
@@ -3279,7 +3313,7 @@ if page == "Volume spike":
                                  label_visibility="collapsed",
                                  format_func=lambda k: WINDOW_LABEL[k]) or "2w"
     only = st.radio("Show", ["Flagged only", "Everything"], horizontal=True,
-                    key="spike_filter", label_visibility="collapsed")
+                    index=1, key="spike_filter", label_visibility="collapsed")
 
     block = [r for r in rows if r["window"] == label]
     if only == "Flagged only":
