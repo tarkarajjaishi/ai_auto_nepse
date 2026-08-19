@@ -2887,10 +2887,19 @@ if page == "Swing Trader Pro":
                     with c2:
                         st.markdown("<div class='section'>Section 21 — the fifteen questions"
                                     "</div>", unsafe_allow_html=True)
-                        st.dataframe(pd.DataFrame(
-                            [{"": "YES" if ok else "no", "question": q}
-                             for q, ok in swing_pro.answers(f)]),
-                            width="stretch", hide_index=True, height=430)
+                        # Q9 is a WARNING question (YES = too extended = bad) and Q14 is not a
+                        # yes/no at all — rendering both as a plain YES would invert the meaning
+                        qrows = []
+                        for n, (q, ans) in enumerate(swing_pro.answers(f), 1):
+                            if isinstance(ans, str):
+                                qrows.append({"": "->", "question": f"{q}  {ans}"})
+                            elif n in swing_pro.WARNING_QUESTIONS:
+                                qrows.append({"": "WARN" if ans else "ok",
+                                              "question": f"{q}  (yes = bad)"})
+                            else:
+                                qrows.append({"": "YES" if ans else "no", "question": q})
+                        st.dataframe(pd.DataFrame(qrows), width="stretch", hide_index=True,
+                                     height=430)
                     st.caption(
                         f"**Why {f['decision']}:** {f['why']}. "
                         f"**Trade invalidation:** {f['invalidation']} — and per the framework, "
