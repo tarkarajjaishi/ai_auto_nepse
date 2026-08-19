@@ -2346,6 +2346,35 @@ if page == "Master operator":
                    "baselines. Two artifacts are filtered out: stale names, and leaders facing "
                    "fewer than 5 counterparties (promoter shares and debentures trade as single "
                    "negotiated blocks, which otherwise read as 100% grip).")
+        with st.expander("🔬 Is this really an operator? — the proof, and its hard limit",
+                         expanded=False):
+            st.markdown(
+                "**The obvious confound: some brokers are just big.** If a broker handles 8% of "
+                "all NEPSE volume, it leading a stock is arithmetic, not evidence. So each flag "
+                "is tested against **that same broker's share of every *other* symbol** over the "
+                "same sessions (`operator_proof.py`).\n\n"
+                "| symbol | broker | in-stock | elsewhere | ratio |\n"
+                "|---|---|---|---|---|\n"
+                "| NLICL | 20 | 25.9% | **0.27%** | **97×** |\n"
+                "| TRH | 16 | 42.3% | 1.15% | 36.7× |\n"
+                "| NTC | 92 | 47.7% | 1.30% | 36.6× |\n"
+                "| EBL | 92 | 44.1% | 1.24% | 35.7× |\n"
+                "| CGH | 44 | 42.0% | 2.30% | 18.3× |\n\n"
+                "**9 of 9 flags are genuinely concentrated** — 18× to 97× the broker's own norm. "
+                "And the market's actual giants (broker 58 at 8.2%, 34 at 3.5%, 49 at 3.3%) do "
+                "**not** appear in the flag list at all. The big-broker confound is ruled out.")
+            st.error(
+                "**But this is NOT proof of an operator, and the gap is not closeable with this "
+                "data.** The floorsheet publishes **broker IDs, never client IDs**. A broker is a "
+                "*pipe*: 44% of EBL through broker 92 could be one operator, or four hundred "
+                "unrelated retail clients who happen to share a broker. No calculation on this "
+                "dataset can separate those two — it is a missing column, not a weak signal.\n\n"
+                "So the strongest honest claim is **\"unusually concentrated order flow\"**, "
+                "not **\"an operator is accumulating\"**.")
+            st.caption("Statistical note, since the numbers look overwhelming: the z-scores run "
+                       "into the thousands because the test counts each *share* as an independent "
+                       "observation, which they are not — trades cluster. Treat the **ratio** as "
+                       "the meaningful figure and ignore the p-value's magnitude.")
         st.warning("**Unusual ≠ profitable.** This ranks how abnormal today's concentration is and "
                    "attaches no expected return, deliberately — every predictive version of this "
                    "was tested and died (verdict table below).")
