@@ -41,8 +41,8 @@ MIN_TURNOVER = 500_000          # Rs median daily turnover over the 20-session w
 MIN_SELLERS = 5                 # the leader must be absorbing from a real crowd, not one desk
 MAX_STALE = 5                   # its last session must be within N sessions of the archive's latest
 MIN_BROKERS = 10                # a day with a handful of brokers is a block market, not a tape
-HEADER = ("symbol\tscore\tbroker\tgrip20\tgrip15\tgrip7\tgrip3\ttighten\tpersist"
-          "\tsellers\tnet20\tturnover\tvwap\tsessions")
+HEADER = ("side\tsymbol\tscore\tbroker\tregular\tgrip20\tgrip15\tgrip7\tgrip3\ttighten\tpersist"
+          "\tcounterparties\tnet20\tturnover\tvwap\tsessions")
 
 
 def sessions(symbol, n):
@@ -94,12 +94,12 @@ def profile(symbol):
     if qty_all <= 0:
         return None
 
-    grip, leader, sellers_of_leader, net20 = {}, {}, 0, 0
+    # Per-window net per broker, computed once and reused for both sides.
+    per_window = {}
     for w in WINDOWS:
-        sub = days[-w:]
         net = defaultdict(int)
         vol = 0
-        for d in sub:
+        for d in days[-w:]:
             for b, s, q, _a in d:
                 if b == s:                       # a broker crossing with itself moves no float
                     continue
@@ -108,26 +108,53 @@ def profile(symbol):
                 vol += q
         if not net or vol <= 0:
             return None
-        top = max(net, key=net.get)
-        grip[w] = 100 * net[top] / vol           # % of window volume this broker net-absorbed
-        leader[w] = top
-        if w == 20:
-            net20 = net[top]
-            sellers_of_leader = len({s for d in sub for b, s, q, _a in d if b == top and s != top})
+        per_window[w] = (net, vol)
 
-    return {
-        "symbol": symbol,
-        "broker": leader[20],
-        "grip": grip,
-        "tighten": grip[3] - grip[20],           # grip tightening into the recent sessions
-        "persist": len({leader[w] for w in WINDOWS}),   # 1 = same broker all four windows
-        "sellers": sellers_of_leader,
-        "net20": net20,
-        "turnover": statistics.median(turnovers),
-        "vwap": amt_all / qty_all,
-        "sessions": len(files),
-        "last": files[-1].stem,
-    }
+    def side_profile(side):
+        """The dominant net BUYER or net SELLER, and how regularly it actually shows up.
+
+        `regular` is the point of the whole thing: a broker can end a window with a big net from
+        ONE session, which is a block, not a campaign. This counts on how many of the 20 sessions
+        it was genuinely on that side — daily behaviour, not the window total."""
+        grip, leader = {}, {}
+        for w in WINDOWS:
+            net, vol = per_window[w]
+            top = max(net, key=net.get) if side == "BUY" else min(net, key=net.get)
+            grip[w] = 100 * abs(net[top]) / vol
+            leader[w] = top
+        who = leader[20]
+
+        # how many sessions was this broker net on that side, and who did it face
+        active, counterparties = 0, set()
+        for d in days[-20:]:
+            day_net = defaultdict(int)
+            for b, s, q, _a in d:
+                if b == s:
+                    continue
+                day_net[b] += q
+                day_net[s] -= q
+                if side == "BUY" and b == who and s != who:
+                    counterparties.add(s)
+                elif side == "SELL" and s == who and b != who:
+                    counterparties.add(b)
+            n = day_net.get(who, 0)
+            if (side == "BUY" and n > 0) or (side == "SELL" and n < 0):
+                active += 1
+        traded_days = sum(1 for d in days[-20:] if d)
+        return {
+            "side": side, "symbol": symbol, "broker": who, "grip": grip,
+            "regular": round(100 * active / max(traded_days, 1)),   # % of sessions on that side
+            "tighten": grip[3] - grip[20],
+            "persist": len({leader[w] for w in WINDOWS}),
+            "counterparties": len(counterparties),
+            "net20": abs(per_window[20][0][who]),
+            "turnover": statistics.median(turnovers),
+            "vwap": amt_all / qty_all,
+            "sessions": len(files),
+            "last": files[-1].stem,
+        }
+
+    return [side_profile("BUY"), side_profile("SELL")]
 
 
 def main():
@@ -137,63 +164,78 @@ def main():
 
     names = sorted(p.name for p in FLOOR.iterdir() if p.is_dir())
     print(f"scanning {len(names)} symbols over the last {max(WINDOWS)} sessions ...", flush=True)
-    rows = [r for r in (profile(s) for s in names) if r]
-    if not rows:
+    got = [r for r in (profile(s) for s in names) if r]
+    if not got:
         print("no symbol had enough liquid floorsheet history")
         return 0
+    rows = [side for pair in got for side in pair]
 
-    # Recency: a thinly-traded name's "last 20 sessions" can reach months back, so its grip is not
+    # Recency: a thin name's "last 20 sessions" can reach months back, so its grip is not
     # comparable with a stock trading today. Rank only names current with the live tape.
     latest = max(r["last"] for r in rows)
-    all_dates = sorted({r["last"] for r in rows}, reverse=True)
-    cutoff = all_dates[min(MAX_STALE, len(all_dates) - 1)]
+    cutoff = sorted({r["last"] for r in rows}, reverse=True)[
+        min(MAX_STALE, len({r["last"] for r in rows}) - 1)]
     fresh = [r for r in rows if r["last"] >= cutoff]
-    # Breadth: buying from one desk is a cross, not accumulation of float.
-    ranked = [r for r in fresh if r["sellers"] >= MIN_SELLERS]
+    # Breadth: trading against one desk is a cross, not accumulation or distribution of float.
+    ranked = [r for r in fresh if r["counterparties"] >= MIN_SELLERS]
     dropped_stale, dropped_block = len(rows) - len(fresh), len(fresh) - len(ranked)
     if not ranked:
         print("nothing passed the recency + counterparty-breadth filters")
         return 0
-    rows = ranked
 
-    # cross-sectional z on the SAME date — the whole point; a raw grip number means nothing
-    # until you know what grip looks like everywhere else today.
-    g20 = [r["grip"][20] for r in rows]
-    tg = [r["tighten"] for r in rows]
-    mu_g, sd_g = statistics.fmean(g20), (statistics.pstdev(g20) or 1)
-    mu_t, sd_t = statistics.fmean(tg), (statistics.pstdev(tg) or 1)
-    for r in rows:
-        z_grip = (r["grip"][20] - mu_g) / sd_g
-        z_tight = (r["tighten"] - mu_t) / sd_t
-        # one identity across all four windows is worth something; four different leaders is noise
-        persist_bonus = {1: 1.0, 2: 0.5, 3: 0.2, 4: 0.0}[r["persist"]]
-        r["score"] = round(z_grip + 0.5 * z_tight + persist_bonus, 2)
-    rows.sort(key=lambda r: r["score"], reverse=True)
+    # Score each SIDE against its own cross-section on the same date — a 40% buy-grip and a 40%
+    # sell-grip are not comparable, so they get separate baselines.
+    out_lines, printed = [HEADER], {}
+    for side in ("BUY", "SELL"):
+        sel = [r for r in ranked if r["side"] == side]
+        if not sel:
+            continue
+        g20 = [r["grip"][20] for r in sel]
+        tg = [r["tighten"] for r in sel]
+        mu_g, sd_g = statistics.fmean(g20), (statistics.pstdev(g20) or 1)
+        mu_t, sd_t = statistics.fmean(tg), (statistics.pstdev(tg) or 1)
+        for r in sel:
+            persist_bonus = {1: 1.0, 2: 0.5, 3: 0.2, 4: 0.0}[r["persist"]]
+            # regularity gates the score: a big net done in 3 of 20 sessions is a block, and
+            # should not outrank a broker that showed up day after day.
+            reg = r["regular"] / 100
+            r["score"] = round(((r["grip"][20] - mu_g) / sd_g
+                                + 0.5 * (r["tighten"] - mu_t) / sd_t
+                                + persist_bonus) * (0.4 + 0.6 * reg), 2)
+        sel.sort(key=lambda r: r["score"], reverse=True)
+        printed[side] = (sel, mu_g, sd_g)
+        out_lines += ["\t".join(str(x) for x in (
+            r["side"], r["symbol"], r["score"], r["broker"], r["regular"],
+            round(r["grip"][20], 2), round(r["grip"][15], 2), round(r["grip"][7], 2),
+            round(r["grip"][3], 2), round(r["tighten"], 2), r["persist"],
+            r["counterparties"], r["net20"], round(r["turnover"]), round(r["vwap"], 2),
+            r["sessions"])) for r in sel]
+    OUT.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
 
-    lines = [HEADER] + ["\t".join(str(x) for x in (
-        r["symbol"], r["score"], r["broker"],
-        round(r["grip"][20], 2), round(r["grip"][15], 2), round(r["grip"][7], 2),
-        round(r["grip"][3], 2), round(r["tighten"], 2), r["persist"], r["sellers"],
-        r["net20"], round(r["turnover"]), round(r["vwap"], 2), r["sessions"])) for r in rows]
-    OUT.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-    print(f"\n=== ABNORMAL BROKER GRIP · tape to {latest} · {len(rows)} symbols ranked ===")
-    print(f"filtered out: {dropped_stale} stale (last trade before {cutoff}) · "
-          f"{dropped_block} block/cross (leader bought from <{MIN_SELLERS} sellers)")
-    print(f"cross-sectional mean grip today: {mu_g:.1f}% of volume (sd {sd_g:.1f}) — "
-          f"a score of +2 means two sd above THAT\n")
-    print(f"{'symbol':<10}{'score':>6}{'brkr':>6}{'20d':>7}{'15d':>7}{'7d':>7}{'3d':>7}"
-          f"{'tight':>7}{'ids':>5}{'sellers':>8}")
-    for r in rows[:a.top]:
-        print(f"{r['symbol']:<10}{r['score']:>6.2f}{r['broker']:>6}"
-              f"{r['grip'][20]:>7.1f}{r['grip'][15]:>7.1f}{r['grip'][7]:>7.1f}{r['grip'][3]:>7.1f}"
-              f"{r['tighten']:>+7.1f}{r['persist']:>5}{r['sellers']:>8}")
+    print(f"\n=== DOMINANT BROKERS · tape to {latest} ===")
+    print(f"filtered: {dropped_stale} stale (last trade before {cutoff}) · "
+          f"{dropped_block} block/cross (<{MIN_SELLERS} counterparties)")
+    for side, title in (("BUY", "ACCUMULATING  — one broker is the dominant NET BUYER"),
+                        ("SELL", "DISTRIBUTING  — one broker is the dominant NET SELLER")):
+        if side not in printed:
+            continue
+        sel, mu_g, sd_g = printed[side]
+        print(f"\n--- {title} ({len(sel)} symbols, mean grip {mu_g:.1f}% sd {sd_g:.1f}) ---")
+        print(f"{'symbol':<10}{'score':>6}{'brkr':>6}{'regular':>9}{'20d':>7}{'15d':>7}"
+              f"{'7d':>7}{'3d':>7}{'tight':>7}{'ids':>5}{'ctp':>5}")
+        for r in sel[:a.top]:
+            print(f"{r['symbol']:<10}{r['score']:>6.2f}{r['broker']:>6}"
+                  f"{str(r['regular'])+'%':>9}"
+                  f"{r['grip'][20]:>7.1f}{r['grip'][15]:>7.1f}{r['grip'][7]:>7.1f}"
+                  f"{r['grip'][3]:>7.1f}{r['tighten']:>+7.1f}{r['persist']:>5}"
+                  f"{r['counterparties']:>5}")
     print(f"\nfull ranking -> {OUT}")
-    print("ids=1 means the SAME broker led all four windows; ids=4 means a different leader each")
-    print("window (noise). sellers = distinct counterparties it bought from; 1-2 is a block/cross,")
-    print("not accumulation. tight = 3d grip minus 20d grip, so + means tightening recently.")
-    print("\nThis ranks how UNUSUAL today's concentration is. It is not a return forecast —")
-    print("every predictive version of this tested dead, so no expected return is attached.")
+    print("regular = % of the 20 sessions that broker was actually net on that side. THIS is the")
+    print("  'are they buying regularly' answer: 85% is a daily campaign, 20% is one block.")
+    print("ids=1 = same broker led all four windows.  ctp = distinct counterparties faced.")
+    print("tight = 3d grip minus 20d grip, so + means the grip is tightening lately.")
+    print("\nRanks how UNUSUAL today's concentration is — not a return forecast. Every predictive")
+    print("version tested dead, so no expected return is attached to either side.")
     return 0
 
 

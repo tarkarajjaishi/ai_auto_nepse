@@ -2296,41 +2296,59 @@ if page == "Master operator":
 
     ghdr, grows = _tsv("operator_now.txt")
     if grows:
-        st.markdown("#### Where one broker's grip is abnormal right now")
-        st.caption("The predictive question is dead (below), but the **descriptive** one is "
-                   "measurable: the top accumulator exists on 100% of days, so the signal is not "
-                   "*who* — it is **how extreme they are versus every other stock the same day**. "
-                   "Everything here is cross-sectionally z-scored within one date, which is the "
-                   "one framing the research run could not break.")
         gdf = pd.DataFrame(grows, columns=ghdr)
-        for c in ("score", "grip20", "grip15", "grip7", "grip3", "tighten"):
+        for c in ("score", "regular", "grip20", "grip15", "grip7", "grip3", "tighten",
+                  "persist", "counterparties"):
             if c in gdf.columns:
                 gdf[c] = pd.to_numeric(gdf[c], errors="coerce")
-        top = gdf.head(25)
-        st.dataframe(top, width="stretch", hide_index=True, height=380,
-                     column_config={
-                         "score": st.column_config.NumberColumn(
-                             "score", help="z of 20d grip + ½·z of tightening + persistence bonus"),
-                         "tighten": st.column_config.NumberColumn(
-                             "tighten", help="3d grip minus 20d grip — positive means the grip is "
-                                             "tightening into recent sessions"),
-                         "persist": st.column_config.NumberColumn(
-                             "persist", help="distinct leaders across the four windows: 1 = same "
-                                             "broker throughout, 4 = a different one each window"),
-                         "sellers": st.column_config.NumberColumn(
-                             "sellers", help="distinct counterparties the leader bought from; "
-                                             "under 5 is a block/cross and is filtered out"),
-                     })
-        st.caption("**How to read a row.** `grip20→grip3` is the broker's share of volume over "
-                   "20/15/7/3 sessions — rising left-to-right means it is taking a bigger share "
-                   "lately. `persist=1` means the *same* broker led all four windows. `sellers` "
-                   "high means it is absorbing from a crowd rather than crossing with one desk. "
-                   "Two artifacts are filtered: names whose last trade is stale, and leaders "
-                   "buying from fewer than 5 counterparties (promoter shares and debentures trade "
-                   "as single negotiated blocks, which otherwise read as 100% grip).")
+
+        st.caption("**Read `regular` first — it answers *are they buying every day, or was it one "
+                   "block?*** It is the % of the last 20 sessions that broker was actually net on "
+                   "that side. **90% = a daily campaign. 25% = one big trade** with a quiet "
+                   "fortnight around it. `grip20→grip3` is their share of volume over the four "
+                   "windows, so rising left-to-right means they are taking more lately.")
+
+        cfg = {
+            "regular": st.column_config.NumberColumn(
+                "regular %", help="% of the last 20 sessions this broker was net on this side. "
+                                  "High = a persistent daily campaign, low = one-off blocks."),
+            "score": st.column_config.NumberColumn(
+                "score", help="cross-sectional z of grip + tightening + persistence, scaled by "
+                              "regularity — ranked against every other stock the SAME day"),
+            "tighten": st.column_config.NumberColumn(
+                "tighten", help="3d grip minus 20d grip; positive = tightening recently"),
+            "persist": st.column_config.NumberColumn(
+                "persist", help="distinct leaders across the 4 windows; 1 = same broker throughout"),
+            "counterparties": st.column_config.NumberColumn(
+                "ctp", help="distinct brokers on the other side; under 5 is a block and filtered"),
+        }
+        show = ["symbol", "score", "broker", "regular", "grip20", "grip15", "grip7", "grip3",
+                "tighten", "persist", "counterparties"]
+
+        buy = gdf[gdf["side"] == "BUY"].head(20)
+        sell = gdf[gdf["side"] == "SELL"].head(20)
+
+        st.markdown("### 🟢 Accumulating — one broker is the dominant **net BUYER**")
+        st.caption("One hand is taking supply off a crowd of sellers. High `regular` + `persist=1` "
+                   "+ many counterparties is the cleanest version of that picture.")
+        st.dataframe(buy[[c for c in show if c in buy.columns]], width="stretch",
+                     hide_index=True, height=330, column_config=cfg)
+
+        st.markdown("### 🔴 Distributing — one broker is the dominant **net SELLER**")
+        st.caption("The mirror image: one hand feeding stock out to many buyers. Worth knowing "
+                   "before buying a name — and note a symbol can appear on **both** lists, which "
+                   "just means two large desks are on opposite sides of it.")
+        st.dataframe(sell[[c for c in show if c in sell.columns]], width="stretch",
+                     hide_index=True, height=330, column_config=cfg)
+
+        st.caption("Each side is z-scored against **its own** cross-section on the same date — a "
+                   "40% buy-grip and a 40% sell-grip are not comparable, so they get separate "
+                   "baselines. Two artifacts are filtered out: stale names, and leaders facing "
+                   "fewer than 5 counterparties (promoter shares and debentures trade as single "
+                   "negotiated blocks, which otherwise read as 100% grip).")
         st.warning("**Unusual ≠ profitable.** This ranks how abnormal today's concentration is and "
                    "attaches no expected return, deliberately — every predictive version of this "
-                   "was tested and died (see the verdict table below).")
+                   "was tested and died (verdict table below).")
         if st.button("↻ Rescan the tape", key="on_run"):
             run_job("Operator grip scan", "operator_now.py")
             st.rerun()
