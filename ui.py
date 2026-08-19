@@ -1280,7 +1280,7 @@ def paint(rows, columns=None):
 names = universe()
 st.sidebar.title("NEPSE archive")
 PAGES = ["Chart", "Floorsheet", "Broker flow", "Scanner",
-         "Volume spike", "Operator radar", "Master signal", "Backtest",
+         "Volume spike", "Operator radar", "Swing master", "Master signal", "Backtest",
          "NAASA", "Heatmap", "Cron"]
 # Persist the current page in the URL (?page=…) so a refresh / hard refresh / redeploy keeps you
 # where you are — a browser reload starts a fresh Streamlit session, so session_state alone resets.
@@ -2288,6 +2288,45 @@ def _tsv(path):
         return None, []
     lines = [ln for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
     return (lines[0].split("\t"), [ln.split("\t") for ln in lines[1:]]) if lines else (None, [])
+
+
+if page == "Swing master":
+    st.markdown("<div class='section'>Swing master — screen, size, and the exit plan</div>",
+                unsafe_allow_html=True)
+    c1, c2, c3 = st.columns([1, 1, 2])
+    cap = c1.number_input("Book size (Rs)", 10_000, 100_000_000, 100_000, step=10_000, key="sw_cap")
+    rsk = c2.number_input("Risk per trade (%)", 0.25, 5.0, 1.0, step=0.25, key="sw_risk")
+    if c3.button("↻ Recompute for this book size", key="sw_run", width="stretch"):
+        run_job("Swing master", "swing_master.py", "--capital", str(cap), "--risk", str(rsk))
+        st.rerun()
+
+    hdr, rows = _tsv("swing_master.txt")
+    st.caption("Horizon is **~20 trading days**, because that is the horizon every number here was "
+               "measured over. Quantity is sized so a stop-out costs the same rupees on every "
+               "trade — with a 44% base win rate, fixed loss is the only reliable control.")
+    if not rows:
+        st.info("No swing_master.txt yet — press Recompute. An empty list is a valid answer: "
+                "the rule only fires on volume confirmation, and cash is a position.")
+    else:
+        df = pd.DataFrame(rows, columns=hdr)
+        buys = df[df["verdict"] == "BUY"]
+        a, b, c = st.columns(3)
+        a.metric("Actionable BUY", len(buys))
+        b.metric("On the list", len(df))
+        try:
+            a_risk = sum(int(r[9]) for r in rows if r[1] == "BUY")
+            c.metric("Risk if all taken", f"Rs {a_risk:,}")
+        except (ValueError, IndexError):
+            pass
+        st.dataframe(df, width="stretch", hide_index=True)
+        st.caption("**WAIT** = already extended past the trigger the backtest actually entered on. "
+                   "That is a different, unmeasured trade — wait for a pullback to the 20-EMA or "
+                   "skip it. **hold_bars 20** is a real exit: the median NEPSE 20-day return is "
+                   "negative, so time in a trade is a cost, not a neutral.")
+    st.warning("Base rates so these read against something real: a random NEPSE 20-day hold wins "
+               "**44%** of the time with a **negative median** — the average is carried by a thin "
+               "tail. This rule won ~58% out of sample, and still lost money in 7 of the last 13 "
+               "years, 2025 and 2026 included. A screen, not advice.")
 
 
 if page == "Master signal":
