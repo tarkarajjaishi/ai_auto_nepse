@@ -4,13 +4,15 @@ Not a unit test of the maths (swing_pro.py --selftest does that). This checks th
 is easy to get wrong and easy to believe you got right: whether every named requirement of the
 written framework is actually present, in the framework's own wording and polarity.
 
-Five passes, mirroring how the spec is written:
+Six passes, mirroring how the spec is written:
 
     PASS 1  the Section 22 output contract  — every named output field is emitted
     PASS 2  analytical coverage             — every named requirement of sections 2-19 exists
     PASS 3  Section 21 fidelity             — the fifteen questions verbatim, right polarity
     PASS 4  behaviour in the real output    — what a token-search cannot see
     PASS 5  independent-audit regressions   — the 16 defects a 47-agent audit confirmed
+    PASS 6  the mandatory gates actually gate — rules the spec calls mandatory that could
+                                                never fire, and labels that stated the wrong number
 
 Each later pass exists because the earlier ones said "FULLY IMPLEMENTED" while things were
 broken. Pass 2 only proves A STRING EXISTS IN THE SOURCE, so a feature can be computed and
@@ -293,13 +295,74 @@ def main():
         if not good:
             gaps.append(f"{name}  -> REGRESSED")
 
+    # ---- PASS 6: the mandatory gates and the labels actually mean something ------------------
+    # Passes 1-5 were all green while Section 12's MANDATORY R:R gate rejected nothing: T1 was
+    # floored at 2R by `max(close + 2*risk, ...)`, so rr >= 2 by construction. Across 307
+    # symbols the gate vetoed 0 real setups and misfired twice on floating-point noise, printing
+    # "risk/reward 2.00 is under the 1:2 gate". Three more rules were dead the same way.
+    #
+    # The market-independent ones are built from SYNTHETIC bars on purpose: a guard that only
+    # holds because today's market happens to contain a sub-2R setup goes quietly green the day
+    # it does not, which is exactly how the previous guards missed all of this.
+
+    # resistance sitting half an R overhead MUST fail the gate, whatever the market looks like
+    lev = swing_pro._levels([100.0], [100.0], [100.0], 2.0, [(0, 102.0)], [(0, 96.0)])
+    synth_rr = (lev["t1"] - lev["entry"]) / lev["risk"]
+    # a level never breached is not a failed breakout; three separated breaches are three
+    flat = [100.0] * 200
+    spiky = list(flat)
+    for k in (150, 160, 170):
+        spiky[k] = 112.0
+    rf_none = swing_pro._repeated_failures(flat, flat, 110.0)
+    rf_three = swing_pro._repeated_failures(flat, spiky, 110.0)
+
+    rrs6 = [g["rr"] for g in sample]
+    t2r = [(g["t2"] - g["entry"]) / g["risk"] for g in sample]
+    t3r = [(g["t3"] - g["entry"]) / g["risk"] for g in sample]
+    uisrc = (swing_pro.MASTER.parent / "ui.py").read_text(encoding="utf-8")
+    gates = [
+        ("[12] T1 is not floored at 2R — resistance just overhead fails the gate",
+         synth_rr < swing_pro.MIN_RR),
+        ("[12] the gate rejects setups that are not floating-point noise",
+         any(x < swing_pro.MIN_RR - 1e-6 for x in rrs6)),
+        ("[20] the R:R rubric row uses more than two of its four buckets",
+         len({g["parts"]["rr"] for g in sample}) >= 3),
+        ("[12] T2 carries the same R ceiling as T1 (it reached 308R with only an ATR cap)",
+         max(t2r) <= 10.01),
+        ("[19] T3 stays bounded in R", max(t3r) <= 12.01),
+        ("[16] 'repeated failed breakouts' needs an actual breach, not a swing high",
+         rf_none == 0 and rf_three == 3),
+        ("[16] the repeated-failures flag does not fire on the whole market",
+         sum(1 for g in sample if "repeated-failures" in g["flags"]) < 0.6 * len(sample)),
+        ("[17] a completely clean flag list is reachable, so A+ is not impossible",
+         any(not g["flags"] for g in sample)),
+        ("[11] 'too wide' means the STRUCTURAL stop was unusable, not risk > 3.5 ATR "
+         "(which _levels makes impossible)",
+         all(g["stop_width"] in ("too tight", "too wide") for g in sample if g["stop_far"])
+         and 'f["risk"] > 3.5 * atr_now' not in src),
+        ("[18] the invalidation names the level the stop is actually at",
+         not [g for g in sample
+              if g["stop_far"] and "the last swing low)" in g["invalidation"]]),
+        ("[21] Q11 does not call a non-structural stop 'technically logical'",
+         not [g for g in sample if g["stop_far"] and swing_pro.answers(g)[10][1]]),
+        ("[22] target R-multiples are measured, not hardcoded 2R/3R/5R",
+         not any(t in text for t in ("(2R,", "(3R,", "(5R,"))),
+        ("[14] the ui swing page passes the market calendar, so the clicked report matches "
+         "the row it was clicked from", "swing_market_calendar" in uisrc),
+    ]
+    ok6 = sum(1 for _, good in gates if good)
+    print(f"PASS 6  mandatory gates actually gate ....... {ok6}/{len(gates)}")
+    for name, good in gates:
+        if not good:
+            gaps.append(f"{name}  -> REGRESSED")
+
     print()
     if gaps:
         print(f"INCOMPLETE — {len(gaps)} gap(s):")
         for g in gaps:
             print(f"  - {g}")
         return 1
-    print("FULLY IMPLEMENTED — all five passes clean.")
+    print("FULLY IMPLEMENTED — all six passes clean.")
     return 0
 
 

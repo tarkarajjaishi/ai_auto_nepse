@@ -359,6 +359,20 @@ def swing_pro_board():
     return read_operator_scan(str(path), path.stat().st_mtime)     # same tab-separated shape
 
 
+@st.cache_data(show_spinner=False, ttl=300)
+def swing_market_calendar():
+    """The market's own session calendar, which swing_pro's Section 14 needs.
+
+    Without it analyse() cannot tell "did not trade" from "did not exist", so trade_freq comes
+    back None, the trades-infrequently flag never fires, and the liquidity cap never applies.
+    Passing it here is what keeps the clicked report identical to the row it was clicked from —
+    they disagreed on 22 of 307 symbols, and on one the score itself differed by 3 points.
+    Cheap (~1s over a 60-symbol sample) and only recomputed every 5 minutes.
+    """
+    names = (MASTER / "symbols.txt").read_text(encoding="utf-8").split()
+    return swing_pro.market_calendar(names)
+
+
 def supply_demand_board():
     """Rows of Master_data/supply_demand.txt, or [] when supply_demand.py has not run."""
     path = MASTER / "supply_demand.txt"
@@ -2867,7 +2881,8 @@ if page == "Swing Trader Pro":
             if picked:
                 sym = block[picked[0]]["symbol"]
                 with st.spinner(f"Running the full framework on {sym} …"):
-                    f = swing_pro.analyse(sym, swing_pro._fundamentals())
+                    f = swing_pro.analyse(sym, swing_pro._fundamentals(),
+                                          swing_market_calendar())
                 if not f:
                     st.info(f"{sym}: not enough daily history — the 200 EMA needs ~210 sessions, "
                             "and this framework will not fabricate it.")

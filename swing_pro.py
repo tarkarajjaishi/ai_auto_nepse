@@ -236,17 +236,28 @@ def _breakout_detail(c, o, h, l, v, vsma, a, res):
                 follow_through=sum(1 for i in range(-3, 0) if c[i] > res))
 
 
-def _repeated_failures(c, h, highs, look=120):
-    """Section 16 — has this level rejected price more than once recently?"""
-    if len(highs) < 2:
+def _repeated_failures(c, h, res, look=120):
+    """Section 16 — how many times has THIS level actually rejected price recently?
+
+    The old version walked the swing highs testing `h[i] > lvl * 0.999`, where lvl WAS h[i] —
+    so the test read `x > 0.999x` and was always true. What it really counted was "a swing high
+    exists", it fired on 307 of 307 symbols, and because Section 17 grades A+ only on a clean
+    flag list it made the top setup grade structurally unreachable.
+
+    A FAILED BREAKOUT — the spec's words — needs price to have actually breached the level and
+    then lost it: the bar's high went above res, the close came back under, and the level was
+    not reclaimed inside the following week. Merely tagging the level from below is a rejection,
+    a different and much commoner event; counting those fired on 83% of the market instead of 34%.
+    """
+    if not res:
         return 0
-    fails = 0
-    for i, lvl in highs[-6:]:
-        if i < len(c) - look:
-            continue
-        after = c[i + 1:i + 8]
-        if after and h[i] > lvl * 0.999 and max(after) < lvl:
+    fails, i = 0, max(0, len(c) - look)
+    while i < len(c):
+        if h[i] > res and c[i] < res and max(c[i + 1:i + 8], default=0) < res:
             fails += 1
+            i += 8                      # count the episode once, not once per bar in it
+        else:
+            i += 1
     return fails
 
 
@@ -285,8 +296,10 @@ def _gaps(o, c, look=60):
 def _profit_plan(f):
     """Section 19 — early enough entry, controlled risk, trail the trend. Stated, not implied."""
     return [
-        f"Initial target {f['t1']:,.2f} (2R) — take partial profit there and reduce risk.",
-        f"Extended targets {f['t2']:,.2f} (3R) and {f['t3']:,.2f} (5R) only while the trend holds.",
+        f"Initial target {f['t1']:,.2f} ({f['rr']:.1f}R) — take partial profit there and "
+        f"reduce risk.",
+        f"Extended targets {f['t2']:,.2f} ({f['t2_r']:.1f}R) and {f['t3']:,.2f} "
+        f"({f['t3_r']:.1f}R) only while the trend holds.",
         f"Move the stop to breakeven ({f['entry']:,.2f}) once price closes beyond "
         f"{f['entry'] + f['risk']:,.2f} (1R).",
         "Then trail below each new daily swing low — never widen the stop to avoid a loss.",
@@ -437,7 +450,13 @@ def _levels(c, h, l, a, highs, lows):
     rh = [(i, v) for i, v in highs if i >= cut]      # major S/R inside the useful window only
     rl = [(i, v) for i, v in lows if i >= cut]
     swing_low = next((v for _, v in reversed(rl) if v < close), None)
-    struct_stop = swing_low if swing_low and (close - swing_low) < 3.5 * atr_now else None
+    # Whether the real structural level was USABLE is itself an output: when the last swing low
+    # sits 3.5+ ATR away we fall back to a 2 ATR stop, and then the stop is NOT at structure.
+    # Section 11 asks "is the stop too wide" and Section 18 names the invalidation level, so
+    # both have to know. Without this, "too wide" was unreachable (risk can never exceed
+    # 3.5 ATR by construction) and Section 18 called a 2 ATR stop "the last swing low".
+    stop_far = bool(swing_low and (close - swing_low) >= 3.5 * atr_now)
+    struct_stop = None if (swing_low is None or stop_far) else swing_low
     stop = struct_stop if struct_stop else close - 2 * atr_now
     risk = close - stop
     if risk <= 0:
@@ -454,12 +473,23 @@ def _levels(c, h, l, a, highs, lows):
     # Two independent ceilings, because either alone leaks: a distant resistance blows up the
     # reward, and a very tight swing-low stop makes even a near one look like 90R.
     horizon = close + 10 * atr_now          # ~2 weeks of normal daily movement
-    t1_struct = near_res if (near_res and near_res - close > risk) else close + 2 * risk
-    t1 = max(close + 2 * risk, min(t1_struct, close + 5 * risk, horizon))
-    t2 = major_res if (major_res and t1 + risk < major_res <= close + 20 * atr_now) else t1 + risk
+    # T1 is the REALISTIC target and is never lifted to make a trade look acceptable. It used
+    # to be floored at 2R — `max(close + 2*risk, ...)` — which pinned rr >= 2 by construction.
+    # Section 12 calls the 1:2 rule a MANDATORY GATE, but with that floor the gate rejected 0
+    # real setups across the whole market and fired only twice, on floating-point noise, telling
+    # the reader "risk/reward 2.00 is under the 1:2 gate". Section 20's 0-point R:R bucket was
+    # likewise never awarded. With no floor, resistance sitting close overhead genuinely fails
+    # the gate, which is what Section 10 ("avoid buying directly under major resistance") and
+    # Section 12 ("reject if the realistic reward is too small") actually ask for.
+    t1 = min(near_res if near_res else horizon, close + 5 * risk, horizon)
+    # T2 and T3 need the SAME two ceilings as T1. Bounding T2 by ATR alone leaked exactly the
+    # way the note above warns: against a very tight swing-low stop, `close + 20*ATR` reached
+    # 308R, and the report still labelled it "3R".
+    t2_cap = min(close + 20 * atr_now, close + 10 * risk)
+    t2 = major_res if (major_res and t1 + risk < major_res <= t2_cap) else t1 + risk
     t3 = max(t2 + 2 * risk, close + 5 * risk)
     return dict(entry=close, stop=stop, risk=risk, t1=t1, t2=t2, t3=t3,
-                near_res=near_res, major_res=major_res,
+                near_res=near_res, major_res=major_res, stop_far=stop_far,
                 near_support=swing_low,
                 major_support=min((v for _, v in rl), default=None))
 
@@ -690,11 +720,12 @@ def analyse(symbol, funds=None, calendar=None):
         accum=_accum_dist(o, c, v), adv_decl=_advances_declines(c),
         off_20d_high=((max(c[-20:]) - c[-1]) / max(c[-20:]) * 100) if len(c) >= 20 else None,
         avg_vol=(sum(v[-20:]) / 20) if len(v) >= 20 else None,
-        gap_flag=_gaps(o, c), repeated_failures=_repeated_failures(c, h, highs),
+        gap_flag=_gaps(o, c),
+        repeated_failures=_repeated_failures(c, h, res_level),
         has_fund=bool(fund), roe=_num(fund, "roe_ttm"), pe=_num(fund, "pe_ttm"),
         bvps=_num(fund, "bvps"), float_pct=_num(fund, "float_pct"),
         **_breakout_detail(c, o, h, l, v, vsma, atr_now, res_level),
-        **{k: lev[k] for k in ("entry", "stop", "risk", "t1", "t2", "t3",
+        **{k: lev[k] for k in ("entry", "stop", "risk", "t1", "t2", "t3", "stop_far",
                                "near_res", "major_res", "near_support", "major_support")},
     )
     f["risk_pct"] = f["risk"] / f["entry"] * 100
@@ -719,8 +750,12 @@ def analyse(symbol, funds=None, calendar=None):
                         + (", price is in it" if z["in_zone"] else "") + ")")
     # Section 11 — is there enough daily movement to swing at all, and is the stop sane?
     f["enough_vol"] = 1.0 <= f["atr_pct"] <= 12.0
+    # "too wide" means the real invalidation level is too far to swing against — measured on
+    # the STRUCTURAL level, not on the risk we ended up taking. Testing `risk > 3.5*ATR` could
+    # never be true: _levels discards a swing low that far away and falls back to a 2 ATR stop,
+    # so the widest risk possible was 3.5 ATR and this branch was dead on all 307 symbols.
     f["stop_width"] = ("too tight" if f["risk"] < 0.8 * atr_now else
-                       "too wide" if f["risk"] > 3.5 * atr_now else "sensible")
+                       "too wide" if f["stop_far"] else "sensible")
     # Section 13 — P/B and EPS derived from what SmartWealthPro actually gives us
     f["pb"] = (f["close"] / f["bvps"]) if f["bvps"] else None
     f["eps"] = (f["close"] / f["pe"]) if f["pe"] else None
@@ -771,8 +806,14 @@ def analyse(symbol, funds=None, calendar=None):
     f["performer"] = _performer(f)
     f["setup"] = _setup(f)
     f["decision"], f["why"] = _decision(f, f["score"], f["flags"])
+    # Name the level the stop is ACTUALLY at. A swing low 3.5+ ATR away is discarded by
+    # _levels, and calling the 2 ATR fallback "the last swing low" misdescribed the trade's
+    # invalidation on 9 of 307 symbols — while Q11 still answered YES for every one of them.
     f["invalidation"] = (f"a daily close below {f['stop']:.2f}"
-                         + (f" (the last swing low)" if f["near_support"] else " (2x ATR)"))
+                         + (" (the last swing low)"
+                            if f["near_support"] is not None and not f["stop_far"]
+                            else " (2x ATR — the last swing low is too far to swing against)"
+                            if f["stop_far"] else " (2x ATR)"))
     # Section 17 — the SETUP's own grade, separate from the 100-point score
     f["setup_grade"] = ("NO TRADE" if f["setup"] == "none" or f["decision"] == "AVOID" else
                         "A+" if f["score"] >= 90 and not f["flags"] else
@@ -789,6 +830,11 @@ def analyse(symbol, funds=None, calendar=None):
     f["t1_atr"] = (f["t1"] - f["entry"]) / atr_now
     f["t2_atr"] = (f["t2"] - f["entry"]) / atr_now
     f["t3_atr"] = (f["t3"] - f["entry"]) / atr_now
+    # The R multiple of each target, measured rather than assumed. The report used to label
+    # them "(2R)", "(3R)" and "(5R)" from the old flat-R design; after targets became
+    # structural those labels were wrong on 188 of 307 symbols, T2 reaching 308R under a "3R" tag.
+    f["t2_r"] = (f["t2"] - f["entry"]) / f["risk"]
+    f["t3_r"] = (f["t3"] - f["entry"]) / f["risk"]
     f["target_realistic"] = f["t1_atr"] <= 15          # ~3 weeks of normal movement for a swing
     # Section 21 — the professional trader question that must be answered BEFORE issuing BUY
     f["capital_question"] = (
@@ -1008,9 +1054,9 @@ def report(f):
          f"Decision:              {f['decision']}   ({f['why']})",
          f"Entry Zone:            {_n(f['entry'])}",
          f"Stop Loss:             {_n(f['stop'])}   (risk {_n(f['risk_pct'], 2, '%')})",
-         f"Target 1:              {_n(f['t1'])}   (2R, {f['t1_atr']:.1f} ATR)",
-         f"Target 2:              {_n(f['t2'])}   (3R, {f['t2_atr']:.1f} ATR)",
-         f"Target 3:              {_n(f['t3'])}   (5R, {f['t3_atr']:.1f} ATR)"
+         f"Target 1:              {_n(f['t1'])}   ({f['rr']:.1f}R, {f['t1_atr']:.1f} ATR)",
+         f"Target 2:              {_n(f['t2'])}   ({f['t2_r']:.1f}R, {f['t2_atr']:.1f} ATR)",
+         f"Target 3:              {_n(f['t3'])}   ({f['t3_r']:.1f}R, {f['t3_atr']:.1f} ATR)"
          + ("" if f["target_realistic"] else "   T1 IS FAR vs NORMAL DAILY MOVEMENT"),
          f"Risk/Reward:           1:{_n(f['rr'], 2)} to the realistic target — {f['rr_band']}",
          f"Trade Invalidation:    {f['invalidation']}",
