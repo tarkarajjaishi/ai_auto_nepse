@@ -1280,7 +1280,8 @@ def paint(rows, columns=None):
 names = universe()
 st.sidebar.title("NEPSE archive")
 PAGES = ["Chart", "Floorsheet", "Broker flow", "Scanner",
-         "Volume spike", "Operator radar", "NAASA", "Heatmap", "Cron"]
+         "Volume spike", "Operator radar", "Master signal", "Backtest",
+         "NAASA", "Heatmap", "Cron"]
 # Persist the current page in the URL (?page=…) so a refresh / hard refresh / redeploy keeps you
 # where you are — a browser reload starts a fresh Streamlit session, so session_state alone resets.
 _qp_page = st.query_params.get("page")
@@ -2276,6 +2277,81 @@ if page == "NAASA":
             st.caption("🔴 Live from NAASA (Home/DashboardDetails) · read-only.")
         except Exception as e:
             st.caption(f"⚠ Could not load collateral — {str(e)[:120]}")
+
+
+# ---------------------------------------------------------------- master signal
+
+def _tsv(path):
+    """[(header, rows)] from one of our tab-separated .txt files, or (None, []) if absent."""
+    p = MASTER / path
+    if not p.exists():
+        return None, []
+    lines = [ln for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    return (lines[0].split("\t"), [ln.split("\t") for ln in lines[1:]]) if lines else (None, [])
+
+
+if page == "Master signal":
+    st.markdown("<div class='section'>Master signal — the one rule that survived testing</div>",
+                unsafe_allow_html=True)
+    hdr, rows = _tsv("master_signal.txt")
+    st.caption("Candidates are filtered to **volume-confirmed entries on a confirmed uptrend** — "
+               "the only ingredient that held its edge out of sample across 7,630 replayed trades. "
+               "`edge_oos` is the measured historical average for that volume band over ~20 bars; "
+               "it is a backward-looking average **with losing years inside it**, not a forecast.")
+    if not rows:
+        st.info("No master_signal.txt yet — run `python master_signal.py`, or press the button "
+                "below. An empty list is also a normal result: the rule only fires on volume.")
+    else:
+        df = pd.DataFrame(rows, columns=hdr)
+        st.dataframe(df, width="stretch", hide_index=True)
+        buys = sum(1 for r in rows if r[1] == "BUY")
+        st.caption(f"{len(rows)} candidate(s) · {buys} fresh **BUY**, {len(rows)-buys} "
+                   "**WAIT-PULLBACK** (already extended past the trigger the backtest entered on — "
+                   "a different, worse trade).")
+    if st.button("↻ Recompute now", key="ms_run"):
+        run_job("Master signal", "master_signal.py")
+        st.rerun()
+    st.warning("This is a screen, not advice. The same rule lost money in 7 of the last 13 years, "
+               "2025 and 2026 included. Size positions on that, not on the green numbers.")
+
+
+# ---------------------------------------------------------------- backtest
+
+if page == "Backtest":
+    st.markdown("<div class='section'>Backtest — what actually survives out of sample</div>",
+                unsafe_allow_html=True)
+    hdr, rows = _tsv("backtest.txt")
+    if not rows:
+        st.info("No backtest.txt yet — run `python backtest.py` on the server (it replays ~7,600 "
+                "trades and takes a few minutes).")
+    else:
+        m = rows[0]
+        st.caption(f"**{m[7]} trades** · {m[9]} → {m[10]} · split at {m[8]} · "
+                   f"{m[11]}% round-trip cost · max hold {m[12]} bars · entry at the **next** bar's "
+                   "open · stop wins ties · prices bonus/rights adjusted.")
+        tab = pd.DataFrame([{
+            "variant": r[0],
+            "in-sample n": int(r[1]), "in-sample win%": float(r[2]), "in-sample avg%": float(r[3]),
+            "OUT-of-sample n": int(r[4]), "OUT win%": float(r[5]), "OUT avg%": float(r[6]),
+            "degradation": round(float(r[3]) - float(r[6]), 2),
+        } for r in rows]).sort_values("OUT avg%", ascending=False)
+        st.dataframe(tab, width="stretch", hide_index=True,
+                     column_config={"OUT avg%": st.column_config.NumberColumn(
+                         "OUT avg%", help="The only column with any claim on the future")})
+        st.caption("Read the **OUT avg%** column and ignore the rest. A big `degradation` means "
+                   "the rule was fitted to the past — ADX and breakout both look best in-sample "
+                   "and collapse out of it.")
+    with st.expander("Why this page exists — the traps it caught", expanded=False):
+        st.markdown(
+            "- **Look-ahead via pivots.** A 5/5 pivot low isn't confirmed until 5 bars later; "
+            "using it at the signal bar is peeking. Fixed — it moved every number.\n"
+            "- **Unadjusted prices.** 116 drops worse than the −10% circuit (GUFL −80%) are "
+            "bonus/rights resets, not trades. They were firing stops that never happened.\n"
+            "- **Selection bias.** A deliberately-inverted control variant *tops* the leaderboard "
+            "on one lucky year. With ~20 variants ranked on one metric, the best row is usually "
+            "the luckiest — which is why a control is always included.\n"
+            "- **Stacking made it worse.** A 3-condition 'master' scored +1.28% out of sample "
+            "against +2.44% for plain `volume>3x`. More conditions bought overfit, not edge.")
 
 
 # ---------------------------------------------------------------- heatmap

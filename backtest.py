@@ -291,10 +291,27 @@ def by_year(trades, name):
         print(f"  {y}  n={len(r):>4}  win {win:>5.1f}%  avg {avg:>+6.2f}%  {bar}")
 
 
+OUT = MASTER / "backtest.txt"
+OUT_HEADER = ("variant\tis_n\tis_win\tis_avg\toos_n\toos_win\toos_avg\ttrades\tsplit"
+              "\tfrom\tto\tcost_pct\tmax_hold")
+
+
+def save(trades, split, rows):
+    """Persist the table so the Backtest page reads a file instead of re-replaying 7k trades."""
+    dates = sorted(t["date"] for t in trades)
+    tail = f"{len(trades)}\t{split}\t{dates[0]}\t{dates[-1]}\t{COST*100}\t{MAX_HOLD}"
+    lines = [OUT_HEADER] + [
+        f"{name}\t{a['n']}\t{a['win']:.1f}\t{a['avg']:.2f}\t{o['n']}\t{o['win']:.1f}\t{o['avg']:.2f}\t{tail}"
+        for name, a, o in rows]
+    OUT.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"\nsaved -> {OUT}")
+
+
 def report(trades):
     """In-sample vs out-of-sample table. A rule only counts if it holds in BOTH halves."""
     dates = sorted(t["date"] for t in trades)
     split = dates[len(dates) // 2]
+    saved = []
     print(f"\n{len(trades):,} trades · split at {split} "
           f"(in-sample {dates[0]}..{split}, out-of-sample {split}..{dates[-1]})")
     print(f"cost {COST*100:.1f}% round trip · entry next open · stop wins ties · max hold {MAX_HOLD} bars\n")
@@ -307,8 +324,10 @@ def report(trades):
         o = stats([t for t in sel if t["date"] >= split])
         if not a or not o:
             continue
+        saved.append((name, a, o))
         print(f"{name:<30} {a['n']:>5} {a['win']:>6.1f} {a['avg']:>7.2f} {a['avg']:>7.2f} │ "
               f"{o['n']:>5} {o['win']:>6.1f} {o['avg']:>7.2f} {o['avg']:>7.2f}")
+    save(trades, split, saved)
 
     base = stats(trades)
     print(f"\nAll trades: {base['n']:,} · win {base['win']:.1f}% · avg {base['avg']:+.2f}% "
