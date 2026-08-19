@@ -22,6 +22,7 @@ from plotly.subplots import make_subplots
 
 import naasa
 import supply_demand
+import swing_pro
 import swp
 import trade_setup
 from prices import bars as adjusted_bars
@@ -348,6 +349,14 @@ def operator_scan():
     if not path.exists():
         return []
     return read_operator_scan(str(path), path.stat().st_mtime)
+
+
+def swing_pro_board():
+    """Rows of Master_data/swing_pro.txt, or [] when swing_pro.py has not run."""
+    path = MASTER / "swing_pro.txt"
+    if not path.exists():
+        return []
+    return read_operator_scan(str(path), path.stat().st_mtime)     # same tab-separated shape
 
 
 def supply_demand_board():
@@ -1022,6 +1031,9 @@ CRON_JOBS = {
     # after both — and a separate node means a failure here is visible instead of buried.
     "supply":  {"label": "Supply Demand Dashboard (zones · confirmed entries)",
                 "scripts": ["supply_demand.py"]},
+    # after fetch_swp, because the fundamental-quality part of its rubric reads fundamentals.txt
+    "swing":   {"label": "Swing Trader Pro (22-section 1D framework)",
+                "scripts": ["swing_pro.py"]},
 }
 
 # Full-archive backfills — a SEPARATE section, run on demand (each re-walks ALL history, slow). NOT
@@ -1301,6 +1313,14 @@ def paint(rows, columns=None):
         elif col == "direction":                      # supply/demand board: Bullish vs Bearish
             tint(lambda v: f"color:{GREEN};font-weight:600" if v == "Bullish"
                  else (f"color:{RED};font-weight:600" if v == "Bearish" else ""), col)
+        elif col == "grade":
+            tint(lambda v: f"background-color:rgba(18,184,134,.22);color:{GREEN};font-weight:700"
+                 if str(v).startswith("A") else (f"color:{GOLD};font-weight:600"
+                 if str(v).startswith("B") else f"color:{GREY}"), col)
+        elif col == "decision":
+            tint(lambda v: f"color:{GREEN};font-weight:700" if v == "BUY"
+                 else (f"color:{GOLD};font-weight:600" if str(v).startswith("BUY")
+                       else (f"color:{RED};font-weight:600" if v == "AVOID" else f"color:{GREY}")), col),
         elif col == "order":
             tint(lambda v: f"color:{GREEN};font-weight:600" if v == "AT ENTRY"
                  else f"color:{GREY}", col)
@@ -1320,7 +1340,7 @@ names = universe()
 st.sidebar.title("NEPSE archive")
 PAGES = ["Chart", "Floorsheet", "Broker flow", "Scanner",
          "Volume spike", "Operator radar", "Master operator", "Swing master", "Master signal",
-         "Backtest", "NAASA", "Heatmap", "Indicator cron", "Cron"]
+         "Backtest", "NAASA", "Heatmap", "Swing Trader Pro", "Indicator cron", "Cron"]
 # Persist the current page in the URL (?page=…) so a refresh / hard refresh / redeploy keeps you
 # where you are — a browser reload starts a fresh Streamlit session, so session_state alone resets.
 _qp_page = st.query_params.get("page")
@@ -2789,6 +2809,102 @@ def sd_chart(symbol, show, nbars=180):
     fig.update_xaxes(rangebreaks=hidden_periods(d[start:], False), showgrid=False)
     fig.update_yaxes(side="right", gridcolor="rgba(255,255,255,.06)")
     return fig, drawn
+
+
+if page == "Swing Trader Pro":
+    rows = swing_pro_board()
+    st.markdown("<div class='section'>Swing Trader Pro — the 22-section 1D framework, "
+                "computed</div>", unsafe_allow_html=True)
+
+    if not rows:
+        st.info("No scores yet — press **Rebuild scores** at the bottom to run swing_pro.py.")
+    else:
+        st.caption(
+            "The full professional swing checklist, run as **deterministic Python over the daily "
+            "archive** — same numbers every time, every point traceable to a stated rule rather "
+            "than to an opinion. **Daily bars only**, by design: mixing in 5m/1H is how a swing "
+            "plan quietly becomes a day trade. Three gates veto a setup no matter how good the "
+            "chart looks — **liquidity**, **risk/reward below 1:2**, and a **dangerous pullback** "
+            "— which is why most of the market scores AVOID on any given day. Fundamentals come "
+            "from SmartWealthPro and are a *quality filter*, never a reason to buy. Nothing here "
+            "is backtested on NEPSE; it is a disciplined framework, not a proven edge.")
+
+        keeps = {"Actionable": lambda r: r["decision"].startswith("BUY"),
+                 "A + B grade": lambda r: r["grade"][0] in "AB",
+                 "Watch": lambda r: r["decision"] == "WAIT",
+                 "Everything": lambda r: True}
+        counts = {k: sum(1 for r in rows if f(r)) for k, f in keeps.items()}
+        pick = st.radio("Show", list(keeps), horizontal=True, index=0, key="sp_pick",
+                        label_visibility="collapsed", format_func=lambda k: f"{k} ({counts[k]})")
+        block = [r for r in rows if keeps[pick](r)]
+        block.sort(key=lambda r: -int(r["score"]))
+
+        session = max((r["date"] for r in rows), default="")
+        st.caption(f"Session **{session}** · {len(rows)} symbols scored · "
+                   f"{counts['Actionable']} pass every gate · showing {len(block)}.")
+
+        if not block:
+            st.info("Nothing in this bucket today. An empty **Actionable** list is a normal "
+                    "result for this framework, not a broken scan.")
+        else:
+            table = [{
+                "symbol": r["symbol"], "grade": r["grade"], "score": int(r["score"]),
+                "decision": r["decision"], "setup": r["setup"], "performer": r["performer"],
+                "entry": float(r["entry"]), "stop": float(r["stop"]),
+                "target1": float(r["target1"]), "target2": float(r["target2"]),
+                "rr": float(r["rr"]), "risk_pct": float(r["risk_pct"]),
+                "trend": r["trend"], "stage": r["stage"], "breakout": r["breakout"],
+                "pullback": r["pullback"], "vol_x": float(r["vol_x"]),
+                "rsi": float(r["rsi"]), "ret20": float(r["ret20"]), "flags": r["flags"],
+            } for r in block]
+            ev = st.dataframe(paint(table), width="stretch", hide_index=True,
+                              height=min(560, 38 * len(table) + 44),
+                              on_select="rerun", selection_mode="single-row", key="sp_tbl")
+            st.caption("👆 **Click any row for its full 22-section report** — every section, the "
+                       "100-point scorecard broken out, and the fifteen final questions.")
+
+            picked = list(ev.selection.rows) if ev and ev.selection else []
+            if picked:
+                sym = block[picked[0]]["symbol"]
+                with st.spinner(f"Running the full framework on {sym} …"):
+                    f = swing_pro.analyse(sym, swing_pro._fundamentals())
+                if not f:
+                    st.info(f"{sym}: not enough daily history — the 200 EMA needs ~210 sessions, "
+                            "and this framework will not fabricate it.")
+                else:
+                    st.markdown(f"<div class='section'>{sym} — {f['grade']} · {f['decision']}"
+                                "</div>", unsafe_allow_html=True)
+                    st.code(swing_pro.report(f))
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.markdown("<div class='section'>Section 20 — the 100-point scorecard"
+                                    "</div>", unsafe_allow_html=True)
+                        st.dataframe(pd.DataFrame(
+                            [{"category": n, "points": g, "max": m}
+                             for n, g, m in swing_pro.scorecard(f)]
+                            + [{"category": "TOTAL", "points": f["score"], "max": 100}]),
+                            width="stretch", hide_index=True, height=430)
+                    with c2:
+                        st.markdown("<div class='section'>Section 21 — the fifteen questions"
+                                    "</div>", unsafe_allow_html=True)
+                        st.dataframe(pd.DataFrame(
+                            [{"": "YES" if ok else "no", "question": q}
+                             for q, ok in swing_pro.answers(f)]),
+                            width="stretch", hide_index=True, height=430)
+                    st.caption(
+                        f"**Why {f['decision']}:** {f['why']}. "
+                        f"**Trade invalidation:** {f['invalidation']} — and per the framework, "
+                        "never widen a stop to avoid taking the loss. "
+                        + (f"**False-signal flags that fired:** {', '.join(f['flags'])}."
+                           if f["flags"] else "**No false-signal flag fired.**"))
+
+    st.markdown("<div class='section'>Rebuild</div>", unsafe_allow_html=True)
+    st.caption("Reads the daily bars and the SmartWealthPro fundamentals already on disk — no "
+               "network, a couple of seconds for the whole market. It also runs automatically in "
+               "the daily Cron pipeline.")
+    if st.button("Rebuild scores", type="primary", key="sp_rebuild"):
+        run_job("Swing Trader Pro", "swing_pro.py")
+        st.rerun()
 
 
 if page == "Indicator cron":
