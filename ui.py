@@ -2298,34 +2298,62 @@ if page == "Master operator":
                "is expressed across the four lookbacks you asked for: **1 month · 15d · 7d · 3d**. "
                "Even the price series is the floorsheet's own daily VWAP.")
     hdr, rows = _tsv("operator_master.txt")
-    if not rows:
-        st.info("No `operator_master.txt` yet. The research run that builds this logic is still "
-                "going — it explores several independent operator signatures in parallel, then "
-                "tries to refute each one before anything is allowed into the master score.")
-        with st.expander("What is being tested (floorsheet-only signatures)", expanded=True):
-            st.markdown(
-                "- **Cascade** — is one broker's accumulation *accelerating* across 20→15→7→3 "
-                "sessions, rather than just present?\n"
-                "- **Counterparty breadth** — is the accumulator absorbing from **many** sellers "
-                "(real float accumulation) or from one (a block/cross that means nothing)? "
-                "*Daily aggregates physically cannot see this — only per-trade data can.*\n"
-                "- **Clip size** — are its trades institutional-sized versus the day's median clip?\n"
-                "- **Aggression** — does it pay above VWAP (urgent) or sit below it (patient)? "
-                "And does it buy late in the session?\n"
-                "- **Seller exhaustion** — is supply drying up while the buyer keeps taking?\n"
-                "- **Persistence vs wash** — same broker leading all four windows, and is volume "
-                "manufactured by circular trades? *Wash should predict **worse** returns — that is "
-                "the honesty check on the whole exercise.*")
-    else:
-        df = pd.DataFrame(rows, columns=hdr)
-        st.dataframe(df, width="stretch", hide_index=True)
+    if rows:
+        st.dataframe(pd.DataFrame(rows, columns=hdr), width="stretch", hide_index=True)
         st.caption(f"{len(rows)} candidate(s) · rebuilt by `operator_master.py`.")
-    if st.button("↻ Recompute now", key="mo_run"):
-        run_job("Master operator", "operator_master.py")
-        st.rerun()
-    st.warning("Read against the real base rate: a random NEPSE 20-day hold wins **44%** with a "
-               "**negative median**. Any signal here is only interesting to the extent it beats "
-               "that, out of sample — not to the extent it looks good on past data.")
+        if st.button("↻ Recompute now", key="mo_run"):
+            run_job("Master operator", "operator_master.py")
+            st.rerun()
+    else:
+        st.error("**Result: no operator signal found.** Six independent floorsheet-only families "
+                 "were built, measured, split-half tested, then attacked by adversarial rebuilds. "
+                 "All six are dead. No `operator_master.py` was written, because building one "
+                 "would have meant inventing a signal the data does not support.")
+        st.dataframe(pd.DataFrame([
+            {"family": "cascade", "idea": "accumulation accelerating 3d>7d>15d>20d",
+             "monotonic": "no", "OOS vs baseline": "+0.07pp", "verdict": "DEAD"},
+            {"family": "breadth", "idea": "how many distinct sellers absorbed",
+             "monotonic": "no", "OOS vs baseline": "±0.22pp, sign flips", "verdict": "DEAD"},
+            {"family": "clipsize", "idea": "accumulator clip vs market median clip",
+             "monotonic": "yes (raw)", "OOS vs baseline": "+0.01pp after price control",
+             "verdict": "DEAD"},
+            {"family": "aggression", "idea": "price paid vs VWAP; buys late vs early",
+             "monotonic": "no (U-shape)", "OOS vs baseline": "+0.41pp, decaying yearly",
+             "verdict": "DEAD"},
+            {"family": "exhaustion", "idea": "seller supply drying up under a buyer",
+             "monotonic": "no", "OOS vs baseline": "+0.16pp best anywhere", "verdict": "DEAD"},
+            {"family": "rotation / wash", "idea": "one persistent broker; circular volume",
+             "monotonic": "yes (obs-weighted only)",
+             "OOS vs baseline": "holdout +0.148pp, t=+0.53", "verdict": "REFUTED"},
+        ]), width="stretch", hide_index=True)
+        st.markdown(
+            "#### Why the premise itself fails\n"
+            "> Across **135,626 liquid symbol-days**, the most-accumulating broker's 20-session net "
+            "was positive on **100% of them — zero exceptions.**\n\n"
+            "With ~50 brokers and a zero-sum book, *somebody* is always the biggest net buyer. "
+            "Every family began by selecting that broker — so every family began by selecting "
+            "**nothing**. \"An operator is accumulating this stock\" is an **identity, not a "
+            "condition**. It compounds the known limit that the floorsheet carries **broker IDs, "
+            "not client IDs**: one \"accumulating broker\" is hundreds of unrelated clients "
+            "sharing a pipe.\n\n"
+            "The four-window structure added nothing either — cascade tested the 20/15/7/3 "
+            "ordering head-on and went **+1.63pp in-sample → +0.07pp out**. Four correlated views "
+            "of one number is not four pieces of evidence.")
+        with st.expander("The two that came closest, and why they still died"):
+            st.markdown(
+                "- **clipsize** is the cleanest cautionary tale: a beautifully monotone "
+                "−1.04% → +1.95% factor that is just the **low-price effect**. "
+                "`spearman(price, relative clip) = −0.446`, because clip size measured in *shares* "
+                "mechanically rises as price falls. Denominate in rupees and it dies.\n"
+                "- **wash** reproduced its claimed number exactly (+1.95% vs +1.02% baseline) but "
+                "**failed in its own discovery sample** (per-date t=+0.86) and is non-monotonic "
+                "once date-demeaned. The gap between the obs-weighted view (−3.01pp) and the "
+                "per-date view (−0.28pp) *was* the entire signal — a date-mix artifact.")
+        st.info("A bug worth keeping: old floorsheet files use CRLF and write quantity as `50.0`, "
+                "so a bare `int(parts[2])` throws and **silently drops the whole day** — NABIL "
+                "parsed 227 of 1,056 sessions. Parse with `int(float(x))`. On that truncated "
+                "remnant one dead family looked monotone at +2.67pp. This repo's existing "
+                "`operator_scan.py` and `build_broker_flow.py` use `float()` and are unaffected.")
 
 
 if page == "Swing master":
