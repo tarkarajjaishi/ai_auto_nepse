@@ -249,9 +249,11 @@ def main():
             if str(swing_pro.report(f)).count(str(f.get(k))) == 0
             and k not in src.split("def _score")[1].split("def ")[0]]
     rrs = [g["rr"] for g in sample]
+    # use the implementation's OWN definition, not a paraphrase of it — a paraphrase passed
+    # locally and failed on the VPS's fresher session, which is how this guard got caught lying
     down_pullbacks = [g["symbol"] for g in sample
                       if g["pullback"] in ("BUY ZONE", "HEALTHY PULLBACK")
-                      and not (g["up_day"] or g["close"] > g["e20"])]
+                      and not g["confirmed_candle"]]
     distrib_elite = [g["symbol"] for g in sample
                      if g["performer"] in ("ELITE PERFORMER", "STRONG PERFORMER")
                      and g["accum"] == "Distribution"]
@@ -273,7 +275,8 @@ def main():
         ("[3] Consolidation is decided by measuring range, not EMA order alone",
          "_ranging" in src),
         ("[14] trading frequency is measured", any(g["trade_freq"] is not None for g in sample)),
-        ("[9] 'selling candles weaken' is computed", "_selling_weakens" in src),
+        ("[9] 'selling candles weaken' is computed and surfaced",
+         "_selling_weakens" in src and "selling candles" in text),
         ("[2] EMA separation + crossovers reach the report",
          "EMA separation:" in text and "crossovers:" in text),
         ("[6/7] RSI overextension, MACD zero-line and cross reach the report",

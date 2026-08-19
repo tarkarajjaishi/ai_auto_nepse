@@ -384,6 +384,12 @@ def _selling_weakens(o, c, look=10):
     return late < early
 
 
+def _confirmed(o, c):
+    """Section 9/17.C — "bullish daily confirmation appears". ONE definition, used by the
+    pullback classifier, the report and the conformance test, so they cannot drift apart."""
+    return c[-1] > o[-1] or c[-1] > c[-2]
+
+
 def _pullback(o, c, l, v, vsma, e20, e50, lows):
     """Section 9 — is the dip an opportunity or the start of the exit.
 
@@ -398,7 +404,7 @@ def _pullback(o, c, l, v, vsma, e20, e50, lows):
     depth = (peak - close) / peak * 100 if peak else 0
     vx = (v[-1] / vsma[-1]) if vsma and vsma[-1] else 1.0
     broke_low = len(lows) >= 2 and close < lows[-2][1]
-    confirmed = c[-1] > o[-1] or c[-1] > c[-2]           # today actually closed up
+    confirmed = _confirmed(o, c)                         # today actually closed up
     weakening = _selling_weakens(o, c)
     if depth < 1.5:
         return "NO PULLBACK"
@@ -742,6 +748,8 @@ def analyse(symbol, funds=None, calendar=None):
     if f["lockin_expiry"]:
         f["fund_warn"].append(f"lock-in expires {f['lockin_expiry']} — supply overhang")
     # Section 14 — thin float plus an abnormal print is the manipulation shape
+    f["confirmed_candle"] = _confirmed(o, c)
+    f["selling_weakens"] = _selling_weakens(o, c)
     f["trade_freq"] = _frequency(d, calendar)
     f["thin_calendar"] = f["trade_freq"] is not None and f["trade_freq"] < 80
     f["manip"] = bool(f["abnormal"] and (f["float_pct"] or 100) < 25) or f["gap_flag"] >= 4
@@ -941,7 +949,11 @@ def report(f):
          f", stop is {f['stop_width']}",
          f"Support:               near {_n(f['near_support'])}   major {_n(f['major_support'])}",
          f"Resistance:            near {_n(f['near_res'])}   major {_n(f['major_res'])}",
-         f"Breakout/Pullback:     {f['breakout']}  /  {f['pullback']}",
+         f"Breakout/Pullback:     {f['breakout']}  /  {f['pullback']}"
+         + ("   bullish daily confirmation" if f["confirmed_candle"] else "   NO bullish confirmation")
+         + ("" if f["selling_weakens"] is None
+            else ", selling candles weakening" if f["selling_weakens"]
+            else ", selling candles still growing"),
          f"                       level {_n(f['prev_breakout'])}, {f['res_tests']} prior tests, "
          f"{f['consol_days']}d base, candle {_n(f['bo_candle'], 2)} ATR closing "
          f"{_n(f['close_pos'], 0, '%')} up its range, {f['follow_through']}/3 follow-through",
