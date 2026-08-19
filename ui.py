@@ -21,8 +21,10 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 import naasa
+import supply_demand
 import swp
 import trade_setup
+from prices import bars as adjusted_bars
 from indicators import alma, atr, bollinger, ema, macd, pivots, rsi, sma, structure, trade_levels
 
 MASTER = Path(__file__).parent / "Master_data"
@@ -194,6 +196,19 @@ st.markdown("""
   .cron-node b { color: #fff; font-size: .98rem; }
   .cron-node span { color: #e6e8ec; font-size: .72rem; opacity: .85; }
   .cron-node-running { animation: cronPulse 1s ease-in-out infinite; }
+
+  /* Trade ticket — the clicked supply/demand row costed two ways, side by side */
+  .ticket { border: 1px solid #242833; border-radius: 10px; padding: 10px 13px; background: #12161f; }
+  .ticket .ohlc { color: #8A93A5; font-size: .82rem; margin-bottom: 7px; }
+  .ticket .ohlc b { color: #E6E8EC; font-variant-numeric: tabular-nums; }
+  .ticket table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  .ticket th { text-align: right; font-size: .68rem; color: #8A93A5; font-weight: 700;
+               padding: 2px 9px; text-transform: uppercase; letter-spacing: .05em; }
+  .ticket th.k, .ticket td.k { text-align: left; }
+  .ticket td { text-align: right; padding: 3px 9px; font-size: .92rem; color: #E6E8EC; }
+  .ticket td.k { color: #8A93A5; font-size: .8rem; }
+  .ticket tr.sep td { border-top: 1px solid #242833; padding-top: 6px; }
+  .ticket .warn { color: #F0A202; font-size: .78rem; margin-top: 7px; }
   @keyframes cronPulse { 0%,100% { opacity: 1; } 50% { opacity: .62; } }
 
   /* resolution toolbar — flat TradingView pills, not Streamlit's chunky buttons */
@@ -333,6 +348,14 @@ def operator_scan():
     if not path.exists():
         return []
     return read_operator_scan(str(path), path.stat().st_mtime)
+
+
+def supply_demand_board():
+    """Rows of Master_data/supply_demand.txt, or [] when supply_demand.py has not run."""
+    path = MASTER / "supply_demand.txt"
+    if not path.exists():
+        return []
+    return read_operator_scan(str(path), path.stat().st_mtime)     # same tab-separated shape
 
 
 @st.cache_data(show_spinner=False)
@@ -990,7 +1013,9 @@ CRON_JOBS = {
                 # are picked up — fetch_last_session then reads that list and upsert_daily makes each
                 # new symbol's folder automatically (no manual paste). If nothing new, the list is
                 # just rewritten unchanged and it moves on.
-                "scripts": ["fetch_symbols.py", "fetch_last_session.py", "scan.py", "volume_spike.py"]},
+                # supply_demand.py runs last: disk-only, and it needs the session just fetched
+                "scripts": ["fetch_symbols.py", "fetch_last_session.py", "scan.py",
+                            "volume_spike.py", "supply_demand.py"]},
     "swp":     {"label": "SmartWealthPro → Operator",   # runs last, so operator has fresh inputs
                 "scripts": ["fetch_swp.py", "operator_scan.py"]},
 }
@@ -1220,7 +1245,7 @@ def paint(rows, columns=None):
 
     # a Styler prints raw floats (1460.000000) unless told otherwise
     whole = {"volume", "bars_ago", "swing_age", "buyer_net", "seller_net", "bought", "sold",
-             "net", "vs_prev"}
+             "net", "vs_prev", "age", "visits"}
     fmt = {c: ("{:,.0f}" if c in whole else "{:,.2f}")
            for c in frame.columns if pd.api.types.is_numeric_dtype(frame[c])}
     styler = frame.style.format(fmt)
@@ -1262,13 +1287,23 @@ def paint(rows, columns=None):
         elif col in ("return_pct", "open_pct", "change_pct", "progress", "net",
                      "vs_prev", "vs_prev_pct", "AD_trend", "price_chg"):
             tint(pnl, col)
-        elif col in ("floor", "chart", "position"):
+        elif col in ("floor", "chart", "position", "in_zone", "confirmed"):
             tint(lambda v: f"color:{GREEN};font-weight:600" if v == "yes"
                  else f"color:{RED}", col)
-        elif col in ("target1", "target2"):
+        elif col in ("target1", "target2", "tp"):
             tint(lambda v: f"color:{GREEN}", col)
-        elif col == "stop":
+        elif col in ("stop", "sl"):
             tint(lambda v: f"color:{RED}", col)
+        elif col == "direction":                      # supply/demand board: Bullish vs Bearish
+            tint(lambda v: f"color:{GREEN};font-weight:600" if v == "Bullish"
+                 else (f"color:{RED};font-weight:600" if v == "Bearish" else ""), col)
+        elif col == "order":
+            tint(lambda v: f"color:{GREEN};font-weight:600" if v == "AT ENTRY"
+                 else f"color:{GREY}", col)
+        elif col == "zone_history":                   # a fresh zone is the one worth having
+            tint(lambda v: {"untested": f"color:{GOLD};font-weight:600",
+                            "strong": f"color:{GREEN};font-weight:600",
+                            "weak": f"color:{GREY}"}.get(v, ""), col)
         elif col == "strong":
             tint(lambda v: f"background-color:rgba(240,162,2,.18);color:{GOLD};font-weight:600"
                  if v == "yes" else "", col)
@@ -1281,7 +1316,7 @@ names = universe()
 st.sidebar.title("NEPSE archive")
 PAGES = ["Chart", "Floorsheet", "Broker flow", "Scanner",
          "Volume spike", "Operator radar", "Master operator", "Swing master", "Master signal",
-         "Backtest", "NAASA", "Heatmap", "Cron"]
+         "Backtest", "NAASA", "Heatmap", "Indicator cron", "Cron"]
 # Persist the current page in the URL (?page=…) so a refresh / hard refresh / redeploy keeps you
 # where you are — a browser reload starts a fresh Streamlit session, so session_state alone resets.
 _qp_page = st.query_params.get("page")
@@ -2615,6 +2650,329 @@ if page == "Heatmap":
 
 
 # ---------------------------------------------------------------- cron
+
+# Zone colours, matching the vendor's own chart: demand green, supply red, a broken (turncoat)
+# zone purple — the same purple their MTF screenshot uses for flipped zones.
+SD_FILL = {("demand", "strong"): ("rgba(18,184,134,.20)", "rgba(18,184,134,.55)"),
+           ("demand", "untested"): ("rgba(18,184,134,.12)", "rgba(18,184,134,.40)"),
+           ("demand", "weak"): ("rgba(152,162,179,.14)", "rgba(152,162,179,.40)"),
+           ("demand", "turncoat"): ("rgba(139,92,246,.14)", "rgba(139,92,246,.40)"),
+           ("supply", "strong"): ("rgba(255,107,91,.20)", "rgba(255,107,91,.55)"),
+           ("supply", "untested"): ("rgba(255,107,91,.12)", "rgba(255,107,91,.40)"),
+           ("supply", "weak"): ("rgba(152,162,179,.14)", "rgba(152,162,179,.40)"),
+           ("supply", "turncoat"): ("rgba(139,92,246,.14)", "rgba(139,92,246,.40)")}
+
+
+def sd_ticket(symbol, r):
+    """The clicked row costed two ways: entry at the zone edge, and entry at the last close.
+
+    Stop and target are price LEVELS — they do not move because you paid more — so taking the
+    close instead of the zone changes only what you risk, and therefore what the trade is worth.
+    That is the number the board's own `entry` column hides once price has run past the zone.
+    """
+    b = adjusted_bars(symbol)
+    if not b:
+        return ""
+    when, o, h, l, c = b[0][-1], b[1][-1], b[2][-1], b[3][-1], b[4][-1]
+    buy = r["direction"] == "Bullish"
+    stop, target, zone = float(r["sl"]), float(r["tp"]), float(r["entry"])
+
+    def leg(entry):
+        risk = (entry - stop) if buy else (stop - entry)
+        reward = (target - entry) if buy else (entry - target)
+        return None if risk <= 0 else dict(
+            entry=entry, risk_pct=risk / entry * 100, rr=reward / risk)
+
+    legs = [leg(zone), leg(c)]
+    money = lambda v: f"{v:,.2f}"
+
+    def cells(fn, colour=""):
+        out = []
+        for g in legs:
+            out.append(f"<td style='color:{colour}'>{fn(g)}</td>" if g else "<td>—</td>")
+        return "".join(out)
+
+    def rr_cell(g):
+        return f"<span style='color:{GREEN if g['rr'] >= 2 else GOLD}'>{g['rr']:.2f}</span>"
+
+    def pct_cell(g):
+        return f"{g['risk_pct']:.2f}%"
+
+    warn = ""
+    if legs[1] is None:
+        warn = ("<div class='warn'>Price has already closed beyond the stop — there is no trade "
+                "left at the close, only the zone level as a limit order.</div>")
+    elif legs[1]["rr"] < 1:
+        warn = ("<div class='warn'>Taking the close pays less than it risks (R:R below 1). The "
+                "zone level is the only entry that keeps their 3:1 shape.</div>")
+
+    return (
+        f"<div class='ticket'><div class='ohlc'>{symbol} · last candle {when} &nbsp;&nbsp;"
+        f"O <b>{money(o)}</b>&nbsp; H <b>{money(h)}</b>&nbsp; L <b>{money(l)}</b>&nbsp; "
+        f"C <b>{money(c)}</b></div><table>"
+        f"<tr><th class='k'></th><th>Entry at zone</th><th>Entry at close</th></tr>"
+        f"<tr><td class='k'>entry</td>{cells(lambda g: money(g['entry']), GOLD)}</tr>"
+        f"<tr><td class='k'>stop</td>{cells(lambda g: money(stop), RED)}</tr>"
+        f"<tr><td class='k'>target</td>{cells(lambda g: money(target), GREEN)}</tr>"
+        f"<tr class='sep'><td class='k'>risk</td>{cells(pct_cell)}</tr>"
+        f"<tr><td class='k'>R : R</td>{cells(rr_cell)}</tr>"
+        f"</table>{warn}</div>")
+
+
+def sd_chart(symbol, show, nbars=180):
+    """The vendor's own chart drawn on NEPSE bars: candles, the zone boxes extended to the right
+    edge, the Buy/Sell badge where price is at a zone, and the Stop Loss / Take Profit lines.
+
+    `show` is the set of zone states to draw — their settings panel has exactly these toggles
+    (weak / untested / turncoat), with the strong zone always on.
+    """
+    b = adjusted_bars(symbol)
+    if not b or len(b[4]) < 60:
+        return None, None
+    d, o, h, l, c = (s[-supply_demand.MAX_BARS:] for s in (b[0], b[1], b[2], b[3], b[4]))
+    row = supply_demand.dashboard(o, h, l, c)
+    start = max(0, len(c) - nbars)
+
+    fig = go.Figure(go.Candlestick(
+        x=d[start:], open=o[start:], high=h[start:], low=l[start:], close=c[start:],
+        showlegend=False, name=symbol,
+        increasing_line_color="#12B886", decreasing_line_color="#FF6B5B",
+        increasing_fillcolor="#12B886", decreasing_fillcolor="#FF6B5B"))
+
+    # every zone born inside the window, each extended to the right edge the way they draw it
+    drawn = 0
+    for z in supply_demand.zones(o, h, l, c):
+        if z["i"] < start:
+            continue
+        state = supply_demand.classify(z, h, l, c)[0]
+        if state not in show:
+            continue
+        fill, edge = SD_FILL[(z["kind"], state)]
+        fig.add_shape(type="rect", x0=d[z["i"]], x1=d[-1], y0=z["lo"], y1=z["hi"], layer="below",
+                      fillcolor=fill, line=dict(color=edge, width=1))
+        drawn += 1
+
+    if row:
+        # The badge goes on the LAST TRADED CANDLE, not on the bar that formed the zone — the
+        # call you act on tomorrow is about today's close, and a badge parked 12 bars back reads
+        # as history. An arrow pins it to that candle so there is no doubt which bar it means.
+        buy = row["kind"] == "demand"
+        live = row["signal"]
+        colour = {"BUY": "#3B82F6", "SELL": "#FF6B5B"}.get(live, "#98A2B3")
+        tail = "" if live == "WATCH" else (" (closed in zone)" if row["in_zone"] else " (wick only)")
+        fig.add_annotation(
+            x=d[-1], y=l[-1] if buy else h[-1], text=f" {live}{tail} · {d[-1]} ",
+            showarrow=True, arrowhead=3, arrowsize=1.2, arrowwidth=1.5, arrowcolor=colour,
+            ax=0, ay=40 if buy else -40, xanchor="right",
+            font=dict(color="#ffffff", size=12), bgcolor=colour, borderpad=3)
+        # add_shape, not add_hline — an hline's annotation leaks onto the price axis
+        for level, label, colour in ((row["tp"], "Take Profit", "#12B886"),
+                                     (row["sl"], "Stop Loss", "#FF6B5B"),
+                                     (row["entry"], "Entry", "#F0A202")):
+            fig.add_shape(type="line", x0=d[start], x1=d[-1], y0=level, y1=level,
+                          line=dict(color=colour, width=1, dash="dot"))
+            fig.add_annotation(x=d[-1], y=level, text=f"  {label}: {level:,.2f}", showarrow=False,
+                               xanchor="left", font=dict(color=colour, size=11))
+
+    fig.update_layout(
+        template="plotly_dark", height=560, margin=dict(l=8, r=118, t=34, b=8),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        xaxis_rangeslider_visible=False, dragmode="pan",
+        title=dict(text=f"{symbol} · Supply Demand Dashboard · fuzz {supply_demand.FUZZ} · "
+                        f"fractals {supply_demand.FAST}/{supply_demand.SLOW} · "
+                        f"ATR {supply_demand.ATR_N} · SL ×{supply_demand.SL_SHIFT:g} · "
+                        f"TP ×{supply_demand.TP_COEF:g}", font=dict(size=12)))
+    fig.update_xaxes(rangebreaks=hidden_periods(d[start:], False), showgrid=False)
+    fig.update_yaxes(side="right", gridcolor="rgba(255,255,255,.06)")
+    return fig, drawn
+
+
+if page == "Indicator cron":
+    rows = supply_demand_board()
+    st.markdown("<div class='section'>Supply Demand Dashboard — what is at a zone in the last "
+                "traded session</div>", unsafe_allow_html=True)
+
+    if not rows:
+        st.info("No board yet — press **Rebuild board** at the bottom to run supply_demand.py.")
+    else:
+        st.caption(
+            "A port of Indicator Vault's *Supply Demand Dashboard for TradingView* onto the NEPSE "
+            "archive. Their engine, our market: a fractal swing high prints a **supply** zone, a "
+            "swing low a **demand** zone, the stop sits an ATR beyond the far edge and the target "
+            "is exactly **3× that risk** — the ratio holds on all twelve rows published in their "
+            "own screenshots, which is how it was checked. Defaults are theirs too "
+            "(fuzz 0.75 · fractals 3/6 · ATR 14 · SL ×2 · TP ×3 · 700 bars). "
+            "**BUY / SELL means price is touching the zone right now**, which is where their chart "
+            "prints its Buy/Sell label; **WATCH** means the zone is drawn but price has not "
+            "arrived. Read it as *where the levels are*, not as a tested edge — nothing here has "
+            "been backtested on NEPSE, unlike **Master signal**.")
+
+    if rows:
+        keeps = {"Buy entries": lambda r: r["direction"] == "Bullish",
+                 "Confirmed": lambda r: r["confirmed"] == "yes",
+                 "At a zone": lambda r: r["signal"] != "WATCH",
+                 "Closed in zone": lambda r: r["in_zone"] == "yes",
+                 "BUY": lambda r: r["signal"] == "BUY",
+                 "SELL": lambda r: r["signal"] == "SELL",
+                 "Everything": lambda r: True}
+        # the count rides on the label: without it a filtered board looks like a column that is
+        # stuck on one value, which is exactly how "Closed in zone" as a default read
+        counts = {k: sum(1 for r in rows if f(r)) for k, f in keeps.items()}
+        pick = st.radio("Show", list(keeps), horizontal=True, index=0, key="sd_pick2",
+                        label_visibility="collapsed",
+                        format_func=lambda k: f"{k} ({counts[k]})")
+        keep = keeps[pick]
+        block = [r for r in rows if keep(r)]
+        # View order = what you could act on soonest: the tested rule first, then price already
+        # at the level, then whichever entry is nearest.
+        block.sort(key=lambda r: (r["confirmed"] != "yes", r["in_zone"] != "yes",
+                                  abs(float(r["dist_pct"]))))
+
+        session = max((r["date"] for r in rows), default="")
+        fired = sum(1 for r in rows if r["signal"] != "WATCH")
+        held = sum(1 for r in rows if r["in_zone"] == "yes")
+        st.caption(
+            f"**Signals are as of the last traded candle, {session}** — this is the read for "
+            f"tomorrow's open, not a historical mark. {len(rows)} symbols scanned · {fired} "
+            f"touched a zone · **{held} actually closed inside one** · showing {len(block)}.")
+
+        if not block:
+            st.info("Nothing in this bucket today.")
+        else:
+            table = [{
+                "symbol": r["symbol"],
+                "direction": r["direction"],
+                # what order you would actually place: price is in the zone (buy it now) or the
+                # zone is still away from price (rest a limit at the entry and wait)
+                "order": "AT ENTRY" if r["in_zone"] == "yes" else "LIMIT",
+                "age": int(r["age"]),
+                "entry": float(r["entry"]),
+                "sl": float(r["sl"]),
+                "tp": float(r["tp"]),
+                "signal": r["signal"],
+                "confirmed": r["confirmed"],
+                "vol_x": float(r["vol_x"]),
+                "trend": r["trend"],
+                "in_zone": r["in_zone"],
+                "zone_history": r["state"],
+                "close": float(r["close"]),
+                "risk_pct": float(r["risk_pct"]),
+                "dist_pct": float(r["dist_pct"]),
+            } for r in block]
+            ev = st.dataframe(paint(table), width="stretch", hide_index=True,
+                              height=min(620, 38 * len(table) + 44),
+                              on_select="rerun", selection_mode="single-row", key="sd_tbl")
+            st.caption("👆 **Click any row to chart it** — the Buy/Sell badge is pinned to the "
+                       "last traded candle, with the zones and SL/TP lines behind it.")
+            st.caption(
+                "**order** — what you would actually place. `AT ENTRY` means the last candle "
+                "closed inside the zone, so the level is live now; `LIMIT` means price has not "
+                "come back yet, so the entry is a resting order at that price, not a fill today. "
+                "**confirmed** — the zone is being touched AND the day traded ≥1.5× its own "
+                "20-day average volume AND it is liquid enough to fill AND **trend** agrees. That "
+                "last clause matters: the rule backtest.py validated was volume confirmation *on "
+                "a confirmed uptrend*, and without it heavy volume into a FALLING stock at a "
+                "demand zone counts as confirmation — which is distribution, not accumulation. "
+                "**trend** is trade_setup's own verdict, the same one the Scanner shows. "
+                "This is the only column "
+                "here backed by measurement rather than by the vendor: across backtest.py's "
+                "7,349 replayed trades, volume confirmation was the single ingredient that kept "
+                "its edge out of sample (ADX and breakout filters both collapsed). Their "
+                "indicator reads no volume at all — this column is the bridge to **Master "
+                "signal**. **vol_x** — that volume multiple. "
+                "**in_zone** — did the last candle *close* inside the zone? A `signal` can fire "
+                "on a single wick that price left again; `in_zone = yes` is the one still standing "
+                "at tomorrow's open, which is why it sorts first. Do not read it as rare: about a "
+                "third of the market qualifies on any day, because the board picks the zone "
+                "*nearest* the close and the median zone is ~2.5% wide against a median distance "
+                "of ~1.2% — the close lands inside it often, by construction. "
+                "**direction** — Bullish is a demand zone (buy the retest), Bearish a supply zone. "
+                "**age** — bars since the zone formed. **zone_history** — how the ZONE has behaved, *not* a rating of the trade: `strong` does NOT mean strong buy, it means price came back to this zone exactly once and it held. Nothing on this board grades conviction. *untested* nobody has come back "
+                "yet, *strong* it was retested once and held, *weak* worn out by repeat visits; a "
+                "zone price CLOSED through is a *turncoat* and is dropped. **risk_pct** — entry to "
+                "stop, so a wide zone on a volatile stock costs more; **dist_pct** — how far price "
+                "sits from entry, negative meaning entry is below.")
+
+            # --- the chart, for whichever row was clicked ------------------------------------
+            picked = list(ev.selection.rows) if ev and ev.selection else []
+            if picked:
+                r = block[picked[0]]
+                st.markdown(f"<div class='section'>{r['symbol']} — {r['direction']} "
+                            f"{r['state']} zone, {r['signal']}</div>", unsafe_allow_html=True)
+                st.markdown(sd_ticket(r["symbol"], r), unsafe_allow_html=True)
+                st.caption(
+                    "Their entry is the zone edge. Once price has run past it that level is a "
+                    "**limit order**, not a fill — so the same trade is costed again at the last "
+                    "close, which is what you would actually pay. Stop and target do not move, so "
+                    f"paying more only eats the R:R: their rule shapes the zone entry to exactly "
+                    f"{supply_demand.TP_COEF:g}:1, and the close leg shows what is left of it.")
+                # their settings panel has exactly these three toggles; the strong zone is always on
+                t1, t2, t3, t4 = st.columns([1, 1, 1, 2])
+                show = {"strong"}
+                if t1.checkbox("Untested zones", value=True, key="sd_z_unt"):
+                    show.add("untested")
+                if t2.checkbox("Weak zones", value=False, key="sd_z_weak"):
+                    show.add("weak")
+                if t3.checkbox("Turncoat zones", value=False, key="sd_z_turn"):
+                    show.add("turncoat")
+                nbars = t4.slider("Bars", 60, 400, 180, 20, key="sd_z_bars")
+                fig, drawn = sd_chart(r["symbol"], show, nbars)
+                if fig is None:
+                    st.info(f"Not enough history to chart {r['symbol']}.")
+                else:
+                    st.plotly_chart(fig, width="stretch",
+                                    config={"scrollZoom": True, "displayModeBar": False})
+                    st.caption(
+                        f"{drawn} zone(s) born in the last {nbars} bars, each extended to the "
+                        "right edge. Green is demand, red supply, purple a **turncoat** — a zone "
+                        "price closed through, which flips polarity. The dotted lines are this "
+                        f"row's entry {float(r['entry']):,.2f}, stop {float(r['sl']):,.2f} and "
+                        f"target {float(r['tp']):,.2f}; the target is exactly "
+                        f"{supply_demand.TP_COEF:g}× the stop distance, their rule. Older zones "
+                        "are off-window by design — widen **Bars** to reach back for them.")
+
+    # --- MTF: the vendor's second scanner, one symbol across seven timeframes -------------------
+    st.markdown("<div class='section'>Multi-timeframe (MTF) — one symbol, seven timeframes</div>",
+                unsafe_allow_html=True)
+    st.caption("Their MTS board scans symbols; their MTF board scans timeframes. Same engine, "
+               "built here from the minute and daily archive (their 240-minute slot is meaningless "
+               "on a ~5-hour NEPSE session, so the swing frames take the top slots).")
+    # symbols only — the MTF resampler reads Master_data/symbols/…, indices have no minute bars
+    sd_names = sorted(n for n, kind in names.items() if kind == "symbols")
+    mtf_sym = st.selectbox("Symbol", sd_names, key="sd_mtf",
+                           index=sd_names.index("NABIL") if "NABIL" in sd_names else 0)
+    if st.button("Scan timeframes", key="sd_mtf_go"):
+        import supply_demand
+        with st.spinner(f"Scanning {mtf_sym} across {len(supply_demand.TIMEFRAMES)} timeframes …"):
+            # parked in session_state — a button is True for one rerun only, and without this the
+            # table would vanish the moment anything else on the page is touched
+            st.session_state["sd_mtf_rows"] = (supply_demand.scan_timeframes(mtf_sym), mtf_sym)
+    if st.session_state.get("sd_mtf_rows"):
+        tf_rows, tf_for = st.session_state["sd_mtf_rows"]
+        st.caption(f"**{tf_for}**")
+        if not tf_rows:
+            st.info(f"Not enough history for {tf_for}.")
+        else:
+            st.dataframe(paint([{
+                "timeframe": r["symbol"], "direction": r["direction"], "age": r["age"],
+                "entry": round(r["entry"], 2), "sl": round(r["sl"], 2), "tp": round(r["tp"], 2),
+                "signal": r["signal"], "zone_history": r["state"],
+                "close": round(r["close"], 2),
+                "risk_pct": round(r["risk_pct"], 2), "dist_pct": round(r["dist_pct"], 2),
+            } for r in tf_rows]), width="stretch", hide_index=True)
+            agree = {r["direction"] for r in tf_rows}
+            st.caption("Every timeframe agrees — the cleanest read this board gives." if len(agree) == 1
+                       else "Timeframes disagree, which is normal: the short frames turn first. "
+                            "The longer frame is the context, the shorter one the timing.")
+
+    st.markdown("<div class='section'>Rebuild</div>", unsafe_allow_html=True)
+    st.caption("Reads the daily bars already on disk — no network, about ten seconds for the whole "
+               "market. It also runs automatically at the end of the daily Cron pipeline, so the "
+               "board matches the newest session without anyone pressing anything.")
+    if st.button("Rebuild board", type="primary", key="sd_rebuild"):
+        run_job("Supply Demand Dashboard", "supply_demand.py")
+        st.rerun()
+
 
 if page == "Cron":
     sched_state = cron_scheduler()          # start / reuse the background scheduler thread
