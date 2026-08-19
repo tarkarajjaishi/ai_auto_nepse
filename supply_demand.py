@@ -277,7 +277,12 @@ def write(rows, path=OUT):
             "yes" if r["in_zone"] else "no", r["direction"], r["state"], r["age"],
             round(r["close"], 2), round(r["entry"], 2), round(r["sl"], 2), round(r["tp"], 2),
             round(r["risk_pct"], 2), round(r["dist_pct"], 2),
-            round(r["lo"], 2), round(r["hi"], 2))))
+            # 4dp, not 2. These are zone GEOMETRY, not order prices, and `in_zone` is decided by
+            # comparing the close against them. At 2dp a sub-Rs-10 instrument can print
+            # close 9.65 / zone_hi 9.65 / in_zone no, because the true edge was 9.6471 — the flag
+            # was right and the record looked self-contradictory. entry/sl/tp stay at 2dp: those
+            # are prices you actually send to the market, which ticks in paisa.
+            round(r["lo"], 4), round(r["hi"], 4))))
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
