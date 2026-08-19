@@ -2293,6 +2293,49 @@ def _tsv(path):
 if page == "Master operator":
     st.markdown("<div class='section'>Master operator — floorsheet only, four windows</div>",
                 unsafe_allow_html=True)
+
+    ghdr, grows = _tsv("operator_now.txt")
+    if grows:
+        st.markdown("#### Where one broker's grip is abnormal right now")
+        st.caption("The predictive question is dead (below), but the **descriptive** one is "
+                   "measurable: the top accumulator exists on 100% of days, so the signal is not "
+                   "*who* — it is **how extreme they are versus every other stock the same day**. "
+                   "Everything here is cross-sectionally z-scored within one date, which is the "
+                   "one framing the research run could not break.")
+        gdf = pd.DataFrame(grows, columns=ghdr)
+        for c in ("score", "grip20", "grip15", "grip7", "grip3", "tighten"):
+            if c in gdf.columns:
+                gdf[c] = pd.to_numeric(gdf[c], errors="coerce")
+        top = gdf.head(25)
+        st.dataframe(top, width="stretch", hide_index=True, height=380,
+                     column_config={
+                         "score": st.column_config.NumberColumn(
+                             "score", help="z of 20d grip + ½·z of tightening + persistence bonus"),
+                         "tighten": st.column_config.NumberColumn(
+                             "tighten", help="3d grip minus 20d grip — positive means the grip is "
+                                             "tightening into recent sessions"),
+                         "persist": st.column_config.NumberColumn(
+                             "persist", help="distinct leaders across the four windows: 1 = same "
+                                             "broker throughout, 4 = a different one each window"),
+                         "sellers": st.column_config.NumberColumn(
+                             "sellers", help="distinct counterparties the leader bought from; "
+                                             "under 5 is a block/cross and is filtered out"),
+                     })
+        st.caption("**How to read a row.** `grip20→grip3` is the broker's share of volume over "
+                   "20/15/7/3 sessions — rising left-to-right means it is taking a bigger share "
+                   "lately. `persist=1` means the *same* broker led all four windows. `sellers` "
+                   "high means it is absorbing from a crowd rather than crossing with one desk. "
+                   "Two artifacts are filtered: names whose last trade is stale, and leaders "
+                   "buying from fewer than 5 counterparties (promoter shares and debentures trade "
+                   "as single negotiated blocks, which otherwise read as 100% grip).")
+        st.warning("**Unusual ≠ profitable.** This ranks how abnormal today's concentration is and "
+                   "attaches no expected return, deliberately — every predictive version of this "
+                   "was tested and died (see the verdict table below).")
+        if st.button("↻ Rescan the tape", key="on_run"):
+            run_job("Operator grip scan", "operator_now.py")
+            st.rerun()
+        st.divider()
+        st.markdown("#### Why the *predictive* version does not exist")
     st.caption("Built from the **per-trade floorsheet alone** (1,056 sessions, 2022→2026) — no "
                "OHLC indicators, no fundamentals, none of the earlier signal logic. Every measure "
                "is expressed across the four lookbacks you asked for: **1 month · 15d · 7d · 3d**. "
