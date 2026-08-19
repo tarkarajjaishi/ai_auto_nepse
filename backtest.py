@@ -18,10 +18,19 @@ Honesty rules baked in, because a backtest is trivial to fool:
 import argparse
 import statistics
 import sys
+from datetime import datetime
 
 from fetch_ohlc import MASTER
 from indicators import adx, atr, ema, macd, pivots, rsi, sma, trade_levels
-from trade_setup import LIQUID_MIN, _bars
+from prices import bars as adjusted_bars
+from trade_setup import LIQUID_MIN
+
+
+def _bars(symbol):
+    """Bonus/rights ADJUSTED bars. Raw prices print -20%..-80% ex-date gaps that never traded,
+    which fire stops that never happened — see prices.py."""
+    b = adjusted_bars(symbol)
+    return b if b and len(b[4]) >= 60 else None
 
 COST = 0.008          # ~0.8% round trip: broker commission + SEBON + DP, both sides
 MAX_HOLD = 60         # bars; a trade that neither targets nor stops is closed at this bar's close
@@ -87,13 +96,26 @@ def trade(b, x, k):
         exit_px, verdict = c[exit_i], "time"
 
     ret = (exit_px / entry - 1) - COST
+    # ---- NEPSE-specific context, all captured AT the signal bar (no peeking) ----
+    day_pct = (c[k] / c[k - 1] - 1) * 100 if c[k - 1] else 0        # vs the +/-10% circuit
+    rng = h[k] - l[k]
     return {"date": d[k], "entry": entry, "exit": exit_px, "ret": ret,
             "bars": exit_i - entry_i, "verdict": verdict,
-            # context the variants filter on, captured AT the signal bar
             "adx": x["adx"][k], "vol_ratio": (v[k] / x["vsma"][k]) if x["vsma"][k] else 0,
             "turnover": statistics.median([c[j] * v[j] for j in range(max(0, k - 19), k + 1)]),
             "breakout": c[k] > max(h[max(0, k - 20):k], default=c[k]),
-            "rsi": x["rsi"][k], "ext_atr": (c[k] - c[k - 1]) / a if a else 0}
+            "rsi": x["rsi"][k], "ext_atr": (c[k] - c[k - 1]) / a if a else 0,
+            # % of the FREE FLOAT that changed hands — the Nepali size measure
+            "float_turn": (100 * v[k] / FLOAT[SYM[0]]) if SYM[0] in FLOAT else None,
+            # near the upper circuit = demand left unfilled in the queue at the close
+            "circuit_up": day_pct >= 9.0,
+            "day_pct": day_pct,
+            # closing in the top of the day's range = buyers held it into the close
+            "close_pos": ((c[k] - l[k]) / rng) if rng > 0 else 0.5,
+            "to_bookclose": _days_to_bookclose(SYM[0], d[k])}
+
+
+SYM = [None]           # symbol currently being replayed, for the per-symbol lookups above
 
 
 def market_regime():
@@ -120,6 +142,53 @@ def market_regime():
 REGIME = {}
 
 
+def free_float():
+    """symbol -> public shares. NEPSE floats are tiny, so volume measured against the FLOAT says
+    far more than volume against its own 20-day average — 'x% of the float changed hands today'
+    is the quantity a Nepali operator actually moves."""
+    out = {}
+    p = MASTER / "fundamentals.txt"
+    if not p.exists():
+        return out
+    for line in p.read_text(encoding="utf-8").splitlines()[1:]:
+        f = line.split("\t")
+        try:
+            if len(f) > 4 and float(f[4]) > 0:
+                out[f[0]] = float(f[4])
+        except ValueError:
+            continue
+    return out
+
+
+def book_close_dates():
+    """symbol -> sorted book-closure dates. Nepali stocks run INTO the book close for bonus."""
+    out = {}
+    p = MASTER / "corporate_actions.txt"
+    if not p.exists():
+        return out
+    for line in p.read_text(encoding="utf-8").splitlines()[1:]:
+        f = line.split("\t")
+        if len(f) > 5 and f[5]:
+            out.setdefault(f[0], []).append(f[5])
+    return {k: sorted(v) for k, v in out.items()}
+
+
+FLOAT, BOOKCLOSE = {}, {}
+
+
+def _days_to_bookclose(symbol, date):
+    """Calendar days until this symbol's next book closure, or None."""
+    for bc in BOOKCLOSE.get(symbol, []):
+        if bc > date:
+            try:
+                a = datetime.strptime(date, "%Y-%m-%d")
+                b = datetime.strptime(bc, "%Y-%m-%d")
+            except ValueError:
+                return None
+            return (b - a).days
+    return None
+
+
 def collect(symbols):
     """Every trade from every symbol, once — variants then filter this one list."""
     out = []
@@ -127,6 +196,7 @@ def collect(symbols):
         b = _bars(s)
         if not b:
             continue
+        SYM[0] = s
         x = indicators(b)
         for k in triggers(b, x):
             t = trade(b, x, k)
@@ -182,6 +252,28 @@ VARIANTS = {
     "MKT-DOWN + vol>2x (control)": lambda t: (t["turnover"] >= LIQUID_MIN
                                               and not REGIME.get(t["date"], True)
                                               and t["vol_ratio"] > 2.0),
+    # ---- NEPSE-specific factors, each ALONE first so nothing hides behind volume ----
+    "NP float turn >0.5%": lambda t: (t["turnover"] >= LIQUID_MIN
+                                      and (t["float_turn"] or 0) > 0.5),
+    "NP float turn >1%": lambda t: (t["turnover"] >= LIQUID_MIN
+                                    and (t["float_turn"] or 0) > 1.0),
+    "NP float turn >2%": lambda t: (t["turnover"] >= LIQUID_MIN
+                                    and (t["float_turn"] or 0) > 2.0),
+    "NP upper-circuit close": lambda t: t["turnover"] >= LIQUID_MIN and t["circuit_up"],
+    "NP closed top 25% of day": lambda t: t["turnover"] >= LIQUID_MIN and t["close_pos"] > 0.75,
+    "NP <45d to book close": lambda t: (t["turnover"] >= LIQUID_MIN
+                                        and t["to_bookclose"] is not None
+                                        and 0 < t["to_bookclose"] <= 45),
+    # ---- and combined with the one filter already proven to survive ----
+    "NP float>1% & vol>2x": lambda t: (t["turnover"] >= LIQUID_MIN and (t["float_turn"] or 0) > 1.0
+                                       and t["vol_ratio"] > 2.0),
+    "NP circuit & vol>2x": lambda t: (t["turnover"] >= LIQUID_MIN and t["circuit_up"]
+                                      and t["vol_ratio"] > 2.0),
+    "NP top25% & vol>2x": lambda t: (t["turnover"] >= LIQUID_MIN and t["close_pos"] > 0.75
+                                     and t["vol_ratio"] > 2.0),
+    "NP MASTER (float>1% & vol>2x & top25%)":
+        lambda t: (t["turnover"] >= LIQUID_MIN and (t["float_turn"] or 0) > 1.0
+                   and t["vol_ratio"] > 2.0 and t["close_pos"] > 0.75),
 }
 
 
@@ -249,6 +341,9 @@ def main():
     if a.demo:
         names = names[:25]
     REGIME.update(market_regime())
+    FLOAT.update(free_float())
+    BOOKCLOSE.update(book_close_dates())
+    print(f"float for {len(FLOAT)} symbols · book closures for {len(BOOKCLOSE)} symbols")
     print(f"market regime loaded for {len(REGIME):,} sessions "
           f"({100*sum(REGIME.values())/max(len(REGIME),1):.0f}% of days NEPSE was above its 200-SMA)")
     print(f"replaying {len(names)} symbols ...", flush=True)
