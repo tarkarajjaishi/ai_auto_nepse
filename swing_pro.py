@@ -93,6 +93,29 @@ def _fundamentals():
     return out
 
 
+def _table(name, key="symbol"):
+    """{symbol: row} from any tab-separated Master_data table, {} when it is not there."""
+    p = MASTER / name
+    if not p.exists():
+        return {}
+    lines = p.read_text(encoding="utf-8").splitlines()
+    if len(lines) < 2:
+        return {}
+    cols = lines[0].split("\t")
+    out = {}
+    for line in lines[1:]:
+        f = line.split("\t")
+        if len(f) == len(cols):
+            out[dict(zip(cols, f))[key]] = dict(zip(cols, f))
+    return out
+
+
+# Section 13 asks for eleven fundamentals. These are the ones NEPSE/SmartWealthPro simply do
+# not publish anywhere we can reach, so they are declared unavailable rather than invented —
+# the spec's closing rule is "never fabricate missing data".
+FUND_UNAVAILABLE = ["revenue growth", "debt", "cash flow"]
+
+
 def _num(d, key):
     try:
         v = float(d.get(key, ""))
@@ -600,6 +623,21 @@ def analyse(symbol, funds=None):
     # Section 13 — P/B and EPS derived from what SmartWealthPro actually gives us
     f["pb"] = (f["close"] / f["bvps"]) if f["bvps"] else None
     f["eps"] = (f["close"] / f["pe"]) if f["pe"] else None
+    # Section 13 — net-profit and EPS growth from earnings.txt; corporate developments from
+    # corporate_actions.txt and lockin.txt. Only the three in FUND_UNAVAILABLE are truly absent.
+    e = _table("earnings.txt").get(symbol, {})
+    f["profit_yoy"] = _num(e, "profit_yoy")
+    f["eps_yoy"] = _num(e, "eps_yoy")
+    f["earn_period"] = f"{e.get('fiscal_year', '')} {e.get('quarter', '')}".strip() or None
+    ca = _table("corporate_actions.txt").get(symbol, {})
+    f["corp_action"] = (f"{ca.get('fiscal_year', '')}: bonus {ca.get('bonus') or 0}%, "
+                        f"cash {ca.get('cash') or 0}%"
+                        + (f", book close {ca['book_close']}" if ca.get("book_close") else "")
+                        ) if ca else None
+    lk = _table("lockin.txt").get(symbol, {})
+    f["lockin_expiry"] = lk.get("lockin_expiry")
+    f["fund_missing"] = list(FUND_UNAVAILABLE)
+
     f["fund_warn"] = []
     if f["has_fund"]:
         if (f["roe"] or 99) < 8:
@@ -608,6 +646,12 @@ def analyse(symbol, funds=None):
             f["fund_warn"].append(f"P/E {f['pe']:.0f} is stretched")
         if f["pb"] and f["pb"] > 6:
             f["fund_warn"].append(f"P/B {f['pb']:.1f} is stretched")
+    if f["profit_yoy"] is not None and f["profit_yoy"] < 0:
+        f["fund_warn"].append(f"net profit {f['profit_yoy']:.1f}% YoY — deteriorating")
+    if f["eps_yoy"] is not None and f["eps_yoy"] < 0:
+        f["fund_warn"].append(f"EPS {f['eps_yoy']:.1f}% YoY — deteriorating")
+    if f["lockin_expiry"]:
+        f["fund_warn"].append(f"lock-in expires {f['lockin_expiry']} — supply overhang")
     # Section 14 — thin float plus an abnormal print is the manipulation shape
     f["manip"] = bool(f["abnormal"] and (f["float_pct"] or 100) < 25) or f["gap_flag"] >= 4
     # R:R measured to the realistic target — near resistance if it is closer than T1
@@ -629,6 +673,38 @@ def analyse(symbol, funds=None):
                         "A+" if f["score"] >= 90 and not f["flags"] else
                         "A" if f["score"] >= 80 and len(f["flags"]) <= 1 else
                         "B" if f["score"] >= 70 else "C")
+    # Section 5 — the spec's own strength wording, not a bare number
+    f["vol_label"] = ("very strong (2x+)" if f["vol_x"] >= 2 else
+                      "strong (1.5x+)" if f["vol_x"] >= 1.5 else
+                      "above average" if f["vol_x"] >= 1 else "below average")
+    # Section 12 — the spec's bands: 1:2 minimum preferred, 1:3+ excellent
+    f["rr_band"] = ("excellent (1:3+)" if f["rr"] >= 3 else
+                    "acceptable (1:2+)" if f["rr"] >= MIN_RR else "BELOW THE 1:2 GATE")
+    # Section 11 — is the target realistic against normal daily movement?
+    f["t1_atr"] = (f["t1"] - f["entry"]) / atr_now
+    f["t2_atr"] = (f["t2"] - f["entry"]) / atr_now
+    f["t3_atr"] = (f["t3"] - f["entry"]) / atr_now
+    f["target_realistic"] = f["t1_atr"] <= 15          # ~3 weeks of normal movement for a swing
+    # Section 21 — the professional trader question that must be answered BEFORE issuing BUY
+    f["capital_question"] = (
+        "If I were risking my own capital on this stock using only the 1D chart, does the "
+        "current price offer a high-quality, asymmetric swing-trading opportunity with strong "
+        "trend evidence, confirmed participation, a logical invalidation level, and at least "
+        "1:2 realistic reward-to-risk — or am I simply chasing a stock because it has already "
+        "risen?")
+    parts_ok = [("strong trend evidence", f["trend"] == "Bullish" and f["hh"] and f["hl"]),
+                ("confirmed participation", f["vol_x"] >= 1.2),
+                ("logical invalidation", f["near_support"] is not None
+                 and f["stop_width"] == "sensible"),
+                ("at least 1:2 reward-to-risk", f["rr"] >= MIN_RR),
+                ("not merely chasing", (f["ext_atr"] or 0) <= 3
+                 and f["breakout"] != "Extended Breakout" and not f["chasing"])]
+    have = [n for n, ok in parts_ok if ok]
+    lack = [n for n, ok in parts_ok if not ok]
+    f["capital_answer"] = (
+        ("YES — " + ", ".join(have) + ".") if not lack else
+        ("NO — has " + (", ".join(have) if have else "none of it")
+         + "; missing " + ", ".join(lack) + "."))
     f["profit_plan"] = _profit_plan(f)
     f["bull_evidence"] = _bull_evidence(f)
     f["bear_evidence"] = _bear_evidence(f)
@@ -741,14 +817,18 @@ def report(f):
          f"20 EMA:                {_n(f['e20'])}   slope {_n(f['e20_slope'], 2, '%')}",
          f"50 EMA:                {_n(f['e50'])}   slope {_n(f['e50_slope'], 2, '%')}",
          f"200 EMA:               {_n(f['e200'])}   slope {_n(f['e200_slope'], 2, '%')}",
-         f"Volume Ratio:          {_n(f['vol_x'])}x of its 20-day average",
+         f"Volume Ratio:          {_n(f['vol_x'])}x of its 20-day average — {f['vol_label']}"
+         f"   (20d volume regime: {f['vol_regime']}"
+         + (", ABNORMAL print today" if f["abnormal"] else "") + ")",
          f"Volume Interpretation: {'buying' if f['up_day'] else 'selling'} pressure"
          f"{', pullback on dry volume' if f['pullback_dry'] else ''}",
          f"RSI 14:                {_n(f['rsi'], 1)}   {'rising' if (f['rsi_slope'] or 0) > 0 else 'falling'}"
          f"{'   BEARISH DIVERGENCE' if f['rsi_div'] else ''}",
          f"MACD 12/26/9:          {_n(f['macd'], 3)} vs signal {_n(f['macd_sig'], 3)}, "
          f"hist {_n(f['macd_hist'], 3)} {'rising' if (f['hist_slope'] or 0) > 0 else 'falling'}",
-         f"ATR 14:                {_n(f['atr'])}  ({_n(f['atr_pct'], 2, '%')} of price)",
+         f"ATR 14:                {_n(f['atr'])}  ({_n(f['atr_pct'], 2, '%')} of price)   "
+         f"{'enough volatility to swing' if f['enough_vol'] else 'TOO FLAT/WILD to swing'}"
+         f", stop is {f['stop_width']}",
          f"Support:               near {_n(f['near_support'])}   major {_n(f['major_support'])}",
          f"Resistance:            near {_n(f['near_res'])}   major {_n(f['major_res'])}",
          f"Breakout/Pullback:     {f['breakout']}  /  {f['pullback']}",
@@ -760,11 +840,29 @@ def report(f):
          ) if x) or "nothing the daily bars clearly show",
          f"Relative Performance:  5d {_n(f['ret5'], 2, '%')}   20d {_n(f['ret20'], 2, '%')}   "
          f"60d {_n(f['ret60'], 2, '%')}   {_n(f['off_60d_high'], 1, '%')} off its 60d high",
-         f"Fundamental Quality:   " + (f"ROE {_n(f['roe'], 1, '%')}  P/E {_n(f['pe'], 1)}  "
-                                       f"BVPS {_n(f['bvps'])}  float {_n(f['float_pct'], 1, '%')}"
-                                       if f["has_fund"] else "no data on file — not scored"),
-         f"Liquidity:             Rs {f['turnover']:,.0f} median 20d turnover"
-         f"{'' if f['liquid'] else '   HIGH EXECUTION RISK'}",
+         f"Fundamental Quality:   " + ((
+             f"ROE {_n(f['roe'], 1, '%')}  P/E {_n(f['pe'], 1)}  P/B {_n(f['pb'], 2)}  "
+             f"EPS {_n(f['eps'], 2)}  BVPS {_n(f['bvps'])}  float {_n(f['float_pct'], 1, '%')}")
+             if f["has_fund"] else "no data on file - not scored, not guessed"),
+]
+    # Section 13 continued - growth, corporate developments, and what is honestly unavailable
+    if f["profit_yoy"] is not None:
+        L.append(f"                       net profit {_n(f['profit_yoy'], 1, '%')} YoY, "
+                 f"EPS {_n(f['eps_yoy'], 1, '%')} YoY ({f['earn_period']})")
+    if f["corp_action"]:
+        L.append(f"                       corporate action - {f['corp_action']}")
+    if f["lockin_expiry"]:
+        L.append(f"                       lock-in expiry {f['lockin_expiry']}")
+    if f["fund_warn"]:
+        L.append(f"                       WARNINGS: {', '.join(f['fund_warn'])}")
+    L.append(f"                       not published for NEPSE, so not scored: "
+             f"{', '.join(f['fund_missing'])}")
+    L += [
+         f"Liquidity:             Rs {f['turnover']:,.0f} median 20d turnover, "
+         f"{f['avg_vol']:,.0f} avg daily shares"
+         + (f", {f['gap_flag']} unexplained gap(s) in 60d" if f["gap_flag"] else "")
+         + ("   POSSIBLE MANIPULATION SHAPE" if f["manip"] else "")
+         + ("" if f["liquid"] else "   HIGH EXECUTION RISK"),
          f"False-Signal Risk:     {', '.join(f['flags']) if f['flags'] else 'none of the ten fired'}",
          "",
          f"Score:                 {f['score']}/100",
@@ -772,11 +870,11 @@ def report(f):
          f"Decision:              {f['decision']}   ({f['why']})",
          f"Entry Zone:            {_n(f['entry'])}",
          f"Stop Loss:             {_n(f['stop'])}   (risk {_n(f['risk_pct'], 2, '%')})",
-         f"Target 1:              {_n(f['t1'])}   (2R)",
-         f"Target 2:              {_n(f['t2'])}   (3R)",
-         f"Target 3:              {_n(f['t3'])}   (5R)",
-         f"Risk/Reward:           1:{_n(f['rr'], 2)} to the realistic target"
-         f"{'   BELOW THE 1:2 GATE' if f['rr'] < MIN_RR else ''}",
+         f"Target 1:              {_n(f['t1'])}   (2R, {f['t1_atr']:.1f} ATR)",
+         f"Target 2:              {_n(f['t2'])}   (3R, {f['t2_atr']:.1f} ATR)",
+         f"Target 3:              {_n(f['t3'])}   (5R, {f['t3_atr']:.1f} ATR)"
+         + ("" if f["target_realistic"] else "   T1 IS FAR vs NORMAL DAILY MOVEMENT"),
+         f"Risk/Reward:           1:{_n(f['rr'], 2)} to the realistic target — {f['rr_band']}",
          f"Trade Invalidation:    {f['invalidation']}",
          "Expected Holding Period: several days to several weeks (swing)",
          "",
@@ -791,6 +889,10 @@ def report(f):
           + (f"; {f['room_r']:.1f}R of room to resistance" if f["room_r"] else "")
           + f"; risk is capped at {f['risk_pct']:.2f}% with a {f['stop_width']} stop.",
           f"Why This Trade Could Fail:    {f['bear_evidence'][0]}.",
+          "",
+          "The professional trader question:",
+          f"  Q: {f['capital_question']}",
+          f"  A: {f['capital_answer']}",
           "",
           f"FINAL VERDICT:         {f['verdict']}",
           "",

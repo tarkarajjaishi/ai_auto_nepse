@@ -4,11 +4,19 @@ Not a unit test of the maths (swing_pro.py --selftest does that). This checks th
 is easy to get wrong and easy to believe you got right: whether every named requirement of the
 written framework is actually present, in the framework's own wording and polarity.
 
-Three passes, mirroring how the spec is written:
+Four passes, mirroring how the spec is written:
 
     PASS 1  the Section 22 output contract  — every named output field is emitted
     PASS 2  analytical coverage             — every named requirement of sections 2-19 exists
     PASS 3  Section 21 fidelity             — the fifteen questions verbatim, right polarity
+    PASS 4  behaviour in the real output    — what a token-search cannot see
+
+PASS 4 exists because passes 1-3 once reported "FULLY IMPLEMENTED" while eight requirements
+were absent. Pass 2 only proves a STRING EXISTS IN THE SOURCE, so a feature can be computed
+and never surfaced, or surfaced under wording the spec did not ask for. Pass 4 asserts against
+the produced report instead: field ORDER (not just presence), the professional trader
+question, the spec's own volume/RR wording, targets in ATR terms, and that unavailable
+fundamentals are stated rather than silently dropped.
 
     python test_swing_pro.py        # exits non-zero on any gap, and prints exactly which
 """
@@ -166,13 +174,53 @@ def main():
     # ...and both renderers must honour that, or the CLI prints a meaningless "YES" for Q14
     # and hides the warning polarity of Q9. This caught exactly that regression once.
     for name, path in (("swing_pro.main", "swing_pro.py"), ("ui swing page", "ui.py")):
-        text = (swing_pro.MASTER.parent / path).read_text(encoding="utf-8")
-        if "WARNING_QUESTIONS" not in text:
+        # NB: do not name this `text` — that shadows the report and silently makes every
+        # later check search the wrong string. It did exactly that once.
+        srctext = (swing_pro.MASTER.parent / path).read_text(encoding="utf-8")
+        if "WARNING_QUESTIONS" not in srctext:
             gaps.append(f"[21] {name} renders the questions without honouring "
                         "WARNING_QUESTIONS / the text answer for Q14")
             bad3 += 1
     print(f"PASS 3  Section 21 fidelity ................. "
           f"{len(SPEC_QUESTIONS) - bad3}/{len(SPEC_QUESTIONS)}")
+
+    # ---- PASS 4: the things a token-search cannot see -------------------------------------
+    # Pass 2 only proves a string exists in the source. These check the framework's *behaviour*
+    # in the actual output. Every one of them was a real gap that Pass 2 reported as clean.
+    pos = [(lbl, text.index(lbl)) for lbl in SPEC_22 if lbl in text]
+    order_bad = [pos[i][0] for i in range(1, len(pos)) if pos[i][1] < pos[i - 1][1]]
+    behaviour = [
+        ("[22] fields are in the spec's exact ORDER, not merely present", not order_bad),
+        ("[21] the professional trader question is asked and answered",
+         "risking my own capital" in text and bool(f.get("capital_answer"))),
+        ("[5] volume strength uses the spec's wording (strong / very strong)",
+         any(w in text for w in ("very strong (2x+)", "strong (1.5x+)",
+                                 "above average", "below average"))),
+        ("[5] volume regime (expansion/contraction) is surfaced",
+         "volume regime" in text),
+        ("[11] targets are stated against normal daily movement (ATR)", "ATR)" in text),
+        ("[11] enough-volatility and stop-width verdicts are surfaced",
+         ("enough volatility" in text or "TOO FLAT" in text) and "stop is" in text),
+        ("[12] the spec's R:R bands are named (1:2 / 1:3+)",
+         any(w in text for w in ("excellent (1:3+)", "acceptable (1:2+)",
+                                 "BELOW THE 1:2 GATE"))),
+        ("[13] unavailable fundamentals are STATED, not silently dropped",
+         "not published for NEPSE" in text),
+        ("[13] P/B and EPS are reported", "P/B" in text and "EPS" in text),
+        ("[14] avg daily volume is reported", "avg daily shares" in text),
+        ("[15] smart-money evidence line is surfaced", "Smart-Money Evidence" in text),
+        ("[preamble] never claims guaranteed profit or certainty",
+         not any(w in text.lower() for w in ("guarantee", "risk-free", "will profit"))),
+        ("[preamble] states that no claim of certainty is made",
+         "not a prediction" in text or "No claim of profit" in text),
+    ]
+    ok4 = sum(1 for _, good in behaviour if good)
+    print(f"PASS 4  behaviour in the real output ........ {ok4}/{len(behaviour)}")
+    for name, good in behaviour:
+        if not good:
+            gaps.append(f"{name}  -> NOT satisfied in the produced report")
+    if order_bad:
+        gaps.append(f"[22] out of spec order: {order_bad}")
 
     print()
     if gaps:
@@ -180,7 +228,7 @@ def main():
         for g in gaps:
             print(f"  - {g}")
         return 1
-    print("FULLY IMPLEMENTED — all three passes clean.")
+    print("FULLY IMPLEMENTED — all four passes clean.")
     return 0
 
 
