@@ -213,9 +213,14 @@ def _breakout_detail(c, o, h, l, v, vsma, a, res):
         return dict(res_tests=0, consol_days=0, bo_candle=None, close_pos=None, follow_through=0)
     tol = max(a * 0.5, res * 0.005)
     tests = sum(1 for i in range(max(0, len(c) - 90), len(c)) if abs(h[i] - res) <= tol)
-    consol = 0                                          # bars price has sat under the level
-    for i in range(len(c) - 1, 0, -1):
-        if c[i] > res * 1.02:
+    # How long the base under this level actually ran: walk back while price stays inside a
+    # band beneath it, capped at one year. The old version counted "sessions since the close was
+    # last 2% above the level", which collapsed to 0 exactly when a breakout surfaced it, and
+    # ran to thousands of bars when the level had never been exceeded.
+    floor_ = res - max(4 * a, res * 0.08)
+    consol = 0
+    for i in range(len(c) - 1, max(0, len(c) - 250), -1):
+        if c[i] > res * 1.02 or c[i] < floor_:
             break
         consol += 1
     rng = h[-1] - l[-1]
@@ -253,6 +258,16 @@ def _sweep_reclaim(c, h, l, highs, lows, a):
         if broke and c[-1] > lvl:
             reclaim = True
     return sweep, reclaim
+
+
+def _frequency(dates, market_days, look=60):
+    """Section 14 — how many of the last `look` MARKET sessions this symbol actually traded.
+    Without it, 'median 20d turnover' silently stretches across months on a thin instrument."""
+    if not market_days:
+        return None
+    recent = market_days[-look:]
+    have = set(dates)
+    return sum(1 for d in recent if d in have) / len(recent) * 100
 
 
 def _gaps(o, c, look=60):
@@ -303,17 +318,36 @@ def _structure(c, ph, pl, highs, lows):
     return label, (f"{last[2]} {last[3]}" if last else "none"), hh, hl, lh, ll
 
 
-def _stage(c, e20, e50, e200, hh, hl, ret60, ext_atr):
-    """Section 2/3 — where in the trend's life this is."""
-    up = all(v is not None for v in (e20, e50, e200)) and c > e20 > e50 > e200
+def _ranging(c, h, l, a, look=20):
+    """Is the last `look` bars a genuine base? Range measured in ATR, so it is comparable across
+    stocks: under ~2.5 ATR of travel over 20 sessions is a contraction, not a trend leg."""
+    if len(c) < look or not a:
+        return False
+    return (max(h[-look:]) - min(l[-look:])) / a <= 2.5
+
+
+def _stage(c, h, l, a, e20, e50, e200, hh, hl, ret60, ext_atr):
+    """Section 2/3 — where in the trend's life this is.
+
+    Consolidation is a RANGE statement, so it is decided by measuring the range. Deciding it
+    from EMA order alone inverted the label: the names called Consolidation had a wider median
+    20-day range than the ones called Established Uptrend.
+    """
+    close = c[-1]
+    up = all(v is not None for v in (e20, e50, e200)) and close > e20 > e50 > e200
+    tight = _ranging(c, h, l, a)
     if not up:
         if e50 is not None and e200 is not None and e50 < e200:
-            return "Downtrend"
+            return "Consolidation" if tight else "Downtrend"
+        if tight:
+            return "Consolidation"
         return "Consolidation" if (hh or hl) else "Reversal Attempt"
     if ext_atr is not None and ext_atr > 4:
         return "Late Uptrend"
     if ret60 is not None and ret60 > 60:
         return "Late Uptrend"
+    if tight:
+        return "Consolidation"                 # a trend that has stopped travelling is a base
     if hh and hl:
         return "Established Uptrend"
     return "Early Uptrend"
@@ -338,8 +372,25 @@ def _breakout(c, h, v, vsma, highs):
     return ("Breakout Retest" if close > res * 0.98 else "Failed Breakout"), res
 
 
-def _pullback(c, l, v, vsma, e20, e50, lows):
-    """Section 9 — is the dip an opportunity or the start of the exit."""
+def _selling_weakens(o, c, look=10):
+    """Section 9 — 'selling candles weaken': are the recent down-bodies smaller than the earlier
+    ones in the same leg? None when there is not a down candle on each side to compare."""
+    downs = [(i, o[i] - c[i]) for i in range(-look, 0) if c[i] < o[i]]
+    if len(downs) < 4:
+        return None
+    half = len(downs) // 2
+    early = sum(b for _, b in downs[:half]) / half
+    late = sum(b for _, b in downs[half:]) / (len(downs) - half)
+    return late < early
+
+
+def _pullback(o, c, l, v, vsma, e20, e50, lows):
+    """Section 9 — is the dip an opportunity or the start of the exit.
+
+    'Bullish daily confirmation appears' is a REQUIREMENT of the healthy case, not decoration.
+    Without it the top state fired on stocks that closed down on the day: 16 of 28 names it
+    called BUY ZONE / HEALTHY PULLBACK had a red candle, which is a falling knife, not a buy.
+    """
     if e20 is None or e50 is None:
         return "WAIT"
     close = c[-1]
@@ -347,15 +398,19 @@ def _pullback(c, l, v, vsma, e20, e50, lows):
     depth = (peak - close) / peak * 100 if peak else 0
     vx = (v[-1] / vsma[-1]) if vsma and vsma[-1] else 1.0
     broke_low = len(lows) >= 2 and close < lows[-2][1]
+    confirmed = c[-1] > o[-1] or c[-1] > c[-2]           # today actually closed up
+    weakening = _selling_weakens(o, c)
     if depth < 1.5:
         return "NO PULLBACK"
     if close < e50 and broke_low:
         return "TREND BREAKDOWN"
     if broke_low or (vx > 1.5 and c[-1] < c[-2]):        # heavy selling / lower low
         return "DANGEROUS"
-    if close >= e20 and vx < 1.0:
+    if weakening is False and not confirmed:             # sellers still getting bigger
+        return "WAIT"
+    if close >= e20 and vx < 1.0 and confirmed:
         return "BUY ZONE"
-    if close >= e50 and vx < 1.2:
+    if close >= e50 and vx < 1.2 and confirmed:
         return "HEALTHY PULLBACK"
     return "WAIT"
 
@@ -364,7 +419,7 @@ MAJOR_LOOKBACK = 250        # ~1 trading year; an all-time high from 2019 is not
 
 
 def _levels(c, h, l, a, highs, lows):
-    """Section 10/12 — entry, a structural stop, and R-multiple targets. No invented levels."""
+    """Section 10/12 — entry, a structural stop, and realistic targets. No invented levels."""
     close, atr_now = c[-1], a
     cut = len(c) - MAJOR_LOOKBACK
     rh = [(i, v) for i, v in highs if i >= cut]      # major S/R inside the useful window only
@@ -376,10 +431,23 @@ def _levels(c, h, l, a, highs, lows):
     if risk <= 0:
         return None
     near_res = next((v for _, v in reversed(rh) if v > close), None)
-    return dict(entry=close, stop=stop, risk=risk,
-                t1=close + 2 * risk, t2=close + 3 * risk, t3=close + 5 * risk,
-                near_res=near_res,
-                major_res=max((v for _, v in rh), default=None),
+    major_res = max((v for _, v in rh if v > close), default=None)
+    # Targets come from STRUCTURE first, R-multiples only as the fallback. Defining T1 as a flat
+    # 2R made the whole thing circular: reward/risk was then arithmetically pinned at exactly
+    # 2.00 for every stock alive, the spec's "excellent 1:3+" band was unreachable, and the
+    # 5-point R:R bucket could never be earned. Real resistance decides the realistic target.
+    # ...but "realistic" is the operative word in the spec. A resistance 90R away is not a swing
+    # target, it is a different trade, so T1 is bounded by a swing horizon of normal daily
+    # movement. Floor 2R, ceiling ~10 ATR, resistance in between when it sits there.
+    # Two independent ceilings, because either alone leaks: a distant resistance blows up the
+    # reward, and a very tight swing-low stop makes even a near one look like 90R.
+    horizon = close + 10 * atr_now          # ~2 weeks of normal daily movement
+    t1_struct = near_res if (near_res and near_res - close > risk) else close + 2 * risk
+    t1 = max(close + 2 * risk, min(t1_struct, close + 5 * risk, horizon))
+    t2 = major_res if (major_res and t1 + risk < major_res <= close + 20 * atr_now) else t1 + risk
+    t3 = max(t2 + 2 * risk, close + 5 * risk)
+    return dict(entry=close, stop=stop, risk=risk, t1=t1, t2=t2, t3=t3,
+                near_res=near_res, major_res=major_res,
                 near_support=swing_low,
                 major_support=min((v for _, v in rl), default=None))
 
@@ -407,6 +475,8 @@ def _false_signals(f):
         flags.append("poor-rr")
     if not f["liquid"]:
         flags.append("illiquid")
+    if f.get("thin_calendar"):
+        flags.append("trades-infrequently")
     if f.get("repeated_failures", 0) >= 2:
         flags.append("repeated-failures")
     if f.get("chasing"):
@@ -452,7 +522,7 @@ def _score(f):
     rp += 1 if f["off_60d_high"] is not None and f["off_60d_high"] <= 10 else 0
     p["relative"] = min(rp, 5)
     # Support / resistance room ......................................... 5
-    p["sr"] = 5 if (f["room_r"] or 0) >= 2 else (3 if (f["room_r"] or 0) >= 1 else 0)
+    p["sr"] = 5 if f["room_r"] >= 2 else (3 if f["room_r"] >= 1 else 0)
     # Risk / reward ..................................................... 5
     p["rr"] = 5 if f["rr"] >= 3 else (4 if f["rr"] >= 2 else (2 if f["rr"] >= 1.5 else 0))
     # Fundamental quality ............................................... 5
@@ -467,6 +537,8 @@ def _score(f):
     tn = f["turnover"]
     p["liquidity"] = 5 if tn >= 5_000_000 else (3 if tn >= 1_000_000 else
                                                 (2 if tn >= LIQUID_MIN else 0))
+    if f.get("thin_calendar"):        # per-bar stats mean little if it barely prints bars
+        p["liquidity"] = min(p["liquidity"], 2)
     return p, sum(p.values())
 
 
@@ -476,12 +548,26 @@ def _grade(score):
 
 
 def _performer(f):
-    """Section 1 — is this genuinely performing, or just a spike?"""
+    """Section 1 — is this genuinely performing, or just a spike?
+
+    ONE boolean per one of the framework's ten questions, in its order. The earlier version
+    summed ten booleans that only covered seven questions — HH and HL took a slot each, both
+    EMA comparisons took a slot each, and 20d/60d returns took a slot each — so Q7
+    (accumulation), Q9 (overextended) and Q10 (upside before resistance) were never asked at
+    all. That let stocks in outright distribution be labelled ELITE PERFORMER.
+    """
     yes = sum([
-        f["close"] > (f["e20"] or 1e18), f["hh"], f["hl"],
-        (f["e20"] or 0) > (f["e50"] or 1e18), (f["e50"] or 0) > (f["e200"] or 1e18),
-        (f["e20_slope"] or -1) > 0, (f["rsi"] or 0) > 50,
-        f["vol_x"] >= 1.2, (f["ret20"] or -1) > 0, (f["ret60"] or -1) > 0,
+        f["trend"] == "Bullish",                                    # 1 daily trend bullish
+        f["hh"] and f["hl"],                                        # 2 higher highs AND lows
+        None not in (f["e20"], f["e50"], f["e200"])
+        and f["e20"] > f["e50"] > f["e200"],                        # 3 EMAs aligned
+        (f["e20_slope"] or -1) > 0 and (f["e50_slope"] or -1) > 0,  # 4 EMAs rising, not flat
+        (f["rsi"] or 0) > 50 and (f["hist_slope"] or -1) > 0,       # 5 momentum increasing
+        f["vol_x"] >= 1.2,                                          # 6 volume confirming
+        f["accum"] == "Accumulation",                               # 7 accumulating
+        (f["ret20"] or -1) > 0 and (f["ret60"] or -1) > 0,          # 8 beating its own history
+        (f["ext_atr"] or 0) <= 3 and f["breakout"] != "Extended Breakout",   # 9 not overextended
+        f["room_r"] >= 2,                                           # 10 upside before resistance
     ])
     if f["pullback"] == "TREND BREAKDOWN" or not f["liquid"]:
         return "AVOID"
@@ -531,7 +617,7 @@ def _setup(f):
 
 # ---------------------------------------------------------------- the analysis
 
-def analyse(symbol, funds=None):
+def analyse(symbol, funds=None, calendar=None):
     """Every field the 22-section report needs, or None when there is not enough daily data."""
     b = bars(symbol)
     if not b or len(b[4]) < 210:            # 200 EMA needs real history; never fabricate it
@@ -561,7 +647,7 @@ def analyse(symbol, funds=None):
     macd_div, macd_bull_div = _divergence(mline, h, l, highs, lows)
 
     bo, res_level = _breakout(c, h, v, vsma, highs)
-    pb = _pullback(c, l, v, vsma, _at(e20), _at(e50), lows)
+    pb = _pullback(o, c, l, v, vsma, _at(e20), _at(e50), lows)
     struct_lbl, last_event, hh, hl, lh, ll = _structure(c, ph, pl, highs, lows)
     ext_atr = (c[-1] - _at(e20)) / atr_now if _at(e20) is not None else None
     room = (lev["near_res"] - lev["entry"]) if lev["near_res"] else None
@@ -600,7 +686,10 @@ def analyse(symbol, funds=None):
                                "near_res", "major_res", "near_support", "major_support")},
     )
     f["risk_pct"] = f["risk"] / f["entry"] * 100
-    f["room_r"] = (room / f["risk"]) if room else None
+    # No confirmed swing high overhead means UNLIMITED room, which is the framework's ideal.
+    # It used to be None, and the five readers each guessed a different default (0, 99, 0, 9,
+    # skip) — so a stock at a 250-day high scored 0/5 for support/resistance while Q8 said YES.
+    f["room_r"] = float("inf") if f["near_res"] is None else (room / f["risk"])
     f["vol_regime"], f["abnormal"] = _volume_regime(v, vsma)
     f["chasing"] = (f["bo_candle"] or 0) > 2.0            # today's body is 2+ ATRs — chasing
     f["sweep"], f["reclaim"] = _sweep_reclaim(c, h, l, highs, lows, atr_now)
@@ -653,11 +742,13 @@ def analyse(symbol, funds=None):
     if f["lockin_expiry"]:
         f["fund_warn"].append(f"lock-in expires {f['lockin_expiry']} — supply overhang")
     # Section 14 — thin float plus an abnormal print is the manipulation shape
+    f["trade_freq"] = _frequency(d, calendar)
+    f["thin_calendar"] = f["trade_freq"] is not None and f["trade_freq"] < 80
     f["manip"] = bool(f["abnormal"] and (f["float_pct"] or 100) < 25) or f["gap_flag"] >= 4
     # R:R measured to the realistic target — near resistance if it is closer than T1
-    realistic = min(x for x in (f["t1"], f["near_res"] or f["t1"]) if x)
-    f["rr"] = (realistic - f["entry"]) / f["risk"]
-    f["stage"] = _stage(c[-1], f["e20"], f["e50"], f["e200"], hh, hl, f["ret60"], ext_atr)
+    f["rr"] = (f["t1"] - f["entry"]) / f["risk"]   # T1 is the realistic, structural target
+    f["stage"] = _stage(c, h, l, atr_now, f["e20"], f["e50"], f["e200"],
+                        hh, hl, f["ret60"], ext_atr)
     f["trend"] = ("Bullish" if f["close"] > (f["e20"] or 1e18) > (f["e50"] or 1e18)
                   else "Bearish" if f["close"] < (f["e50"] or 0) else "Neutral")
     f["flags"] = _false_signals(f)
@@ -737,7 +828,7 @@ def _bull_evidence(f):
         e.append("bullish RSI divergence at the lows")
     if f["reclaim"]:
         e.append("support reclaimed after a break")
-    if (f["room_r"] or 0) >= 3:
+    if f["room_r"] >= 3:
         e.append(f"{f['room_r']:.1f}R of room before resistance")
     return e or ["nothing on the bullish side clears the bar today"]
 
@@ -757,7 +848,7 @@ def _bear_evidence(f):
         e.append("negative momentum divergence against the last high")
     if f["trend"] != "Bullish":
         e.append(f"daily trend reads {f['trend']}, not bullish")
-    if (f["room_r"] or 9) < 2:
+    if f["room_r"] < 2:
         e.append("major resistance sits close overhead")
     if f["fund_warn"]:
         e.append("fundamentals: " + ", ".join(f["fund_warn"]))
@@ -772,13 +863,24 @@ def _bear_evidence(f):
 
 # ---------------------------------------------------------------- scan + report
 
+def market_calendar(names):
+    """Every date any symbol traded, ascending — the market's own session calendar."""
+    days = set()
+    for s in names[:60]:                     # a sample is enough to reconstruct the calendar
+        b = bars(s)
+        if b:
+            days.update(b[0][-400:])
+    return sorted(days)
+
+
 def scan(names=None):
     funds = _fundamentals()
     names = names or (MASTER / "symbols.txt").read_text(encoding="utf-8").split()
+    cal = market_calendar(names)
     rows = []
     for s in names:
         try:
-            f = analyse(s, funds)
+            f = analyse(s, funds, cal)
         except (ValueError, IndexError, KeyError, ZeroDivisionError):
             continue
         if f:
@@ -817,21 +919,32 @@ def report(f):
          f"20 EMA:                {_n(f['e20'])}   slope {_n(f['e20_slope'], 2, '%')}",
          f"50 EMA:                {_n(f['e50'])}   slope {_n(f['e50_slope'], 2, '%')}",
          f"200 EMA:               {_n(f['e200'])}   slope {_n(f['e200_slope'], 2, '%')}",
+         f"EMA separation:        {_n(f['separation'], 2, '%')} of price"
+         + ("   (compressed — trend unclear)" if (f["separation"] or 9) < 1.5 else "")
+         + f"   |  crossovers: {', '.join(f['crossovers'][:3]) if f['crossovers'] else 'none in 25d'}",
          f"Volume Ratio:          {_n(f['vol_x'])}x of its 20-day average — {f['vol_label']}"
          f"   (20d volume regime: {f['vol_regime']}"
          + (", ABNORMAL print today" if f["abnormal"] else "") + ")",
          f"Volume Interpretation: {'buying' if f['up_day'] else 'selling'} pressure"
          f"{', pullback on dry volume' if f['pullback_dry'] else ''}",
          f"RSI 14:                {_n(f['rsi'], 1)}   {'rising' if (f['rsi_slope'] or 0) > 0 else 'falling'}"
-         f"{'   BEARISH DIVERGENCE' if f['rsi_div'] else ''}",
+         + ("   OVEREXTENDED >70 (not a sell on its own — a strong trend can hold it)"
+            if f["rsi_overext"] else "")
+         + ("   BEARISH DIVERGENCE" if f["rsi_div"] else "")
+         + ("   bullish divergence" if f["rsi_bull_div"] else ""),
          f"MACD 12/26/9:          {_n(f['macd'], 3)} vs signal {_n(f['macd_sig'], 3)}, "
-         f"hist {_n(f['macd_hist'], 3)} {'rising' if (f['hist_slope'] or 0) > 0 else 'falling'}",
+         f"hist {_n(f['macd_hist'], 3)} {'rising' if (f['hist_slope'] or 0) > 0 else 'falling'}, "
+         f"{'above' if f['macd_above_zero'] else 'below'} zero, {f['macd_cross']}"
+         + ("   BEARISH DIVERGENCE" if f["macd_div"] else ""),
          f"ATR 14:                {_n(f['atr'])}  ({_n(f['atr_pct'], 2, '%')} of price)   "
          f"{'enough volatility to swing' if f['enough_vol'] else 'TOO FLAT/WILD to swing'}"
          f", stop is {f['stop_width']}",
          f"Support:               near {_n(f['near_support'])}   major {_n(f['major_support'])}",
          f"Resistance:            near {_n(f['near_res'])}   major {_n(f['major_res'])}",
          f"Breakout/Pullback:     {f['breakout']}  /  {f['pullback']}",
+         f"                       level {_n(f['prev_breakout'])}, {f['res_tests']} prior tests, "
+         f"{f['consol_days']}d base, candle {_n(f['bo_candle'], 2)} ATR closing "
+         f"{_n(f['close_pos'], 0, '%')} up its range, {f['follow_through']}/3 follow-through",
          f"Smart-Money Evidence:  " + ", ".join(x for x in (
              f["demand_zone"], "liquidity sweep" if f["sweep"] else None,
              "support reclaim" if f["reclaim"] else None,
@@ -839,7 +952,10 @@ def report(f):
              f"{f['accum'].lower()} on volume" if f["accum"] != "Neutral" else None,
          ) if x) or "nothing the daily bars clearly show",
          f"Relative Performance:  5d {_n(f['ret5'], 2, '%')}   20d {_n(f['ret20'], 2, '%')}   "
-         f"60d {_n(f['ret60'], 2, '%')}   {_n(f['off_60d_high'], 1, '%')} off its 60d high",
+         f"60d {_n(f['ret60'], 2, '%')}   {_n(f['off_20d_high'], 1, '%')} off 20d high, "
+         f"{_n(f['off_60d_high'], 1, '%')} off 60d high",
+         f"                       advances/declines {_n(f['adv_decl'], 2)}x over 20d "
+         f"({'advances dominate' if f['adv_decl'] > 1 else 'declines dominate'})",
          f"Fundamental Quality:   " + ((
              f"ROE {_n(f['roe'], 1, '%')}  P/E {_n(f['pe'], 1)}  P/B {_n(f['pb'], 2)}  "
              f"EPS {_n(f['eps'], 2)}  BVPS {_n(f['bvps'])}  float {_n(f['float_pct'], 1, '%')}")
@@ -861,6 +977,8 @@ def report(f):
          f"Liquidity:             Rs {f['turnover']:,.0f} median 20d turnover, "
          f"{f['avg_vol']:,.0f} avg daily shares"
          + (f", {f['gap_flag']} unexplained gap(s) in 60d" if f["gap_flag"] else "")
+         + (f", traded {f['trade_freq']:.0f}% of the last 60 sessions"
+            if f["trade_freq"] is not None else "")
          + ("   POSSIBLE MANIPULATION SHAPE" if f["manip"] else "")
          + ("" if f["liquid"] else "   HIGH EXECUTION RISK"),
          f"False-Signal Risk:     {', '.join(f['flags']) if f['flags'] else 'none of the ten fired'}",
@@ -930,7 +1048,7 @@ QUESTIONS = [
      and f["pullback"] not in ("DANGEROUS", "TREND BREAKDOWN")),
     ("Is the current entry close to a logical support/invalidation level?",
      lambda f: f["risk_pct"] <= 8 and f["near_support"] is not None),
-    ("Is there sufficient room before major resistance?", lambda f: (f["room_r"] or 99) >= 2),
+    ("Is there sufficient room before major resistance?", lambda f: f["room_r"] >= 2),
     ("Is the stock already too extended to enter safely?",          # YES here is a WARNING
      lambda f: (f["ext_atr"] or 0) > 3 or f["breakout"] == "Extended Breakout"),
     ("Is the breakout or pullback genuinely confirmed?",
@@ -1014,7 +1132,8 @@ def main():
 
     if "--symbol" in argv:
         sym = argv[argv.index("--symbol") + 1].upper()
-        f = analyse(sym, _fundamentals())
+        names_all = (MASTER / "symbols.txt").read_text(encoding="utf-8").split()
+        f = analyse(sym, _fundamentals(), market_calendar(names_all))
         if not f:
             print(f"{sym}: not enough daily history (200 EMA needs ~210 sessions).")
             return 1

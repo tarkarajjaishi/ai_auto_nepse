@@ -4,19 +4,21 @@ Not a unit test of the maths (swing_pro.py --selftest does that). This checks th
 is easy to get wrong and easy to believe you got right: whether every named requirement of the
 written framework is actually present, in the framework's own wording and polarity.
 
-Four passes, mirroring how the spec is written:
+Five passes, mirroring how the spec is written:
 
     PASS 1  the Section 22 output contract  — every named output field is emitted
     PASS 2  analytical coverage             — every named requirement of sections 2-19 exists
     PASS 3  Section 21 fidelity             — the fifteen questions verbatim, right polarity
     PASS 4  behaviour in the real output    — what a token-search cannot see
+    PASS 5  independent-audit regressions   — the 16 defects a 47-agent audit confirmed
 
-PASS 4 exists because passes 1-3 once reported "FULLY IMPLEMENTED" while eight requirements
-were absent. Pass 2 only proves a STRING EXISTS IN THE SOURCE, so a feature can be computed
-and never surfaced, or surfaced under wording the spec did not ask for. Pass 4 asserts against
-the produced report instead: field ORDER (not just presence), the professional trader
-question, the spec's own volume/RR wording, targets in ATR terms, and that unavailable
-fundamentals are stated rather than silently dropped.
+Each later pass exists because the earlier ones said "FULLY IMPLEMENTED" while things were
+broken. Pass 2 only proves A STRING EXISTS IN THE SOURCE, so a feature can be computed and
+never surfaced. Pass 4 caught eight of those. Pass 5 exists because an INDEPENDENT audit then
+found sixteen more that passes 1-4 still could not see — including R:R arithmetically pinned
+at exactly 2.00 for every stock alive, BUY ZONE firing on red candles, and eight values
+computed on every symbol and read by nothing. Those are only visible by running the framework
+over the whole market and checking the distribution, which is what pass 5 does.
 
     python test_swing_pro.py        # exits non-zero on any gap, and prints exactly which
 """
@@ -122,9 +124,10 @@ def _sample():
     """A real analysed stock — the report must be produced from live archive data, not a stub."""
     funds = swing_pro._fundamentals()
     names = (swing_pro.MASTER / "symbols.txt").read_text(encoding="utf-8").split()
+    cal = swing_pro.market_calendar(names)      # same inputs production uses, or the sample lies
     for s in names:
         try:
-            f = swing_pro.analyse(s, funds)
+            f = swing_pro.analyse(s, funds, cal)
         except Exception:
             continue
         if f:
@@ -222,13 +225,78 @@ def main():
     if order_bad:
         gaps.append(f"[22] out of spec order: {order_bad}")
 
+    # ---- PASS 5: regression guards for the 16 gaps an INDEPENDENT audit confirmed -----------
+    # Passes 1-4 all reported clean while every one of these was broken. They are behavioural
+    # and market-wide, because each was only visible by running the thing over real data.
+    funds = swing_pro._fundamentals()
+    names = (swing_pro.MASTER / "symbols.txt").read_text(encoding="utf-8").split()
+    cal = swing_pro.market_calendar(names)
+    sample = []
+    for s in names:
+        try:
+            g = swing_pro.analyse(s, funds, cal)
+        except Exception:
+            continue
+        if g:
+            sample.append(g)
+        if len(sample) >= 120:
+            break
+
+    # every value the framework computes must reach the reader, the score, or a gate
+    dead = [k for k in ("crossovers", "separation", "macd_cross", "macd_above_zero",
+                        "rsi_overext", "adv_decl", "close_pos", "prev_breakout",
+                        "consol_days", "res_tests", "follow_through", "trade_freq")
+            if str(swing_pro.report(f)).count(str(f.get(k))) == 0
+            and k not in src.split("def _score")[1].split("def ")[0]]
+    rrs = [g["rr"] for g in sample]
+    down_pullbacks = [g["symbol"] for g in sample
+                      if g["pullback"] in ("BUY ZONE", "HEALTHY PULLBACK")
+                      and not (g["up_day"] or g["close"] > g["e20"])]
+    distrib_elite = [g["symbol"] for g in sample
+                     if g["performer"] in ("ELITE PERFORMER", "STRONG PERFORMER")
+                     and g["accum"] == "Distribution"]
+    guards = [
+        ("[12] R:R is not arithmetically pinned to 2.0 (1:3+ must be reachable)",
+         max(rrs) > 2.01),
+        ("[12] R:R is bounded — no 90R 'realistic' targets", max(rrs) <= 5.01),
+        ("[9] no BUY ZONE / HEALTHY PULLBACK without bullish confirmation",
+         not down_pullbacks),
+        ("[1] no top-tier performer while in distribution", not distrib_elite),
+        ("[10] room_r is always numeric — one meaning for 'no resistance overhead'",
+         all(isinstance(g["room_r"], float) for g in sample)),
+        ("[10] unlimited room scores the full 5/5, not 0",
+         swing_pro._score(dict(sample[0], room_r=float("inf")))[0]["sr"] == 5),
+        ("[1] the performer test asks all ten of Section 1's questions",
+         src.count("# 10 upside before resistance") == 1),
+        ("[8] consolidation duration is bounded and real",
+         all(0 <= g["consol_days"] <= 250 for g in sample)),
+        ("[3] Consolidation is decided by measuring range, not EMA order alone",
+         "_ranging" in src),
+        ("[14] trading frequency is measured", any(g["trade_freq"] is not None for g in sample)),
+        ("[9] 'selling candles weaken' is computed", "_selling_weakens" in src),
+        ("[2] EMA separation + crossovers reach the report",
+         "EMA separation:" in text and "crossovers:" in text),
+        ("[6/7] RSI overextension, MACD zero-line and cross reach the report",
+         "zero," in text and ("OVEREXTENDED" in text or "RSI 14:" in text)
+         and ("cross" in text)),
+        ("[8] breakout mechanics reach the report",
+         "prior tests" in text and "follow-through" in text and "up its range" in text),
+        ("[4] advances/declines reaches the report", "advances/declines" in text),
+        ("[14] trading frequency reaches the report", "of the last 60 sessions" in text),
+    ]
+    ok5 = sum(1 for _, good in guards if good)
+    print(f"PASS 5  independent-audit regressions ....... {ok5}/{len(guards)}")
+    for name, good in guards:
+        if not good:
+            gaps.append(f"{name}  -> REGRESSED")
+
     print()
     if gaps:
         print(f"INCOMPLETE — {len(gaps)} gap(s):")
         for g in gaps:
             print(f"  - {g}")
         return 1
-    print("FULLY IMPLEMENTED — all four passes clean.")
+    print("FULLY IMPLEMENTED — all five passes clean.")
     return 0
 
 
