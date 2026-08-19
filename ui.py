@@ -1013,11 +1013,15 @@ CRON_JOBS = {
                 # are picked up — fetch_last_session then reads that list and upsert_daily makes each
                 # new symbol's folder automatically (no manual paste). If nothing new, the list is
                 # just rewritten unchanged and it moves on.
-                # supply_demand.py runs last: disk-only, and it needs the session just fetched
                 "scripts": ["fetch_symbols.py", "fetch_last_session.py", "scan.py",
-                            "volume_spike.py", "supply_demand.py"]},
+                            "volume_spike.py"]},
     "swp":     {"label": "SmartWealthPro → Operator",   # runs last, so operator has fresh inputs
                 "scripts": ["fetch_swp.py", "operator_scan.py"]},
+    # Its own node rather than a fifth script on the symbols job: disk-only and fast, but it
+    # reads the session that job just fetched AND trade_setup's trend verdict, so it has to come
+    # after both — and a separate node means a failure here is visible instead of buried.
+    "supply":  {"label": "Supply Demand Dashboard (zones · confirmed entries)",
+                "scripts": ["supply_demand.py"]},
 }
 
 # Full-archive backfills — a SEPARATE section, run on demand (each re-walks ALL history, slow). NOT
