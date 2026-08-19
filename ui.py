@@ -2294,6 +2294,47 @@ if page == "Master operator":
     st.markdown("<div class='section'>Master operator — floorsheet only, four windows</div>",
                 unsafe_allow_html=True)
 
+    vhdr, vrows = _tsv("operator_verdict.txt")
+    if vrows:
+        vdf = pd.DataFrame(vrows, columns=vhdr)
+        for c in ("passes", "share_in", "share_out", "ratio", "clip", "clip_mkt",
+                  "block_pct", "persist_pct", "counterparties", "net_shares", "value_rs"):
+            if c in vdf.columns:
+                vdf[c] = pd.to_numeric(vdf[c], errors="coerce")
+        eng = vdf[vdf["verdict"] == "OPERATOR ENGAGED"]
+        st.markdown("### ⚑ Operator engaged — all four tests passed")
+        st.caption("Four independent tests, each with an innocent explanation on its own; passing "
+                   "**all four at once** does not have one. **1 Concentration** — its share of this "
+                   "stock vs its own share of every other stock (its own client base is the control "
+                   "group, so \"it is a big broker\" cannot explain it). **2 Size** — clips vs the "
+                   "rest of the tape. **3 Persistence** — % of sessions it was actually on that "
+                   "side. **4 Breadth** — distinct counterparties, so a block/cross is excluded.")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("OPERATOR ENGAGED", int((vdf["verdict"] == "OPERATOR ENGAGED").sum()))
+        c2.metric("Likely (3 of 4)", int((vdf["verdict"] == "LIKELY").sum()))
+        c3.metric("Liquid symbols tested", len(vdf))
+        cols = [c for c in ("symbol", "side", "broker", "share_in", "share_out", "ratio",
+                            "persist_pct", "counterparties", "value_rs") if c in eng.columns]
+        b, sll = eng[eng["side"] == "BUY"], eng[eng["side"] == "SELL"]
+        st.markdown("**🟢 Accumulating**")
+        st.dataframe(b[cols], width="stretch", hide_index=True, height=260)
+        st.markdown("**🔴 Distributing**")
+        st.dataframe(sll[cols], width="stretch", hide_index=True, height=220)
+        st.caption("`ratio` = how many times more of this stock the broker handles than it handles "
+                   "of everything else. CKHL broker 82 runs 0.52% of NEPSE generally and 53% of "
+                   "that one name — 101×. Watch for one broker across several rows: 82 holds CKHL "
+                   "and MKHL, 92 holds NTC/EBL/CHCL/SCB, 38 is distributing MAKAR and SGHC.")
+        st.error("**What the verdict means:** one decision-maker is behind the flow — hundreds of "
+                 "independent retail clients cannot produce a 35× concentration in a single broker "
+                 "while trading many times the market's block rate. **What it does not mean:** "
+                 "anything about motive or direction. A manipulator, a fund building a position "
+                 "and a prop desk are identical here, and none of this predicts price — every "
+                 "predictive version was tested and died (table below).")
+        if st.button("↻ Re-run the operator test", key="ov_run"):
+            run_job("Operator verdict", "operator_verdict.py")
+            st.rerun()
+        st.divider()
+
     ghdr, grows = _tsv("operator_now.txt")
     if grows:
         gdf = pd.DataFrame(grows, columns=ghdr)
