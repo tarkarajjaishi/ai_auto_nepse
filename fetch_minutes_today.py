@@ -48,7 +48,9 @@ def one(kind, name, day):
 
 def run(kind, day):
     names = (MASTER / f"{kind}.txt").read_text(encoding="utf-8").split()
-    with ThreadPoolExecutor(8) as pool:
+    # one network round-trip per symbol (~346) is the pipeline's biggest cost — it's I/O-wait, not
+    # CPU, so more concurrency ~halves it. 16 is a safe 2× (dial back if chukul rate-limits).
+    with ThreadPoolExecutor(16) as pool:
         for i, line in enumerate(pool.map(lambda n: one(kind, n, day), names), 1):
             print(f"[{i}/{len(names)}] {line}")
 

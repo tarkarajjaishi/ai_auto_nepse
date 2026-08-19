@@ -6,13 +6,13 @@ Everything is read straight from Master_data/*.txt with the standard library; St
 Plotly only draw. No JavaScript is written here — the charting is the library's own.
 """
 
-import os
 import re
 import subprocess
 import sys
+import threading
 import time
 from collections import defaultdict
-from datetime import date as date_cls, timedelta
+from datetime import date as date_cls, datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -21,6 +21,8 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 import naasa
+import swp
+import trade_setup
 from indicators import alma, atr, bollinger, ema, macd, pivots, rsi, sma, structure, trade_levels
 
 MASTER = Path(__file__).parent / "Master_data"
@@ -161,7 +163,38 @@ st.markdown("""
   section[data-testid="stMain"] div[data-testid="stVerticalBlock"] { min-height: 0; }
   /* basis 0, not auto: with auto the chart is sized from its own content and the
      column gaps above it are never subtracted, so it overshoots the fold. */
-  .st-key-mainchart { flex: 1 1 0 !important; }
+  .st-key-mainchart { flex: 1 1 0 !important;
+      border: none !important; background: transparent !important; padding: 0 !important; }
+
+  /* Cron "job running" animation — an indeterminate sliding bar + pulsing label */
+  .cron-run { position: relative; height: 7px; border-radius: 4px; overflow: hidden;
+      background: #232833; margin: 6px 0 2px; }
+  .cron-run::before { content: ''; position: absolute; top: 0; left: -45%; width: 45%; height: 100%;
+      border-radius: 4px; background: linear-gradient(90deg, transparent, #ff6b5b 55%, #ffd0c8, transparent);
+      animation: cronSlide 1.05s cubic-bezier(.4,0,.2,1) infinite; }
+  @keyframes cronSlide { 0% { left: -45%; } 100% { left: 100%; } }
+  .cron-run-lbl { color: #ff8f80; font-weight: 600; font-size: .9rem; }
+  .cron-run-lbl::after { content: '…'; animation: cronDots 1.2s steps(4,end) infinite; }
+  @keyframes cronDots { 0%,20%{content:'';} 40%{content:'.';} 60%{content:'..';} 80%,100%{content:'...';} }
+
+  /* Cron schedule = a centered vertical flowchart: title → ↓ → time box, nodes joined by arrows */
+  .cron-job-title { font-weight: 700; font-size: 1.02rem; color: #F2F4F7; text-align: center; }
+  .cron-job-sub { color: #8A93A5; font-size: .74rem; text-align: center; margin-bottom: 3px;
+      font-variant-numeric: tabular-nums; }
+  .cron-arrow { text-align: center; font-size: 1.7rem; line-height: 1; color: #ff8f80;
+      font-weight: 700; margin: 3px 0; }
+  .cron-timebox-lbl { color: #E6E8EC; font-weight: 600; font-size: .82rem; margin: 2px 0;
+      text-align: center; }
+  .cron-flow-foot { text-align: center; color: #8A93A5; font-size: .76rem; margin-top: 4px; }
+  /* center the chip/add/run buttons' labels inside the narrow flow column */
+  .st-key-cronflow div[data-testid="stButton"] button,
+  .st-key-cronflow_hist div[data-testid="stButton"] button { justify-content: center; }
+  /* pipeline node status highlight + running pulse */
+  .cron-node { border-radius: 10px; padding: 12px 10px; text-align: center; border: 1px solid #0d1117; }
+  .cron-node b { color: #fff; font-size: .98rem; }
+  .cron-node span { color: #e6e8ec; font-size: .72rem; opacity: .85; }
+  .cron-node-running { animation: cronPulse 1s ease-in-out infinite; }
+  @keyframes cronPulse { 0%,100% { opacity: 1; } 50% { opacity: .62; } }
 
   /* resolution toolbar — flat TradingView pills, not Streamlit's chunky buttons */
   div[data-testid="stSegmentedControl"] button { background: transparent; border: none;
@@ -295,6 +328,602 @@ def archive_state():
     return out
 
 
+def operator_scan():
+    path = MASTER / "operator_scan.txt"
+    if not path.exists():
+        return []
+    return read_operator_scan(str(path), path.stat().st_mtime)
+
+
+@st.cache_data(show_spinner=False)
+def read_operator_scan(path, mtime):
+    lines = Path(path).read_text(encoding="utf-8").splitlines()
+    if len(lines) < 2:
+        return []
+    cols = lines[0].split("	")
+    return [dict(zip(cols, l.split("	"))) for l in lines[1:] if l.strip()]
+
+
+def broker_ledger(symbol, broker):
+    """One broker's daily bought/sold/net in a stock — for the day-by-day operator breakdown."""
+    path = MASTER / "broker_flow" / f"{symbol.replace('/', '-')}.txt"
+    if not path.exists():
+        return []
+    return read_broker_ledger(str(path), path.stat().st_mtime, broker)
+
+
+@st.cache_data(show_spinner=False)
+def read_broker_ledger(path, mtime, broker):
+    out = []
+    lines = Path(path).read_text(encoding="utf-8").splitlines()
+    for line in lines[max(1, len(lines) - 12000):]:
+        f = line.split("	")
+        if len(f) >= 5 and f[1] == broker:
+            out.append((f[0], float(f[2]), float(f[3]), float(f[4])))   # date, bought, sold, net
+    return out          # oldest .. newest
+
+
+@st.cache_data(show_spinner=False)
+def _read_trade_setup(path, mtime, symbol):
+    return trade_setup.setup(symbol)
+
+
+def get_trade_setup(symbol):
+    """Technical A+ setup (score, signal, entry/T1/T2/SL) for a symbol, cached on its 1D mtime."""
+    p = MASTER / "symbols" / symbol.replace("/", "-") / "1D.txt"
+    if not p.exists():
+        return None
+    return _read_trade_setup(str(p), p.stat().st_mtime, symbol)
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def live_snapshot(symbol):
+    """NAASA's public quote for one symbol (no login), cached 15s so redraws don't refetch."""
+    try:
+        return naasa.quotes([symbol]).get(symbol.replace("/", "-")) or {}
+    except Exception:
+        return {}
+
+
+@st.cache_resource(show_spinner=False)
+def naasa_feed():
+    """Server-wide NAASA live socket. A daemon thread that logs in, holds the socket, and keeps
+    {symbol: {field: value}} fresh — ALWAYS ON (want=True) so live data is always available; it
+    idles only when no login is saved. Survives Streamlit reruns. ONE NAASA session per account —
+    this holds it, so a browser tab logged in as the same account gets evicted (use a dedicated
+    feed account to avoid that). `subs` is updated to the symbol currently being viewed."""
+    state = {"snap": {}, "want": True, "subs": ("NEPSE", "SENSIND"), "status": "off",
+             "err": "", "lock": threading.Lock()}
+
+    def on_tick(rec):
+        with state["lock"]:
+            d = state["snap"].setdefault(rec["symbol"], {})
+            d.update(rec["fields"]); d["_t"] = rec.get("time", "")
+
+    def loop():
+        while True:
+            if not state["want"]:
+                state["status"] = "off"; time.sleep(0.4); continue
+            em, pw = naasa.load_credentials()
+            if not (em and pw):
+                state["status"] = "no login saved"; state["want"] = False; continue
+            subs = state["subs"]
+            try:
+                state["status"] = "live"; state["err"] = ""
+                naasa.stream_ticks(em, pw, list(subs), on_tick,
+                                   stop=lambda: (not state["want"]) or state["subs"] != subs)
+            except Exception as e:
+                state["err"] = str(e)[:110]; state["status"] = "reconnecting"; time.sleep(4)
+
+    threading.Thread(target=loop, daemon=True).start()
+    return state
+
+
+def render_socket_depth(symbol, feed):
+    """Live quote + best bid/ask for `symbol` straight off NAASA's socket snapshot (sub-second)."""
+    with feed["lock"]:
+        q = dict(feed["snap"].get(symbol, {}))
+    status, scol = market_status()
+    def n(x):
+        try: return f"{float(x):,.2f}"
+        except (TypeError, ValueError): return "–"
+    def n0(x):
+        try: return f"{float(x):,.0f}"
+        except (TypeError, ValueError): return "–"
+    lp, pc = q.get("LTP"), q.get("Close")
+    try: chp = (float(lp) - float(pc)) / float(pc) * 100
+    except (TypeError, ValueError, ZeroDivisionError): chp = 0.0
+    col = "#3fb950" if chp >= 0 else "#f85149"
+    st.markdown("<hr style='margin:16px 0 8px;border:none;border-top:1px solid #2b3240'>", unsafe_allow_html=True)
+    st.markdown(
+        "<div style='display:flex;align-items:center;gap:12px;flex-wrap:wrap'>"
+        "<span style='font-weight:700;font-size:1.03em'>🔴 Live socket feed</span>"
+        f"<span style='background:{scol};color:#0d1117;font-weight:700;padding:1px 9px;"
+        f"border-radius:5px;font-size:0.82em'>{status}</span>"
+        f"<span style='color:#8a93a5'>{symbol} · LTP <b style='color:{col}'>{n(lp)}</b> "
+        f"({chp:+.2f}%) · feed {feed['status']}</span></div>", unsafe_allow_html=True)
+    if not q:
+        err = feed["err"]
+        evicted = feed["status"] in ("reconnecting", "off") or "time" in err.lower()
+        st.warning(
+            f"No live ticks yet — feed status: **{feed['status']}**"
+            + (f" · {err}" if err else "")
+            + (".\n\nMost likely your NAASA session is being held by a **browser tab on the same "
+               "account**. NAASA allows one live session per account, so the server socket and your "
+               "browser keep evicting each other. Fix: either **close your NAASA browser tabs**, or "
+               "sign the server feed in with a **dedicated feed account** (a different login than the "
+               "one you trade from)." if evicted else "."))
+        return
+
+    def f(x):
+        try: return float(x)
+        except (TypeError, ValueError): return None
+    levels = q.get("depth", [])
+
+    def ladder(title, bg, order_first):
+        cols = ("Order", "Qty", "Price") if order_first else ("Price", "Qty", "Order")
+        head = "".join(f"<th style='padding:3px 8px;text-align:right;color:#8a93a5'>{c}</th>" for c in cols)
+        body, tot = "", 0.0
+        for i in range(5):
+            if i < len(levels):
+                l = levels[i]
+                if order_first:
+                    cells = (n0(l.get("BuyOrders")), n0(l.get("BuyQty")), n(l.get("BuyRate")))
+                    tot += f(l.get("BuyQty")) or 0
+                else:
+                    cells = (n(l.get("SellRate")), n0(l.get("SellQty")), n0(l.get("SellOrders")))
+                    tot += f(l.get("SellQty")) or 0
+            else:
+                cells = ("–", "–", "–")
+            body += "<tr>" + "".join(f"<td style='padding:3px 8px;text-align:right'>{c}</td>" for c in cells) + "</tr>"
+        foot = (f"<td style='padding:3px 8px;color:#8a93a5'>Total</td>"
+                f"<td style='padding:3px 8px;text-align:right;font-weight:700'>{n0(tot)}</td><td></td>")
+        return (f"<div style='border:1px solid #2b3240;border-radius:6px;overflow:hidden'>"
+                f"<div style='background:{bg};color:#fff;text-align:center;font-weight:700;padding:4px'>{title}</div>"
+                f"<table style='width:100%;border-collapse:collapse;font-size:0.86em'><tr>{head}</tr>{body}"
+                f"<tr style='border-top:1px solid #2b3240'>{foot}</tr></table></div>")
+
+    vol, avg = f(q.get("TTQ")), f(q.get("WeightedAverage"))
+    turnover = vol * avg if (vol is not None and avg is not None) else None   # VWAP × volume
+    info = ("<div style='border:1px solid #2b3240;border-radius:6px;overflow:hidden'>"
+            "<div style='background:#123;color:#7fd1e0;text-align:center;font-weight:700;padding:4px'>"
+            "Stock Information</div><table style='width:100%;border-collapse:collapse;font-size:0.86em'>")
+    for k, v in (("Avg Price", n(avg)), ("D.High", n(q.get("High"))), ("D.Low", n(q.get("Low"))),
+                 ("P.Close", n(q.get("Close"))), ("Volume", n0(vol)), ("Turnover", n0(turnover))):
+        info += (f"<tr><td style='padding:3px 8px;color:#8a93a5'>{k}</td>"
+                 f"<td style='padding:3px 8px;text-align:right;font-weight:600'>{v}</td></tr>")
+    info += "</table></div>"
+
+    c1, c2, c3 = st.columns(3)
+    c1.markdown(ladder("TOP 5 BUY", "#0d3b2e", True), unsafe_allow_html=True)
+    c2.markdown(ladder("TOP 5 SELL", "#3b1d0d", False), unsafe_allow_html=True)
+    c3.markdown(info, unsafe_allow_html=True)
+    st.caption(f"🔴 Real-time from NAASA's WebSocket (x:8006), sub-second · last tick {q.get('_t','—')}.")
+
+
+NPT = timezone(timedelta(hours=5, minutes=45))
+
+
+def market_status():
+    """NEPSE session right now in Nepal time — PRE-OPEN 10:30–10:45 (orders can be entered),
+    PRE-OPEN CLOSE 10:46–10:59 (matching, no new entry), LIVE 11:00–15:00, else CLOSED — and
+    CLOSED all day Fri/Sat, when NEPSE is shut."""
+    now = datetime.now(NPT)
+    mins = now.hour * 60 + now.minute
+    if now.weekday() in (4, 5):          # Fri, Sat
+        return "CLOSED", "#8a93a5"
+    if 630 <= mins < 646:                # 10:30–10:45
+        return "PRE-OPEN", "#e3a008"
+    if 646 <= mins < 660:                # 10:46–10:59
+        return "PRE-OPEN CLOSE", "#d2691e"
+    if 660 <= mins < 900:                # 11:00–15:00
+        return "LIVE", "#3fb950"
+    return "CLOSED", "#8a93a5"
+
+
+def render_market_depth(symbol):
+    """Live market snapshot — NAASA's public quote (no login). The full Top-5 ladder streams
+    only over their signed-in socket, so over REST we show best bid/ask + the day's stock stats.
+    One quote, cached 15s, so a page full of cards stays cheap."""
+    q = live_snapshot(symbol)
+    status, scol = market_status()
+    def n(x): return f"{x:,.2f}" if isinstance(x, (int, float)) else "–"
+    def n0(x): return f"{x:,.0f}" if isinstance(x, (int, float)) else "–"
+    lp, chp = q.get("lp"), q.get("chp") or 0
+    col = "#3fb950" if (chp or 0) >= 0 else "#f85149"
+    st.markdown("<hr style='margin:16px 0 8px;border:none;border-top:1px solid #2b3240'>",
+                unsafe_allow_html=True)
+    st.markdown(
+        "<div style='display:flex;align-items:center;gap:12px;flex-wrap:wrap'>"
+        "<span style='font-weight:700;font-size:1.03em'>📊 Live market depth</span>"
+        f"<span style='background:{scol};color:#0d1117;font-weight:700;padding:1px 9px;"
+        f"border-radius:5px;font-size:0.82em'>{status}</span>"
+        f"<span style='color:#8a93a5'>{symbol} · LTP <b style='color:{col}'>{n(lp)}</b> "
+        f"({chp:+.2f}%)</span></div>", unsafe_allow_html=True)
+
+    def ladder(title, head_bg, price, side):
+        cols = ("Order", "Qty", "Price") if side == "buy" else ("Price", "Qty", "Order")
+        head = "".join(f"<th style='padding:3px 8px;text-align:right;color:#8a93a5'>{c}</th>"
+                       for c in cols)
+        body = ""
+        for i in range(5):
+            cells = ["–", "–", "–"]
+            if i == 0:
+                cells = ["–", "–", n(price)] if side == "buy" else [n(price), "–", "–"]
+            body += "<tr>" + "".join(f"<td style='padding:3px 8px;text-align:right'>{c}</td>"
+                                     for c in cells) + "</tr>"
+        return (f"<div style='border:1px solid #2b3240;border-radius:6px;overflow:hidden'>"
+                f"<div style='background:{head_bg};color:#fff;text-align:center;font-weight:700;"
+                f"padding:4px'>{title}</div><table style='width:100%;border-collapse:collapse;"
+                f"font-size:0.86em'><tr>{head}</tr>{body}</table></div>")
+
+    info = ("<div style='border:1px solid #2b3240;border-radius:6px;overflow:hidden'>"
+            "<div style='background:#123;color:#7fd1e0;text-align:center;font-weight:700;"
+            "padding:4px'>Stock Information</div><table style='width:100%;"
+            "border-collapse:collapse;font-size:0.86em'>")
+    for k, v in (("Open", n(q.get("open"))), ("D.High", n(q.get("high"))),
+                 ("D.Low", n(q.get("low"))), ("P.Close", n(q.get("prev_close"))),
+                 ("Volume", n0(q.get("volume")))):
+        info += (f"<tr><td style='padding:3px 8px;color:#8a93a5'>{k}</td>"
+                 f"<td style='padding:3px 8px;text-align:right;font-weight:600'>{v}</td></tr>")
+    info += "</table></div>"
+
+    c1, c2, c3 = st.columns(3)
+    c1.markdown(ladder("TOP 5 BUY", "#0d3b2e", q.get("bid"), "buy"), unsafe_allow_html=True)
+    c2.markdown(ladder("TOP 5 SELL", "#3b1d0d", q.get("ask"), "sell"), unsafe_allow_html=True)
+    c3.markdown(info, unsafe_allow_html=True)
+    st.caption("Best bid/ask + day stats from NAASA's public feed (cached 15s). The full Top-5 "
+               "ladder, average price and turnover stream only over NAASA's signed-in socket. "
+               "NEPSE pre-open is 10:30–10:45 — you can queue orders before the open.")
+
+
+def render_live_depth(symbol):
+    """Full live Top-5 ladder + stock stats from NAASA's authed feed (GetMDepth +
+    GetSpecifiedQuote) — the exact numbers on NAASA's order screen. Falls back to the public
+    best bid/ask (render_market_depth) when signed out or the feed can't be reached."""
+    if not st.session_state.get("naasa_who"):
+        render_market_depth(symbol)
+        return
+    try:
+        depth = naasa_authed(lambda c: naasa.market_depth(c, symbol))
+        quote = naasa_authed(lambda c: naasa.market_quote(c, symbol))
+    except Exception:
+        # The full Top-5 feed needs NAASA's in-app socket session, which a server can't hold;
+        # the public best bid/ask + day stats still work, so fall back to them quietly.
+        render_market_depth(symbol)
+        return
+
+    status, scol = market_status()
+    def n(x): return f"{x:,.2f}" if isinstance(x, (int, float)) else "–"
+    def n0(x): return f"{x:,.0f}" if isinstance(x, (int, float)) else "–"
+    lp, pc = quote.get("LTP"), quote.get("PreviousClose")
+    chp = (lp - pc) / pc * 100 if isinstance(lp, (int, float)) and isinstance(pc, (int, float)) and pc else 0
+    col = "#3fb950" if chp >= 0 else "#f85149"
+    st.markdown("<hr style='margin:16px 0 8px;border:none;border-top:1px solid #2b3240'>",
+                unsafe_allow_html=True)
+    st.markdown(
+        "<div style='display:flex;align-items:center;gap:12px;flex-wrap:wrap'>"
+        "<span style='font-weight:700;font-size:1.03em'>📊 Live market depth</span>"
+        f"<span style='background:{scol};color:#0d1117;font-weight:700;padding:1px 9px;"
+        f"border-radius:5px;font-size:0.82em'>{status}</span>"
+        f"<span style='color:#8a93a5'>{symbol} · LTP <b style='color:{col}'>{n(lp)}</b> "
+        f"({chp:+.2f}%)</span></div>", unsafe_allow_html=True)
+
+    levels = depth.get("levels", [])
+    def ladder(title, bg, order_first):
+        cols = ("Order", "Qty", "Price") if order_first else ("Price", "Qty", "Order")
+        head = "".join(f"<th style='padding:3px 8px;text-align:right;color:#8a93a5'>{c}</th>" for c in cols)
+        body, tot = "", 0
+        for i in range(5):
+            if i < len(levels):
+                l = levels[i]
+                if order_first:
+                    cells, tot = (n0(l["bid_orders"]), n0(l["bid_qty"]), n(l["bid_price"])), tot + (l["bid_qty"] or 0)
+                else:
+                    cells, tot = (n(l["ask_price"]), n0(l["ask_qty"]), n0(l["ask_orders"])), tot + (l["ask_qty"] or 0)
+            else:
+                cells = ("–", "–", "–")
+            body += "<tr>" + "".join(f"<td style='padding:3px 8px;text-align:right'>{c}</td>" for c in cells) + "</tr>"
+        foot = (f"<td style='padding:3px 8px;color:#8a93a5'>Total</td>"
+                f"<td style='padding:3px 8px;text-align:right;font-weight:700'>{n0(tot)}</td><td></td>")
+        return (f"<div style='border:1px solid #2b3240;border-radius:6px;overflow:hidden'>"
+                f"<div style='background:{bg};color:#fff;text-align:center;font-weight:700;padding:4px'>{title}</div>"
+                f"<table style='width:100%;border-collapse:collapse;font-size:0.86em'><tr>{head}</tr>{body}"
+                f"<tr style='border-top:1px solid #2b3240'>{foot}</tr></table></div>")
+
+    info = ("<div style='border:1px solid #2b3240;border-radius:6px;overflow:hidden'>"
+            "<div style='background:#123;color:#7fd1e0;text-align:center;font-weight:700;padding:4px'>"
+            "Stock Information</div><table style='width:100%;border-collapse:collapse;font-size:0.86em'>")
+    for k, v in (("Avg Price", n(quote.get("WeightedAverage"))), ("D.High", n(quote.get("High"))),
+                 ("D.Low", n(quote.get("Low"))), ("P.Close", n(quote.get("PreviousClose"))),
+                 ("Volume", n0(quote.get("Volume"))), ("Turnover", n0(quote.get("Turnover")))):
+        info += (f"<tr><td style='padding:3px 8px;color:#8a93a5'>{k}</td>"
+                 f"<td style='padding:3px 8px;text-align:right;font-weight:600'>{v}</td></tr>")
+    info += "</table></div>"
+
+    c1, c2, c3 = st.columns(3)
+    c1.markdown(ladder("TOP 5 BUY", "#0d3b2e", True), unsafe_allow_html=True)
+    c2.markdown(ladder("TOP 5 SELL", "#3b1d0d", False), unsafe_allow_html=True)
+    c3.markdown(info, unsafe_allow_html=True)
+    st.caption(f"Exact live feed from NAASA (GetMDepth + GetSpecifiedQuote) · as of {depth.get('time','—')}.")
+
+
+@st.cache_data(ttl=8, show_spinner=False)
+def indices_snapshot():
+    """NEPSE index quotes from NAASA (batched SpecifiedQuote) — works live AND while closed.
+    Cached 8s so the sidebar + heatmap page share one fetch. [] when signed out / unreachable."""
+    em, pw = naasa.load_credentials()
+    if not (em and pw):
+        return []
+    try:
+        return naasa.x_indices(em, pw)
+    except Exception:
+        return []
+
+
+def _idx_change(r):
+    """(%change, ltp, close) for an index row; %Change is blank in the payload so compute it."""
+    try:
+        lp, cl = float(r.get("LTP")), float(r.get("Close"))
+        return ((lp - cl) / cl * 100 if cl else 0.0), lp, cl
+    except (TypeError, ValueError):
+        return 0.0, None, None
+
+
+def render_index_table(rows, compact=False):
+    """NEPSE index watchlist table — SYMBOL, LTP, High, Low, Open, Close, %Change."""
+    if not rows:
+        st.caption("Sign in under 🔐 **NAASA account** (with Remember me) to load NEPSE indices.")
+        return
+    def n(x):
+        try: return f"{float(x):,.2f}"
+        except (TypeError, ValueError): return "–"
+    pad = "2px 6px" if compact else "4px 10px"
+    fs = "0.78em" if compact else "0.92em"
+    head = ("<tr style='color:#8a93a5;text-align:right'>"
+            f"<th style='text-align:left;padding:{pad}'>SYMBOL</th><th style='padding:{pad}'>LTP</th>"
+            f"<th style='padding:{pad}'>HIGH</th><th style='padding:{pad}'>LOW</th>"
+            f"<th style='padding:{pad}'>OPEN</th><th style='padding:{pad}'>CLOSE</th>"
+            f"<th style='padding:{pad}'>%CHG</th></tr>")
+    body = []
+    for r in rows:
+        chg, lp, cl = _idx_change(r)
+        col = "#3fb950" if chg >= 0 else "#f85149"
+        body.append(
+            f"<tr style='text-align:right;border-top:1px solid #20262f'>"
+            f"<td style='text-align:left;padding:{pad};color:{col};font-weight:600'>{r.get('ticker')}</td>"
+            f"<td style='padding:{pad}'>{n(r.get('LTP'))}</td><td style='padding:{pad}'>{n(r.get('High'))}</td>"
+            f"<td style='padding:{pad}'>{n(r.get('Low'))}</td><td style='padding:{pad}'>{n(r.get('Open'))}</td>"
+            f"<td style='padding:{pad}'>{n(r.get('Close'))}</td>"
+            f"<td style='padding:{pad};color:{col};font-weight:600'>{chg:+.2f}%</td></tr>")
+    st.markdown(f"<div style='overflow-x:auto'><table style='width:100%;border-collapse:collapse;"
+                f"font-size:{fs};white-space:nowrap'>{head}{''.join(body)}</table></div>",
+                unsafe_allow_html=True)
+
+
+def render_index_heatmap(rows):
+    """Our own NEPSE index heatmap — one tile per index, coloured by %change (diverging red→green),
+    labelled with symbol, LTP and %change. Built from the same NAASA snapshot as the table."""
+    if not rows:
+        st.info("Sign in under 🔐 NAASA account (with Remember me) to load the heatmap.")
+        return
+    labels, changes, ltps = [], [], []
+    for r in rows:
+        chg, lp, cl = _idx_change(r)
+        labels.append(f"<b>{r.get('ticker')}</b><br>{lp:,.2f}<br>{chg:+.2f}%" if lp is not None
+                      else f"<b>{r.get('ticker')}</b>")
+        changes.append(chg)
+        ltps.append(lp or 0)
+    fig = go.Figure(go.Treemap(
+        labels=labels, parents=[""] * len(labels), values=[1] * len(labels),
+        marker=dict(colors=[_hm_color(c) for c in changes], cornerradius=6,
+                    line=dict(width=2, color="#0d1117")),
+        text=labels, textinfo="text", textfont=dict(size=15, color="white"),
+        textposition="middle center", hovertemplate="%{label}<extra></extra>", tiling=dict(pad=3)))
+    fig.update_layout(margin=dict(t=0, l=0, r=0, b=0),
+                      paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+    st.plotly_chart(fig, height="stretch", config={"displayModeBar": False})
+
+
+# --- NEPSE stock heatmap (sector-grouped, like nepsetrading) -----------------------------------
+# Non-equity buckets NAASA's SectorStock lumps in — kept out of the equity heatmap.
+_HM_EXCLUDE = {"", "Promotor Share", "Corporate Debenture", "Government Bond", "Mutual Fund"}
+_SECTOR_NAME = {"Development Bank Limited": "Development Banks"}
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _sector_map():
+    """Stock→sector membership (static-ish) — cached an hour."""
+    em, pw = naasa.load_credentials()
+    if not (em and pw):
+        return []
+    try:
+        return naasa.heatmap_sectors(em, pw)
+    except Exception:
+        return []
+
+
+@st.cache_data(ttl=20, show_spinner=False)
+def stock_heatmap_rows():
+    """Every equity + its sector + live quote, for the sector-grouped heatmap. Batched quotes
+    (works while closed). [{stock, sector, ltp, chg, turnover}], only rows with a price."""
+    em, pw = naasa.load_credentials()
+    if not (em and pw):
+        return []
+    pairs = [(r["stock"], _SECTOR_NAME.get(r["sector"], r["sector"]))
+             for r in _sector_map()
+             if r.get("stock") and r.get("sector") and r["sector"] not in _HM_EXCLUDE]
+    sector = dict(pairs)
+    tickers = list(sector)
+    quotes = {}
+    for i in range(0, len(tickers), 150):                 # NAASA batches ~150/call fine
+        try:
+            for q in naasa.x_quotes(em, pw, tickers[i:i + 150]):
+                quotes[q.get("ticker")] = q
+        except Exception:
+            pass
+    out = []
+    for s in tickers:
+        q = quotes.get(s)
+        if not q or not q.get("LTP"):
+            continue
+        try:
+            lp, cl = float(q["LTP"]), float(q.get("Close") or 0)
+        except (TypeError, ValueError):
+            continue
+        out.append({"stock": s, "sector": sector[s], "ltp": lp,
+                    "chg": (lp - cl) / cl * 100 if cl else 0.0,
+                    "turnover": float(q.get("Volume") or 0)})
+    return out
+
+
+_HM_BUCKETS = [("≤ -2%", "#8b1a1a"), ("-1%", "#c0392b"), ("-0%", "#e0736a"), ("0%", "#5b6472"),
+               ("+0%", "#5bbf7a"), ("+1%", "#27ae60"), ("≥ +2%", "#1c8b45")]
+
+
+def _hm_color(chg):
+    """Discrete red→gray→green bucket for a %change, matching the nepsetrading legend."""
+    if chg <= -2:   return "#8b1a1a"
+    if chg <= -1:   return "#c0392b"
+    if chg < -0.05: return "#e0736a"
+    if chg <= 0.05: return "#5b6472"
+    if chg < 1:     return "#5bbf7a"
+    if chg < 2:     return "#27ae60"
+    return "#1c8b45"
+
+
+def heatmap_legend():
+    """Compact horizontal colour-bucket legend (shown on every heatmap view)."""
+    chips = "".join(
+        f"<span style='display:inline-flex;align-items:center;gap:4px;margin-right:9px'>"
+        f"<span style='width:13px;height:13px;border-radius:4px;background:{c};display:inline-block'></span>"
+        f"<span style='color:#8a93a5;font-size:0.74em'>{lab}</span></span>" for lab, c in _HM_BUCKETS)
+    st.markdown(f"<div style='display:flex;flex-wrap:wrap;align-items:center;gap:2px'>{chips}</div>",
+                unsafe_allow_html=True)
+
+
+def render_index_ribbon(rows):
+    """One-line NEPSE + sector-index pills — the 'indices below' strip under the heatmap."""
+    if not rows:
+        return
+    pills = []
+    for r in rows:
+        chg, _, _ = _idx_change(r)
+        col = "#3fb950" if chg >= 0 else "#f85149"
+        pills.append(
+            "<span style='background:#161b22;border:1px solid #2b3240;border-radius:14px;"
+            "padding:2px 10px;font-size:0.78em;white-space:nowrap'>"
+            f"<b>{r.get('ticker')}</b> <span style='color:{col}'>{chg:+.2f}%</span></span>")
+    st.markdown(f"<div style='display:flex;flex-wrap:wrap;gap:5px;padding-top:6px'>{''.join(pills)}</div>",
+                unsafe_allow_html=True)
+
+
+# Sector → NEPSE sector-index ticker, so each sector tile is coloured by its official index move.
+_SECTOR_INDEX = {
+    "Hydro Power": "HYDPOWIND", "Commercial Banks": "BANKSUBIND",
+    "Manufacturing And Processing": "MANPROCIND", "Microfinance": "MICRFININD",
+    "Investment": "INVIDX", "Life Insurance": "LIFINSIND", "Non-Life Insurance": "NONLIFIND",
+    "Hotels And Tourism": "HOTELIND", "Others": "OTHERSIND", "Development Banks": "DEVBANKIND",
+    "Finance": "FININD", "Tradings": "TRADIND",
+}
+
+
+def render_stock_heatmap(rows):
+    """Sector-grouped NEPSE heatmap that DRILLS: the first view is NEPSE + the sector tiles
+    (coloured by each sector's index move); click a sector to reveal its symbols; symbols are
+    leaves (no further click). Symbol tiles are sized by turnover, coloured by today's %change."""
+    if not rows:
+        st.info("Sign in under 🔐 NAASA account (with Remember me) to load the heatmap.")
+        return
+    idx_chg = {r.get("ticker"): _idx_change(r)[0] for r in indices_snapshot()}
+    sectors = sorted({r["sector"] for r in rows})
+    sec_size = {s: 0.0 for s in sectors}
+    for r in rows:
+        r["_size"] = max(r["turnover"], 1e5)              # floor so untraded scrips stay visible
+        sec_size[r["sector"]] += r["_size"]
+
+    def sector_chg(s):
+        tkr = _SECTOR_INDEX.get(s)
+        if tkr and tkr in idx_chg:
+            return idx_chg[tkr]                           # official sector-index move
+        tot = sec_size[s] or 1                            # else turnover-weighted average
+        return sum(r["chg"] * r["_size"] for r in rows if r["sector"] == s) / tot
+    sec_chg = {s: sector_chg(s) for s in sectors}
+    nepse_chg = idx_chg.get("NEPSE", 0.0)
+    # Compress sector areas with a square root so a heavy sector (Hydro Power's 111 scrips) can't
+    # dwarf the rest — every sector stays clearly visible. Stocks stay proportional to turnover
+    # WITHIN their sector (value = size / √sector_total → each sector sums to √sector_total).
+    sec_val = {s: sec_size[s] ** 0.5 for s in sectors}
+    for r in rows:
+        r["_val"] = r["_size"] / (sec_size[r["sector"]] ** 0.5)
+    nepse_size = sorted(sec_val.values())[len(sec_val) // 2] if sec_val else 1.0  # a median-sized tile
+
+    ids = ["idx::NEPSE"] + ["sec::" + s for s in sectors] + ["stk::" + r["stock"] for r in rows]
+    labels = ["NEPSE"] + list(sectors) + [r["stock"] for r in rows]
+    parents = [""] + [""] * len(sectors) + ["sec::" + r["sector"] for r in rows]
+    values = [nepse_size] + [sec_val[s] for s in sectors] + [r["_val"] for r in rows]
+    colors = ([_hm_color(nepse_chg)] + [_hm_color(sec_chg[s]) for s in sectors]
+              + [_hm_color(r["chg"]) for r in rows])
+    text = ([f"<b>NEPSE</b><br>{nepse_chg:+.2f}%"]
+            + [f"<b>{s}</b><br>{sec_chg[s]:+.2f}%" for s in sectors]
+            + [f"{r['stock']}<br>{r['chg']:+.2f}%" for r in rows])
+
+    fig = go.Figure(go.Treemap(
+        ids=ids, labels=labels, parents=parents, values=values, text=text, textinfo="text",
+        marker=dict(colors=colors, cornerradius=6, line=dict(width=2, color="#0d1117")),
+        branchvalues="total", maxdepth=1, tiling=dict(pad=3), sort=True,
+        pathbar=dict(visible=False),          # no empty breadcrumb strip; click a sector's header to go back
+        hovertemplate="%{label}<extra></extra>", textfont=dict(size=13, color="white"),
+        textposition="middle center"))
+    fig.update_layout(margin=dict(t=0, l=0, r=0, b=0),
+                      paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+    st.plotly_chart(fig, height="stretch", config={"displayModeBar": False})
+
+
+def _first_table(payload):
+    """The first list-of-dicts found anywhere in a JSON response — the rows to display. The
+    report endpoint's exact envelope is not documented, so pull the rows out wherever they sit."""
+    if isinstance(payload, list):
+        return payload if payload and isinstance(payload[0], dict) else []
+    if isinstance(payload, dict):
+        for v in payload.values():
+            if isinstance(v, list) and v and isinstance(v[0], dict):
+                return v
+        for v in payload.values():
+            found = _first_table(v)
+            if found:
+                return found
+    return []
+
+
+def naasa_authed(call):
+    """Run call(cookie) against NAASA; on a superseded-session 400 ('Missing sessionNo'),
+    re-login once when the password is remembered and retry, so our login reclaims the active
+    session. Raises if it cannot recover."""
+    cookie = st.session_state.get("naasa_cookie")
+    try:
+        return call(cookie)
+    except Exception as e:
+        em, pw = naasa.load_credentials()
+        if em and pw and ("sessionNo" in str(e) or str(e).startswith("400")):
+            cookie = naasa.login_password(em, pw)          # our login becomes the active session
+            naasa.save_session(cookie)
+            st.session_state["naasa_cookie"] = cookie
+            return call(cookie)
+        raise
+
+
+def _dash_fields(payload):
+    """Flatten dashboard-details `Data` (a list of one-row groups) into one {field: value},
+    so any metric can be looked up by name regardless of which group it sits in."""
+    out = {}
+    for group in (payload.get("Data") or []):
+        row = group[0] if isinstance(group, list) and group else (group if isinstance(group, dict) else None)
+        if isinstance(row, dict):
+            out.update(row)
+    return out
+
+
 def spike_screen():
     """Rows of Master_data/volume_spike.txt, or [] when volume_spike.py has not run."""
     path = MASTER / "volume_spike.txt"
@@ -314,21 +943,183 @@ def read_spike_screen(path, mtime):
 
 
 def run_job(label, script, *args):
-    """Run one fetch script and show its tail. Blocking on purpose — these are manual."""
-    with st.status(f"{label} …", expanded=True) as box:
+    """Run one fetch script and show its tail. Blocking on purpose — these are manual. While the
+    subprocess runs, a sliding-bar animation + pulsing label show the job is working (the CSS
+    animates client-side even though the Streamlit script is blocked here)."""
+    with st.status(f"{label} — running", expanded=True) as box:
+        anim = st.empty()
+        anim.markdown(f"<div class='cron-run-lbl'>⏳ Running <b>{label}</b></div>"
+                      "<div class='cron-run'></div>", unsafe_allow_html=True)
         started = time.time()
         try:
             p = subprocess.run([sys.executable, script, *args], cwd=Path(__file__).parent,
                                capture_output=True, text=True, timeout=7200)
         except (OSError, subprocess.TimeoutExpired) as e:
+            anim.empty()
             box.update(label=f"{label} — failed: {type(e).__name__}", state="error")
             return
+        anim.empty()                   # stop the animation once the job returns
         tail = ((p.stdout or "") + (p.stderr or "")).strip().splitlines()[-12:]
         st.code(chr(10).join(tail) or "(no output)")
         ok = p.returncode == 0
         box.update(label=f"{label} — {'done' if ok else 'FAILED'} in {time.time() - started:,.0f}s",
                    state="complete" if ok else "error")
     st.cache_data.clear()          # the scanner and floorsheet readers cache by argument only
+
+
+def update_service_running():
+    """Is the scheduled systemd job (chukul-update.service) fetching right now? `systemctl is-active`
+    needs no sudo. Returns (running, state); False anywhere systemctl is absent (e.g. local dev)."""
+    try:
+        r = subprocess.run(["systemctl", "is-active", "chukul-update.service"],
+                           capture_output=True, text=True, timeout=5)
+        state = r.stdout.strip()
+        return state in ("active", "activating", "reloading"), state
+    except Exception:
+        return False, ""
+
+
+# ---- in-app cron: three schedulable jobs, times editable in the UI, auto-run at NPT ------------
+# Daily pipeline = only the INCREMENTAL work. fetch_last_session.py already does today's session
+# fully (daily bars + floorsheet + minutes via fetch_minutes_today + broker-flow upsert), so the
+# full-history backfills (fetch_ohlc/fetch_intraday/build_broker_flow) are NOT here — they re-walk
+# the whole archive (~26 min) for no daily benefit and live in the Historical-backfills expander.
+CRON_JOBS = {
+    "symbols": {"label": "Last Traded Data (symbols → today: bars · floorsheet · minutes · broker · signals)",
+                # fetch_symbols first: pull the live NEPSE symbol+index list so newly-listed stocks
+                # are picked up — fetch_last_session then reads that list and upsert_daily makes each
+                # new symbol's folder automatically (no manual paste). If nothing new, the list is
+                # just rewritten unchanged and it moves on.
+                "scripts": ["fetch_symbols.py", "fetch_last_session.py", "scan.py", "volume_spike.py"]},
+    "swp":     {"label": "SmartWealthPro → Operator",   # runs last, so operator has fresh inputs
+                "scripts": ["fetch_swp.py", "operator_scan.py"]},
+}
+
+# Full-archive backfills — a SEPARATE section, run on demand (each re-walks ALL history, slow). NOT
+# in the daily pipeline (fetch_last_session already keeps today current).
+HIST_JOBS = {
+    "chart_hist": {"label": "Chart history — all daily + minute bars",
+                   "scripts": ["fetch_ohlc.py", "fetch_intraday.py"]},
+    "floor_hist": {"label": "Floorsheet history — all dates + broker flow",
+                   "scripts": ["fetch_floorsheet_merolagani.py", "build_broker_flow.py"]},
+}
+_DEFAULT_MASTER = ["15:15"]                     # one master time fires the WHOLE pipeline
+CRON_FILE = MASTER / "cron_schedule.txt"
+CRON_RAN_FILE = MASTER / "cron_ran.txt"        # today's fired keys, so restarts don't re-fire
+CRON_CATCHUP_MIN = 30                           # fire at the time, or catch up within this many min
+
+
+def load_master_times():
+    """Master run times (HH:MM NPT), each firing the whole pipeline. Plain .txt, `master<TAB>HH:MM`
+    (bare `HH:MM` lines also accepted). Falls back to the default the first time."""
+    if not CRON_FILE.exists():
+        return list(_DEFAULT_MASTER)
+    out = []
+    for line in CRON_FILE.read_text(encoding="utf-8").splitlines():
+        p = line.strip().split("\t")
+        t = p[1] if len(p) == 2 and p[0] == "master" else line.strip()
+        if re.match(r"^\d{2}:\d{2}$", t):
+            out.append(t)
+    return out
+
+
+def save_master_times(times):
+    CRON_FILE.parent.mkdir(parents=True, exist_ok=True)
+    CRON_FILE.write_text("\n".join(f"master\t{t}" for t in sorted(set(times))) + "\n", encoding="utf-8")
+
+
+def to_12h(hhmm):
+    """'15:15' → '3:15PM' (stored 24h, shown 12h)."""
+    return datetime.strptime(hhmm, "%H:%M").strftime("%I:%M%p").lstrip("0")
+
+
+@st.cache_resource(show_spinner=False)
+def cron_scheduler():
+    """Server-wide scheduler thread + a SEQUENTIAL pipeline. One master time (or the ▶ Run-all
+    button) fires the whole pipeline, which runs the jobs strictly one-by-one — a job's next script
+    starts only after the previous finished, and the next JOB starts only after the previous job is
+    done. Per-job status (idle/pending/running/done/failed) drives the colour highlights. Fired keys
+    persist to a .txt so a redeploy doesn't re-fire. Skips Fri/Sat. Survives Streamlit reruns."""
+    def load_ran():
+        try:
+            return set(CRON_RAN_FILE.read_text(encoding="utf-8").split())
+        except Exception:
+            return set()
+    state = {"running": None, "status": {j: "idle" for j in CRON_JOBS}, "last": None,
+             "log": {}, "ran": load_ran(), "lock": threading.Lock(),
+             "hist_status": {j: "idle" for j in HIST_JOBS}, "hist_last": {}}
+
+    def mark_ran(key, today):
+        state["ran"].add(key)
+        try:                                       # keep only today's keys, so the file stays tiny
+            CRON_RAN_FILE.write_text(
+                "\n".join(sorted(k for k in state["ran"] if k.endswith(today))) + "\n", "utf-8")
+        except Exception:
+            pass
+
+    def run_pipeline():
+        with state["lock"]:                        # one pipeline at a time
+            if state["running"] is not None:
+                return
+            state["running"] = "start"
+            for j in CRON_JOBS:
+                state["status"][j] = "pending"
+        for job, cfg in CRON_JOBS.items():         # strict one-by-one
+            state["running"] = job
+            state["status"][job] = "running"
+            outs, ok = [], True
+            for script in cfg["scripts"]:          # each script fully finishes before the next
+                try:
+                    p = subprocess.run([sys.executable, script], cwd=Path(__file__).parent,
+                                       capture_output=True, text=True, timeout=7200)
+                    ok = ok and (p.returncode == 0)
+                    outs.append(f"{script} {'ok' if p.returncode == 0 else 'FAIL'}")
+                except Exception as e:
+                    ok = False
+                    outs.append(f"{script} {type(e).__name__}")
+            state["status"][job] = "done" if ok else "failed"
+            state["log"][job] = " · ".join(outs)
+        state["running"] = None
+        state["last"] = datetime.now(NPT).strftime("%Y-%m-%d %H:%M")
+
+    state["run"] = run_pipeline                    # exposed so the ▶ Run-all button can start it
+
+    def run_hist(job):                             # one full-archive backfill, in the background
+        if state["hist_status"].get(job) == "running":
+            return
+        state["hist_status"][job] = "running"
+        ok = True
+        for script in HIST_JOBS[job]["scripts"]:
+            try:
+                p = subprocess.run([sys.executable, script], cwd=Path(__file__).parent,
+                                   capture_output=True, text=True, timeout=36000)
+                ok = ok and (p.returncode == 0)
+            except Exception:
+                ok = False
+        state["hist_status"][job] = "done" if ok else "failed"
+        state["hist_last"][job] = datetime.now(NPT).strftime("%Y-%m-%d %H:%M")
+
+    state["run_hist"] = run_hist
+
+    def loop():
+        while True:
+            now = datetime.now(NPT)
+            today, weekend = now.strftime("%Y-%m-%d"), now.weekday() in (4, 5)
+            now_min = now.hour * 60 + now.minute
+            for t in load_master_times():
+                key = f"master@{t}@{today}"
+                try:
+                    due = now_min - (int(t[:2]) * 60 + int(t[3:]))
+                except ValueError:
+                    continue
+                if (not weekend and 0 <= due <= CRON_CATCHUP_MIN and key not in state["ran"]
+                        and state["running"] is None):
+                    mark_ran(key, today)
+                    run_pipeline()
+            time.sleep(15)
+
+    threading.Thread(target=loop, daemon=True).start()
+    return state
 
 
 def floorsheet_dates(symbol):
@@ -428,7 +1219,8 @@ def paint(rows, columns=None):
         return f"color:{RED};font-weight:600" if x < 0 else f"color:{GREY}"
 
     # a Styler prints raw floats (1460.000000) unless told otherwise
-    whole = {"volume", "bars_ago", "swing_age", "buyer_net", "seller_net"}
+    whole = {"volume", "bars_ago", "swing_age", "buyer_net", "seller_net", "bought", "sold",
+             "net", "vs_prev"}
     fmt = {c: ("{:,.0f}" if c in whole else "{:,.2f}")
            for c in frame.columns if pd.api.types.is_numeric_dtype(frame[c])}
     styler = frame.style.format(fmt)
@@ -467,8 +1259,12 @@ def paint(rows, columns=None):
             tint(side, col)
         elif col == "result":
             tint(outcome, col)
-        elif col in ("return_pct", "open_pct", "change_pct", "progress"):
+        elif col in ("return_pct", "open_pct", "change_pct", "progress", "net",
+                     "vs_prev", "vs_prev_pct", "AD_trend", "price_chg"):
             tint(pnl, col)
+        elif col in ("floor", "chart", "position"):
+            tint(lambda v: f"color:{GREEN};font-weight:600" if v == "yes"
+                 else f"color:{RED}", col)
         elif col in ("target1", "target2"):
             tint(lambda v: f"color:{GREEN}", col)
         elif col == "stop":
@@ -483,9 +1279,15 @@ def paint(rows, columns=None):
 
 names = universe()
 st.sidebar.title("NEPSE archive")
-page = st.sidebar.radio("Menu", ["Chart", "Floorsheet", "Broker flow", "Scanner",
-                                 "Volume spike", "Cron"],
+PAGES = ["Chart", "Floorsheet", "Broker flow", "Scanner",
+         "Volume spike", "Operator radar", "NAASA", "Heatmap", "Cron"]
+# Persist the current page in the URL (?page=…) so a refresh / hard refresh / redeploy keeps you
+# where you are — a browser reload starts a fresh Streamlit session, so session_state alone resets.
+_qp_page = st.query_params.get("page")
+page = st.sidebar.radio("Menu", PAGES, index=PAGES.index(_qp_page) if _qp_page in PAGES else 0,
                         label_visibility="collapsed", key="nav")
+if st.query_params.get("page") != page:
+    st.query_params["page"] = page
 st.sidebar.divider()
 
 # Indicators panel removed — Personal indicators drive the chart. These stay as the
@@ -561,76 +1363,199 @@ if page in PER_SYMBOL:
 
 # ---------------------------------------------------------------- NAASA account
 #
-# Credentials live in this browser session only: they are read from the form, exchanged for
-# a token, and dropped. Nothing is written to disk, no .env, no cache. The token expires on
-# its own. Only read endpoints are called — placing or cancelling orders is not implemented.
+# Permanent login. The app API authorizes with a NextAuth session cookie (the Keycloak bearer
+# token is rejected there). There is no password API — the realm disables direct grant — so
+# naasa.login_password() drives the same browser OAuth flow a human does, minting that cookie
+# from an email + password. The cookie is saved to naasa_session.txt (~30-day life); when the
+# user opts to remember the password it also goes to naasa_login.txt (plain text, gitignored,
+# local only), which lets startup re-authenticate silently once the cookie lapses. Both files
+# live under Master_data/ (already gitignored). Only read endpoints are called; no order placed.
+def _naasa_auto_login():
+    """Populate session_state['naasa_who'] once per session — STICKY. As long as the password is
+    remembered, the user stays "signed in" (identity from the live session, else the saved email)
+    and the UI never drops back to the login form on its own — only an explicit Sign out does that.
+    The real session is refreshed lazily by naasa_authed() when data is actually fetched."""
+    st.session_state["naasa_who"] = None
+    st.session_state["naasa_cookie"] = naasa.load_session()
+    if st.session_state["naasa_cookie"]:
+        try:
+            st.session_state["naasa_who"] = naasa.session_info(st.session_state["naasa_cookie"])["user"]
+        except Exception:
+            st.session_state["naasa_who"] = None
+    if not st.session_state["naasa_who"]:                      # cookie missing/stale
+        em, _ = naasa.load_credentials()
+        if em:                                                 # remembered → stay signed in
+            st.session_state["naasa_who"] = {"email": em}
 
-# A token can also come from the environment, so it need not be pasted every restart:
-#     setx NAASA_TOKEN "eyJhbGciOi..."      (then reopen the terminal)
-# Set it yourself — the app only reads it, and still never writes a credential anywhere.
-if not st.session_state.get("naasa_token") and os.environ.get("NAASA_TOKEN"):
-    try:
-        st.session_state["naasa_who"] = naasa.whoami(os.environ["NAASA_TOKEN"].strip())
-        st.session_state["naasa_token"] = os.environ["NAASA_TOKEN"].strip()
-    except Exception:
-        pass  # stale env token: fall through to the paste box
+if "naasa_who" not in st.session_state:
+    _naasa_auto_login()
 
 with st.sidebar.expander("🔐  NAASA account", expanded=False):
-    if st.session_state.get("naasa_token"):
-        who = st.session_state.get("naasa_who") or {}
-        st.success(f"Signed in{' as ' + who['name'] if who.get('name') else ''}")
-        st.caption("Token held in this session's memory only — never written to disk.")
-        if st.button("Sign out", key="naasa_out"):
-            for k in ("naasa_token", "naasa_who"):
+    who = st.session_state.get("naasa_who")
+    if who:
+        st.success(f"Signed in as {who.get('name') or who.get('email') or 'NAASA user'}")
+        remembered = naasa.CREDS_FILE.exists()
+        st.caption(f"Session in `{naasa.SESSION_FILE.name}`"
+                   + (f" · password remembered in `{naasa.CREDS_FILE.name}` (auto re-login)"
+                      if remembered else " · stays logged in across restarts."))
+        tc, sc = st.columns(2)
+        if tc.button("🔍 Test connection", key="naasa_test"):
+            em, pw = naasa.load_credentials()
+            if not (em and pw):
+                st.error("✗ No saved password — sign in with “Remember me” so the live API can authenticate.")
+            else:
+                try:
+                    n = len(naasa.x_orderbook(em, pw))
+                    st.success(f"✓ NAASA live API works — order book returned {n} order(s).")
+                except Exception as e:
+                    st.error(f"✗ NAASA live API failed — {str(e)[:110]}")
+        if sc.button("Sign out", key="naasa_out"):
+            naasa.clear_session()
+            naasa.clear_credentials()
+            naasa_feed()["want"] = False          # stop the socket on explicit logout
+            for k in ("naasa_cookie", "naasa_who"):
                 st.session_state.pop(k, None)
             st.rerun()
     else:
-        st.caption(
-            "Optional — market data works without it. Password login is impossible here: "
-            "NAASA's Keycloak client has direct grant disabled and its redirect URI is "
-            "whitelisted to their own domain, so paste the token your browser already holds."
-        )
-        with st.expander("How to copy it"):
-            st.code("""// in the signed-in NAASA tab, DevTools console:
-Object.entries(localStorage)
-  .filter(([k, v]) => /token/i.test(k) || (v || '').startsWith('ey'))
-  .map(([k, v]) => k + ' = ' + v.slice(0, 24) + '...')""", language="javascript")
-            st.caption("Copy the value that starts with `ey` — that is the JWT.")
-        token = st.text_input("Access token", type="password", key="naasa_tok_in",
-                              placeholder="eyJhbGciOi...")
-        if st.button("Use token", key="naasa_use") and token:
+        st.caption("Sign in with your NAASA email and password. Only read endpoints are used — "
+                   "this dashboard never places an order.")
+        email = st.text_input("NAASA email", key="naasa_email", placeholder="you@example.com")
+        pw = st.text_input("Password", type="password", key="naasa_pw")
+        remember = st.checkbox("Remember me on this PC (auto-login)", value=True, key="naasa_remember",
+                               help="Saves your password in plain text in Master_data/naasa_login.txt "
+                                    "(gitignored, local only) so the app can re-login on its own.")
+        if st.button("Log in", key="naasa_login") and email and pw:
             try:
-                st.session_state["naasa_who"] = naasa.whoami(token.strip())
-                st.session_state["naasa_token"] = token.strip()
+                with st.spinner("Signing in to NAASA…"):
+                    cookie = naasa.login_password(email.strip(), pw)
+                    who = naasa.session_info(cookie)["user"]
+                naasa.save_session(cookie)
+                if remember:
+                    naasa.save_credentials(email.strip(), pw)
+                    naasa_feed()["want"] = True      # re-arm the always-on socket
+                else:
+                    naasa.clear_credentials()
+                st.session_state["naasa_cookie"] = cookie
+                st.session_state["naasa_who"] = who
                 st.rerun()
             except Exception as e:
-                st.error(f"Token rejected: {str(e)[:200]}")
+                st.error(f"Login failed: {str(e)[:200]}")
 
-# ---------------------------------------------------------------- live quote
+# ---------------------------------------------------------------- SmartWealthPro account
+# Same permanent-login model as NAASA: the app POSTs the user's own email+password to SWP's
+# ASP.NET login (anti-forgery token handled), keeps the HttpOnly auth cookie in a Python cookie
+# jar (fine — HttpOnly only blocks browser JS), saves it to swp_session.txt and (opt-in) the
+# password to swp_login.txt for silent re-login. Gives the app SWP's corporate-action / auction /
+# lock-in JSON API.
+if "swp_who" not in st.session_state:
+    _ck = swp.load_session()
+    _who = None
+    if _ck:
+        try:
+            _who = swp.session_info(_ck)["companies"]
+        except Exception:
+            _who = None
+    if _who is None:                                   # cookie missing/stale → try remembered creds
+        _em, _pw = swp.load_credentials()
+        if _em and _pw:
+            try:
+                _ck = swp.login_password(_em, _pw)
+                swp.save_session(_ck)
+                _who = swp.session_info(_ck)["companies"]
+            except Exception:
+                _who = None
+    st.session_state["swp_cookie"] = _ck
+    st.session_state["swp_who"] = _who
 
-# NAASA pushes prices over an authenticated WebSocket we deliberately do not touch; their
-# public REST quote carries the same fields, so poll it instead. A fragment reruns only
-# this block, leaving the charts and scanner untouched.
-@st.fragment(run_every=10)
-def live_quote(symbol):
-    try:
-        q = naasa.quotes([symbol]).get(symbol.replace("/", "-"))
-    except Exception:
-        q = None
-    if not q or not q.get("lp"):
-        st.caption("NAASA live quote unavailable — showing archive values above.")
-        return
-    a, b, c, d, e = st.columns(5)
-    a.metric("LTP", f"{q['lp']:,.2f}", f"{q.get('chp') or 0:+.2f}%")
-    b.metric("Bid", f"{q.get('bid') or 0:,.2f}")
-    c.metric("Ask", f"{q.get('ask') or 0:,.2f}")
-    d.metric("Volume", f"{q.get('volume') or 0:,.0f}")
-    e.metric("Prev close", f"{q.get('prev_close') or 0:,.2f}")
-    st.caption("NAASA live quote · refreshes every 10s")
+with st.sidebar.expander("💼  SmartWealthPro", expanded=False):
+    swp_who = st.session_state.get("swp_who")
+    swp_cookie = st.session_state.get("swp_cookie")
+    if swp_who:
+        st.success(f"✓ Connected — {swp_who} companies indexed")
+        st.caption(f"Session in `{swp.SESSION_FILE.name}`"
+                   + (" · password remembered (auto re-login)" if swp.CREDS_FILE.exists() else "."))
+        tc, sc = st.columns(2)
+        if tc.button("🔍 Test", key="swp_test"):
+            try:
+                d = swp.dividends(swp_cookie, items=5)
+                st.success(f"✓ API works — {len(d)} recent corporate action(s)")
+            except Exception as e:
+                st.error(f"✗ {str(e)[:80]}")
+        if sc.button("Sign out", key="swp_out"):
+            swp.clear_session()
+            swp.clear_credentials()
+            for k in ("swp_cookie", "swp_who"):
+                st.session_state.pop(k, None)
+            st.rerun()
+        # a small peek at the data — the nearest book-closures
+        try:
+            rows = swp.dividends(swp_cookie, items=6)
+            if rows:
+                items = "".join(
+                    f"<tr><td style='padding:1px 4px;color:#e6e8ec'>{r.get('symbol') or r.get('stockSymbol') or ''}</td>"
+                    f"<td style='padding:1px 4px;text-align:right;color:#8a93a5'>{r.get('bookClosureDateAD') or ''}</td></tr>"
+                    for r in rows[:6])
+                st.markdown("<div style='font-size:.72rem;font-weight:600;color:#8a93a5;margin-top:4px'>"
+                            "Recent corporate actions</div>"
+                            f"<table style='width:100%;font-size:.72rem'>{items}</table>",
+                            unsafe_allow_html=True)
+        except Exception:
+            pass
+    else:
+        st.caption("Sign in with your SmartWealthPro email and password for corporate actions, "
+                   "auctions and lock-in data. Only read endpoints are used.")
+        em = st.text_input("SWP email", key="swp_email", placeholder="you@example.com")
+        pw = st.text_input("Password", type="password", key="swp_pw")
+        remember = st.checkbox("Remember me on this PC (auto-login)", value=True, key="swp_remember")
+        if st.button("Log in", key="swp_login") and em and pw:
+            try:
+                with st.spinner("Signing in to SmartWealthPro…"):
+                    cookie = swp.login_password(em.strip(), pw)
+                    who = swp.session_info(cookie)["companies"]
+                swp.save_session(cookie)
+                if remember:
+                    swp.save_credentials(em.strip(), pw)
+                else:
+                    swp.clear_credentials()
+                st.session_state["swp_cookie"] = cookie
+                st.session_state["swp_who"] = who
+                st.rerun()
+            except Exception as e:
+                st.error(f"Login failed: {str(e)[:200]}")
 
-
-if st.sidebar.toggle("Live quote (NAASA)", value=False, help="Polls NAASA's public quote endpoint every 10 seconds"):
-    live_quote(symbol)
+# ---------------------------------------------------------------- live quote strip (always on)
+#
+# No toggle — always show a live price strip on the per-symbol pages. Prefer the NAASA socket
+# feed (sub-second) when it's holding this symbol; otherwise the public REST quote.
+if page in PER_SYMBOL and symbol:
+    @st.fragment(run_every=3)
+    def live_quote(sym=symbol):
+        def n(x):
+            try:
+                return f"{float(x):,.2f}"
+            except (TypeError, ValueError):
+                return "–"
+        with naasa_feed()["lock"]:
+            sk = dict(naasa_feed()["snap"].get(sym, {}))
+        if sk.get("LTP"):                                   # live off the socket
+            a, b, c, d, e = st.columns(5)
+            a.metric("LTP", n(sk.get("LTP")))
+            b.metric("Bid", n(sk.get("BidPrice")))
+            c.metric("Ask", n(sk.get("OfferPrice")))
+            d.metric("Volume", n(sk.get("TTQ")).split(".")[0])
+            e.metric("Avg price", n(sk.get("WeightedAverage")))
+            st.caption(f"🔴 Live from NAASA socket · last tick {sk.get('_t', '')}")
+            return
+        q = live_snapshot(sym)                              # public REST fallback
+        if q.get("lp"):
+            a, b, c, d, e = st.columns(5)
+            a.metric("LTP", f"{q['lp']:,.2f}", f"{q.get('chp') or 0:+.2f}%")
+            b.metric("Bid", f"{q.get('bid') or 0:,.2f}")
+            c.metric("Ask", f"{q.get('ask') or 0:,.2f}")
+            d.metric("Volume", f"{q.get('volume') or 0:,.0f}")
+            e.metric("Prev close", f"{q.get('prev_close') or 0:,.2f}")
+            st.caption("Public quote (cached 15s) — go live on the NAASA page for the socket feed.")
+    live_quote()
 
 
 
@@ -1230,58 +2155,288 @@ if page == "Scanner":
                    "counted — so these numbers are the pessimistic reading, before costs.")
 
 
+# ---------------------------------------------------------------- NAASA
+#
+# Mirror of NAASA's order screen — for MONITORING only. Everything here is read: the public
+# quote (Top-5 best bid/ask + stock stats) and, when signed in, your own order book. The New
+# Order form is deliberately display-only: order placement is a live trade and is done in
+# NAASA itself, never from this dashboard.
+
+if page == "NAASA":
+    status, scol = market_status()
+    st.markdown(
+        "<div style='display:flex;align-items:center;gap:12px'>"
+        "<span class='section' style='margin:0'>NAASA order panel</span>"
+        f"<span style='background:{scol};color:#0d1117;font-weight:700;padding:2px 11px;"
+        f"border-radius:5px'>{status}</span></div>", unsafe_allow_html=True)
+    st.caption("Read-only monitor. PRE-OPEN 10:30–10:45 (queue orders), PRE-OPEN CLOSE 10:46–10:59, "
+               "LIVE 11:00–15:00, CLOSED otherwise. Place actual orders in NAASA.")
+
+    sym = st.text_input("Scrip", value=(symbol or "NABIL"), key="naasa_sym").strip().upper() or "NABIL"
+    q = live_snapshot(sym)
+
+    side = st.radio("Side", ["BUY", "SELL"], horizontal=True, key="naasa_side")
+    f1, f2, f3, f4, f5 = st.columns([2, 1, 1, 1, 1])
+    f1.text_input("Scrip ", value=sym, disabled=True, key="naasa_f_scrip")
+    f2.text_input("Quantity", placeholder="0", disabled=True, key="naasa_f_qty")
+    lo_hi = f"{q.get('low', '–')} – {q.get('high', '–')}"
+    f3.text_input("Price", placeholder="Price", disabled=True, key="naasa_f_price",
+                  help=f"Low–High: {lo_hi}")
+    f4.selectbox("Validity", ["DAY"], disabled=True, key="naasa_f_val")
+    f5.text_input("Valid Till", placeholder="Pick a date", disabled=True, key="naasa_f_till")
+    st.radio("Order type", ["LMT", "MKT", "AMO"], horizontal=True, disabled=True,
+             key="naasa_f_type", label_visibility="collapsed")
+
+    # Live feed is always on (NAASA WSS) — no toggle, NO cache. Show the socket snapshot only, the
+    # instant it arrives. No public/REST fallback here: this panel is live-or-nothing on purpose.
+    feed = naasa_feed()
+    want = (sym, "NEPSE", "SENSIND")
+    if feed["subs"] != want:
+        feed["subs"] = want
+    @st.fragment(run_every=1)
+    def _depth():
+        render_socket_depth(sym, feed)
+    _depth()
+
+    # Order Book / Holdings / Collateral all come from the SAME X-app session the live feed holds
+    # (naasa.x_*), so they no longer fight the socket for NAASA's one-session-per-account. They need
+    # the saved password (the report API is authed), so gate on credentials, not just the cookie.
+    em, pw = naasa.load_credentials()
+    who = st.session_state.get("naasa_who")
+
+    def _num(x):
+        try: return f"{float(x):,.0f}"
+        except (TypeError, ValueError): return "–"
+    def _money(x):
+        try: return f"Rs {float(x):,.2f}"
+        except (TypeError, ValueError): return "—"
+
+    st.markdown("<div class='section'>Order Book</div>", unsafe_allow_html=True)
+    if not (em and pw):
+        st.caption("Sign in under 🔐 **NAASA account** in the sidebar (with Remember me) to load your live order book.")
+    else:
+        try:
+            rows = naasa.x_orderbook(em, pw)
+            if rows:
+                df = pd.DataFrame(rows)
+                # (display name, first matching source column) — one source per name, no duplicates
+                wanted = [("Symbol", ("Scrip",)), ("Side", ("BuySellType", "BuySellText", "B/S")),
+                          ("Qty", ("Quantity", "RemainingQty")), ("Price", ("Price",)),
+                          ("Status", ("OrderStatus",)), ("Validity", ("OrderTerms",)),
+                          ("Time", ("BrokerOrderTime",)), ("Order No", ("ExchangeOrderNo",))]
+                view = pd.DataFrame({name: df[next(s for s in srcs if s in df.columns)]
+                                     for name, srcs in wanted
+                                     if any(s in df.columns for s in srcs)})
+                st.dataframe(view, use_container_width=True, hide_index=True, height=240)
+                st.caption(f"🔴 {len(rows)} open order(s) · live from NAASA (MarketOrder/OrderBook) · read-only.")
+            else:
+                st.info("No open orders in your NAASA order book right now.")
+        except Exception as e:
+            st.caption(f"⚠ Could not load the order book — {str(e)[:120]}")
+
+    # -- Holdings --
+    st.markdown("<div class='section'>My Holdings</div>", unsafe_allow_html=True)
+    if not (em and pw):
+        st.caption("Sign in to load your holdings.")
+    else:
+        try:
+            hold = naasa.x_holdings(em, pw)
+            if hold:
+                df = pd.DataFrame(hold)
+                cols = [c for c in ("NEPSECode", "AvailableQty", "CDSFreeBalance", "LastTradedPrice",
+                                    "ClosePrice", "ValueAsOfLTP", "DayGainLoss") if c in df.columns]
+                view = df[cols].rename(columns={
+                    "NEPSECode": "Symbol", "AvailableQty": "Qty", "CDSFreeBalance": "Free",
+                    "LastTradedPrice": "LTP", "ClosePrice": "Prev close",
+                    "ValueAsOfLTP": "Market value", "DayGainLoss": "Day P/L"})
+                st.dataframe(view, use_container_width=True, hide_index=True)
+                st.caption(f"🔴 {len(hold)} holding(s) · live from NAASA (TradeBook/HoldingDataReport) · read-only.")
+            else:
+                st.info("No holdings in your NAASA account.")
+        except Exception as e:
+            st.caption(f"⚠ Could not load holdings — {str(e)[:120]}")
+
+    # -- Collateral & account summary --
+    st.markdown("<div class='section'>Collateral & account summary</div>", unsafe_allow_html=True)
+    if not (em and pw):
+        st.caption("Sign in to load your collateral and trade summary.")
+    else:
+        try:
+            f = _dash_fields(naasa.x_collateral(em, pw))     # groups [2]=holdings [3]=collateral, [4] PII ignored
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Available collateral", _money(f.get("GrossAvalibleExposure")))
+            c2.metric("Used collateral", _money(f.get("GrossUsedExposure")))
+            c3.metric("Holdings value", _money(f.get("TotalHoldingAmount")))
+            c4.metric("Holdings", f"{_num(f.get('HoldingStockCount'))} scrip(s)")
+            d1, d2, d3, d4 = st.columns(4)
+            d1.metric("Orders today", _num(f.get("OrderCount")))
+            d2.metric("Trades today", _num(f.get("TradeCount")))
+            d3.metric("Traded qty", _num(f.get("TotalTradedQty")))
+            d4.metric("Traded value", _money(f.get("TotalTradedValue")))
+            st.caption("🔴 Live from NAASA (Home/DashboardDetails) · read-only.")
+        except Exception as e:
+            st.caption(f"⚠ Could not load collateral — {str(e)[:120]}")
+
+
+# ---------------------------------------------------------------- heatmap
+
+if page == "Heatmap":
+    hc1, hc2, hc3 = st.columns([2, 3, 1])
+    view = hc1.segmented_control("Heatmap", ["Stocks by sector", "Indices"],
+                                 default="Stocks by sector", key="hm_view",
+                                 label_visibility="collapsed") or "Stocks by sector"
+    with hc2:
+        heatmap_legend()
+    status, scol = market_status()
+    hc3.markdown(f"<div style='text-align:right'><span style='background:{scol};color:#0d1117;"
+                 f"font-weight:700;padding:2px 10px;border-radius:5px;font-size:0.82em'>{status}"
+                 f"</span></div>", unsafe_allow_html=True)
+
+    # Full-fit: the heatmap fills whatever height is left after the index table below it, so the
+    # controls + heatmap + table exactly fill the screen — no gap, no scroll (flex chain does it).
+    with st.container(key="mainchart", height="stretch"):
+        if view == "Stocks by sector":
+            render_stock_heatmap(stock_heatmap_rows())
+        else:
+            render_index_heatmap(indices_snapshot())
+    render_index_table(indices_snapshot())
+
+
 # ---------------------------------------------------------------- cron
 
 if page == "Cron":
+    sched_state = cron_scheduler()          # start / reuse the background scheduler thread
+
+    # Live banner — shows whichever is running now: an auto-fired scheduled job, a manual run, or
+    # the older systemd service. Polls every few seconds and clears itself when idle.
+    @st.fragment(run_every=4)
+    def _bg_running():
+        job = sched_state["running"]
+        if job:                                   # pipeline running (job key, or transient "start")
+            lbl = CRON_JOBS[job]["label"] if job in CRON_JOBS else "pipeline"
+            st.markdown(f"<div class='cron-run-lbl'>⏳ Pipeline running — <b>{lbl}</b></div>"
+                        "<div class='cron-run'></div>", unsafe_allow_html=True)
+            return
+        svc_running, svc_state = update_service_running()
+        if svc_running:
+            st.markdown("<div class='cron-run-lbl'>⏳ Scheduled update running on the server "
+                        f"({svc_state})</div><div class='cron-run'></div>", unsafe_allow_html=True)
+    _bg_running()
+
+    # --- freshness snapshot ---------------------------------------------------------------------
     st.markdown("<div class='section'>Last traded data</div>", unsafe_allow_html=True)
-    # Reserved now, filled after the buttons: a job run below changes what these say, and
-    # Streamlit draws top-down, so rendering them here would show the pre-run state.
-    note, table = st.empty(), st.empty()
-
-    a, b, c = st.columns(3)
-    if a.button("Fetch last traded data", width="stretch", type="primary"):
-        run_job("Last session", "fetch_last_session.py")
-        run_job("Signal scan", "scan.py")
-        run_job("Volume spike screen", "volume_spike.py")
-    if b.button("Full daily refresh", width="stretch",
-                help="Every step of daily_update.py, including minute bars — slower."):
-        run_job("Daily update", "daily_update.py")
-    if c.button("Rebuild signals only", width="stretch"):
-        run_job("Signal scan", "scan.py")
-
     state = archive_state()
     session = max((v[0][:10] for v in state.values() if v[0]), default="")   # minute rows carry a time
-    note.caption(f"Newest session in the archive: **{session or '—'}**. Fetching touches that "
-                 "one date only — rows already there are replaced, missing ones appended — so "
-                 "it is safe to re-run. After the 15:00 NPT close it is the final session; "
-                 "before, a partial one.")
-    table.dataframe(pd.DataFrame([{
+    st.caption(f"Newest session in the archive: **{session or '—'}**. Fetching touches that one "
+               "date only — new rows appended, a changed date's rows replaced — so re-running is "
+               "safe. After the 15:00 NPT close it is the final session; before, a partial one.")
+    st.dataframe(pd.DataFrame([{
         "Store": label,
         "Last data": stamp or "—",
         "At newest": f"{total - behind:,} / {total:,}" if total else "—",
         "Fresh": "yes" if stamp and stamp[:10] == session else "no",
     } for label, (stamp, behind, total) in state.items()]), width="stretch", hide_index=True)
 
-    st.markdown("<div class='section'>Historical</div>", unsafe_allow_html=True)
-    st.caption("Full backfills. These re-walk the whole history and take minutes to hours — "
-               "the daily refresh above is the one to run every day.")
+    # --- MASTER pipeline: one Run-all + one timer, jobs run strictly one-by-one, colour-highlighted
+    st.markdown("<div class='section' style='text-align:center'>Master data pipeline — runs one by "
+                "one</div>", unsafe_allow_html=True)
+    _, mid, _ = st.columns([1, 2, 1])            # narrow centered column = the flowchart spine
+    with mid.container(key="cronflow"):
+        busy = bool(sched_state["running"])
+        if st.button("▶ Run all now (one by one)", key="run_all", type="primary", width="stretch",
+                     disabled=busy):
+            threading.Thread(target=sched_state["run"], daemon=True).start()
+            st.rerun()
 
-    c, d = st.columns(2)
-    if c.button("Backfill chart history", width="stretch"):
-        run_job("Daily bars", "fetch_ohlc.py")
-        run_job("Minute bars", "fetch_intraday.py")
-    if d.button("Backfill floorsheet", width="stretch"):
-        run_job("Floorsheet (merolagani)", "fetch_floorsheet_merolagani.py")
-        run_job("Broker flow table", "build_broker_flow.py")
+        # master timer — auto-runs the whole pipeline. Saved time(s) shown FIRST as 12h chips;
+        # a compact 12-hour picker (Hour · Min · AM/PM) below to add one.
+        st.markdown("<div class='cron-timebox-lbl'>⏱ Master timer — auto-runs the whole pipeline "
+                    "(NPT)</div>", unsafe_allow_html=True)
+        times = load_master_times()
+        if times:
+            cc = st.columns(len(times) + 2)
+            for i, t in enumerate(times):
+                if cc[i].button(f"⏱ {to_12h(t)}  ✕", key=f"rmmaster_{t}", help="Remove this time"):
+                    times.remove(t)
+                    save_master_times(times)
+                    st.rerun()
+        else:
+            st.caption("No time set — pick one below and Add.")
+        hc, mc2, pc, addc = st.columns([1, 1, 1, 2])
+        hour = hc.selectbox("Hour", list(range(1, 13)), index=2, key="mh",
+                            label_visibility="collapsed")
+        minute = mc2.selectbox("Min", [f"{m:02d}" for m in range(0, 60, 5)], index=3, key="mm",
+                              label_visibility="collapsed")
+        ampm = pc.selectbox("AM/PM", ["AM", "PM"], index=1, key="map", label_visibility="collapsed")
+        if addc.button("＋ Add time", key="addmaster", width="stretch"):
+            h24 = (hour % 12) + (12 if ampm == "PM" else 0)
+            hhmm = f"{h24:02d}:{minute}"
+            if hhmm not in times:
+                times.append(hhmm)
+                save_master_times(times)
+            st.rerun()
+
+        # colour-highlighted flowchart: nodes turn orange (running) → green (done) / red (failed),
+        # auto-refreshing so you watch the sequence advance one node at a time.
+        _COL = {"idle": "#232833", "pending": "#39404d", "running": "#e07a3f",
+                "done": "#1c8b45", "failed": "#8b1a1a"}
+        _ICO = {"idle": "⚪", "pending": "🕓", "running": "⏳", "done": "✅", "failed": "❌"}
+
+        @st.fragment(run_every=2)
+        def _flow():
+            running = sched_state["running"]
+            html = ["<div class='cron-arrow'>↓</div>"]
+            for n, (job, cfg) in enumerate(CRON_JOBS.items()):
+                if n:
+                    html.append("<div class='cron-arrow'>↓</div>")
+                stt = sched_state["status"].get(job, "idle")
+                pulse = " cron-node-running" if stt == "running" else ""
+                html.append(
+                    f"<div class='cron-node{pulse}' style='background:{_COL[stt]}'>"
+                    f"<b>{_ICO[stt]} {cfg['label']}</b><br><span>{' → '.join(cfg['scripts'])}</span></div>")
+            st.markdown("".join(html), unsafe_allow_html=True)
+            if running and running in CRON_JOBS:
+                st.markdown("<div class='cron-run'></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='cron-flow-foot'>⏳ running <b>{CRON_JOBS[running]['label']}</b>"
+                            " — waits for it to finish before the next</div>", unsafe_allow_html=True)
+            else:
+                st.markdown(f"<div class='cron-flow-foot'>last full run: "
+                            f"{sched_state['last'] or '—'}</div>", unsafe_allow_html=True)
+        _flow()
+
+    st.caption("Daily run = **latest session only** (that's *last traded data* — today's rows, not "
+               "history). A job starts only after the previous finishes; a master time already past "
+               "today is caught up once. (Sun–Thu.)")
+
+    # --- SEPARATE section: full-archive backfill (re-walks ALL history — slow, on demand) --------
+    st.markdown("<div class='section' style='text-align:center;margin-top:14px'>📚 Full history "
+                "backfill — all dates (rare · slow)</div>", unsafe_allow_html=True)
+    _, hmid, _ = st.columns([1, 2, 1])
+    with hmid.container(key="cronflow_hist"):
+        st.caption("Re-fetches the WHOLE archive (years of bars / floorsheet). Run once for a new "
+                   "symbol or to repair gaps — the daily pipeline above keeps things current.")
+
+        @st.fragment(run_every=2)
+        def _hist():
+            for job, cfg in HIST_JOBS.items():
+                stt = sched_state["hist_status"].get(job, "idle")
+                pulse = " cron-node-running" if stt == "running" else ""
+                st.markdown(f"<div class='cron-node{pulse}' style='background:{_COL[stt]}'>"
+                            f"<b>{_ICO[stt]} {cfg['label']}</b><br>"
+                            f"<span>{' → '.join(cfg['scripts'])}</span></div>", unsafe_allow_html=True)
+                if st.button("▶ Backfill now", key=f"hist_{job}", width="stretch",
+                             disabled=(stt == "running")):
+                    threading.Thread(target=sched_state["run_hist"], args=(job,), daemon=True).start()
+                    st.rerun()
+                last = sched_state["hist_last"].get(job)
+                st.markdown(f"<div class='cron-flow-foot'>runs in the background · last: {last or '—'}"
+                            "</div>", unsafe_allow_html=True)
+        _hist()
 
     log = Path(__file__).parent / "update_log.txt"
     if log.exists():
         st.markdown("<div class='section'>Last run</div>", unsafe_allow_html=True)
-        # just the newest block, or the page outgrows the screen
         st.code("===" + log.read_text(encoding="utf-8").strip().rsplit("===", 1)[-1])
-
-    st.caption("Nothing here schedules itself — no daemon, by design. For unattended runs point "
-               "Windows Task Scheduler at `python daily_update.py` in this folder.")
 
 
 # ---------------------------------------------------------------- volume spike
@@ -1350,3 +2505,459 @@ if page == "Volume spike":
     if st.button("Rebuild screen", type="primary"):
         run_job("Volume spike screen", "volume_spike.py")
         st.rerun()
+
+
+# ---------------------------------------------------------------- operator radar
+
+if page == "Operator radar":
+    rows = operator_scan()
+    st.markdown("<div class='section'>Who is buying more / selling more</div>",
+                unsafe_allow_html=True)
+    st.caption(
+        "A stock is **PROVEN** only when **three independent sources agree**: "
+        "**(1) Floorsheet** — one broker is the dominant net buyer/seller, regularly, still going "
+        "across 1 month → 3 weeks → last 3 days; **(2) Chart** — price + volume alone (A/D line + "
+        "up-vs-down volume, no broker data) show the same accumulation/distribution; "
+        "**(3) Position** — that broker's net is a real slice of the free float. The chart leg is "
+        "a true cross-check, so a false broker reading cannot fake a PROVEN. Strong candidate, "
+        "not legal proof — the floorsheet shows the broker, not the client.")
+
+    if not rows:
+        st.info("No scan yet — run `python operator_scan.py`.")
+    else:
+        def yn(b):
+            return "✅" if b else "▫️"
+
+        def hit(val, ok):
+            """Colour a result green (passes) or red (fails)."""
+            return f"<b style='color:{'#3fb950' if ok else '#f85149'}'>{val}</b>"
+
+        def mut(s):
+            return f"<span style='color:#6b7280'>{s}</span>"
+
+        def calc(rows, tone="#3a4250"):
+            """'Show the math' strip under a claim. rows = list of (label, formula, coloured_result).
+            Rendered as a compact aligned grid; tone sets the left-border accent colour."""
+            body = "".join(
+                f"<div style='display:flex;gap:10px;align-items:baseline'>"
+                f"<span style='color:#6b7280;min-width:96px'>{lbl}</span>"
+                f"<span style='color:#9aa4b2;flex:1'>{formula}</span>"
+                f"<span style='text-align:right'>{res}</span></div>"
+                for lbl, formula, res in rows)
+            st.markdown(
+                f"<div style='font-size:0.78em;background:rgba(255,255,255,0.03);"
+                f"border-left:3px solid {tone};padding:6px 12px;margin:-2px 0 13px 20px;"
+                "font-family:ui-monospace,SFMono-Regular,Menlo,monospace;line-height:1.7'>"
+                f"{body}</div>", unsafe_allow_html=True)
+
+        def card(r):
+            reg = float(r["regular_pct"]); accel = float(r["accel"]); dom = float(r["vol_dom"])
+            z = float(r["vol_z"]); pf = float(r["pct_float"]); pv = float(r["price_vs"])
+            n1, n2, n3 = float(r["net_1m"]), float(r["net_3w"]), float(r["net_3d"])
+            ad = float(r["ad_trend"]); ud = float(r["updown_vol"]); pchg = float(r["price_chg"])
+            fok = r["floor_ok"] == "yes"; cok = r["chart_ok"] == "yes"; pok = r["pos_ok"] == "yes"
+            proof = int(r["proof"])
+            pubsh = float(r.get("pub_shares", 0) or 0); bbuy = float(r.get("broker_buy", 0) or 0)
+            tape = float(r.get("tape_vol", 0) or 0)
+            actd = int(float(r.get("active_days", 0) or 0)); samed = int(float(r.get("same_days", 0) or 0))
+            verb = "buying" if r["side"] == "BUY" else "selling"
+            head = f"{'🟢' if r['side']=='BUY' else '🔴'} {r['symbol']}  ·  broker {r['broker']}  ·  {r['verdict']}"
+            with st.expander(head, expanded=(proof == 3)):
+                st.markdown(f"**{r['symbol']}: {proof} of 3 independent sources agree**")
+                st.markdown(
+                    f"- {yn(fok)} **1 · Floorsheet (who)** — broker {r['broker']} is the dominant net "
+                    f"{verb.rstrip('ing')}er: **{reg:.0f}%** of days same way, **{dom:.0f}%** of the whole "
+                    f"tape, still going ({accel:.1f}× pace), 1m **{n1:+,.0f}** → 3w **{n2:+,.0f}** → "
+                    f"3d **{n3:+,.0f}**")
+                calc([
+                    ("buys same way", f"{samed}/{actd} days", hit(f"{reg:.0f}%", reg >= 70) + " " + mut("≥70")),
+                    ("share of tape", f"{bbuy:,.0f} ÷ {tape:,.0f}", hit(f"{dom:.0f}%", dom >= 15) + " " + mut("≥15")),
+                    ("still going", f"({n3:+,.0f}/3) ÷ ({n1:+,.0f}/20)", hit(f"{accel:.2f}×", accel >= 0.7) + " " + mut("≥0.7")),
+                    ("cascade 1m·3w·3d", f"{n1:+,.0f} · {n2:+,.0f} · {n3:+,.0f}", hit("all one way" if fok else "mixed", fok)),
+                ], tone="#3fb950" if fok else "#f85149")
+                st.markdown(
+                    f"- {yn(cok)} **2 · Chart / price+volume (the tape, no broker data)** — "
+                    f"A/D line **{'rising' if ad>0 else 'falling'}** ({ad:+.2f}), up-day vs down-day "
+                    f"volume **{ud:.1f}×**, price **{pchg:+.1f}%** over the month "
+                    f"→ tape {'confirms' if cok else 'does NOT confirm'} {verb}")
+                calc([
+                    ("A/D slope", "rising" if ad > 0 else "falling", hit(f"{ad:+.2f}", ad > 0) + " " + mut(">0")),
+                    ("up ÷ down vol", "up-day vs down-day", hit(f"{ud:.2f}×", ud >= 1.0) + " " + mut("≥1.0")),
+                    ("month price", "close-to-close", hit(f"{pchg:+.1f}%", pchg > -8) + " " + mut(">−8")),
+                ], tone="#3fb950" if cok else "#f85149")
+                st.markdown(
+                    f"- {yn(pok)} **3 · Position (size)** — the 1-month net is **{pf:+.1f}%** of the free "
+                    f"float (float only {float(r['float_pct']):.0f}% of the company)")
+                calc([
+                    ("net vs float", f"{n1:+,.0f} ÷ {pubsh:,.0f}", hit(f"{pf:+.1f}%", abs(pf) >= 3) + " " + mut("≥3")),
+                    ("free float", f"{pubsh:,.0f} shares", mut(f"{float(r['float_pct']):.0f}% of company")),
+                ], tone="#3fb950" if pok else "#f85149")
+                n3m = float(r.get("net_3m", 0) or 0); pct3m = float(r.get("pct_3m", 0) or 0)
+                coord2 = float(r.get("coord2_pct", 0) or 0)
+                long_campaign = abs(pct3m) >= abs(pf) * 1.5   # much bigger over 3m = long-running
+                st.markdown(f"**Campaign length** — over **3 months** this broker's net is "
+                            f"**{n3m:+,.0f}** ({pct3m:+.1f}% of float), vs **{n1:+,.0f}** in the last month. "
+                            + ("This is a **long-running** campaign (been building for months)."
+                               if long_campaign else
+                               "Most of it is **recent** (a fresh 1-month move, not a long campaign)."))
+                calc([
+                    ("3-month net", f"{n3m:+,.0f} ÷ {pubsh:,.0f}", f"{pct3m:+.1f}% of float"),
+                    ("vs 1-month", f"{n1:+,.0f}", f"3m ÷ 1m = {(n3m/n1 if n1 else 0):.1f}×"),
+                ], tone="#4a5568")
+                coordinated = abs(coord2) >= abs(pf) * 1.6 and abs(coord2 - pf) >= 2
+                st.markdown(f"**Coordination** — the top-2 brokers on this side hold **{coord2:+.1f}%** of "
+                            f"float combined vs **{pf:+.1f}%** for this one. "
+                            + ("A **second broker** is moving the same way — possible split/coordinated buying."
+                               if coordinated else
+                               "No meaningful second broker — this is a **single-broker** campaign."))
+                calc([
+                    ("top-2 brokers", "combined net ÷ float", f"{coord2:+.1f}%"),
+                    ("this broker", "alone", f"{pf:+.1f}%  ·  gap {coord2 - pf:+.1f}pp"),
+                ], tone="#4a5568")
+                ad_days = float(r.get("accum_days", 0) or 0)
+                grab = ("a **heavy, aggressive** grab" if ad_days >= 5 else
+                        "a **moderate** position" if ad_days >= 2 else "a **light** position")
+                st.markdown(f"**How hard they're cornering it** — broker {r['broker']}'s net equals "
+                            f"**{ad_days:.1f} days** of this stock's entire average volume — {grab}. "
+                            "The higher this is, the more of the tradeable liquidity one hand is quietly holding.")
+                calc([
+                    ("days to grab", f"|{abs(n1):,.0f}| × 20 ÷ {tape:,.0f}", hit(f"{ad_days:.1f} days", ad_days >= 5)),
+                ], tone="#3fb950" if ad_days >= 5 else "#4a5568")
+                rs = r.get("rel_str", "")
+                if str(rs).strip() not in ("", "None"):
+                    rs = float(rs); scg = float(r.get("sector_chg", 0) or 0); sec = r.get("sector", "its sector")
+                    pc = float(r["price_chg"]); moved = f"{abs(pc):.0f}% {'up' if pc >= 0 else 'down'}"
+                    want_up = r["side"] == "BUY"
+                    idio = rs >= 3 if want_up else rs <= -3
+                    if idio:
+                        st.success(f"**Moving on its own** — this stock is **{moved}** while its **{sec}** "
+                                   f"peers are **{scg:+.0f}%** — a **{rs:+.0f}pp** gap. The move is "
+                                   "idiosyncratic, not sector beta: someone is working *this* stock, which "
+                                   "is exactly what an operator looks like.")
+                    elif abs(rs) < 3:
+                        st.info(f"**Moving with its sector** — **{sec}** peers are **{scg:+.0f}%** and this "
+                                f"is only **{rs:+.0f}pp** different. The move may be sector-wide beta, not a "
+                                "single-stock operator — weaker confirmation.")
+                    else:
+                        st.warning(f"**Going against the flow** — {sec} peers are **{scg:+.0f}%** but this is "
+                                   f"**{rs:+.0f}pp** the other way. The broker's side isn't pushing price past "
+                                   "peers — treat the read with caution.")
+                    calc([
+                        ("rel strength", f"{pc:+.1f}% − {scg:+.1f}% ({sec})", hit(f"{rs:+.1f}pp", idio)),
+                    ], tone="#3fb950" if idio else ("#f0a441" if abs(rs) < 3 else "#f85149"))
+                py = r.get("profit_yoy", "")
+                if str(py).strip() not in ("", "None"):
+                    py = float(py); per = r.get("earn_period", "latest quarter")
+                    if abs(py) > 300:
+                        st.caption(f"Earnings ({per}): net profit {py:+.0f}% YoY — but off a small/volatile "
+                                   "base, so read the growth number with care.")
+                    elif py >= 30:
+                        st.markdown(f"**Earnings backdrop** — {per} net profit **{py:+.0f}% YoY**. There *is* a "
+                                    "real earnings story, so the move isn't in a vacuum — it may be "
+                                    "fundamentally driven (or a broker front-running a strong result).")
+                    elif py >= 0:
+                        st.markdown(f"**Earnings backdrop** — {per} net profit **{py:+.0f}% YoY**, only modest. "
+                                    "The accumulation isn't well explained by earnings — more consistent with "
+                                    "operator flow than a fundamental re-rating.")
+                    else:
+                        st.markdown(f"**Earnings backdrop** — {per} net profit **{py:+.0f}% YoY** (falling), yet "
+                                    "the stock is being worked. Flow *against* the fundamentals — a "
+                                    "speculative / operator footprint.")
+                    calc([
+                        ("net profit YoY", f"SWP · {per}", f"{py:+.1f}%"),
+                    ], tone="#4a5568")
+                    ey = r.get("eps_yoy", "")
+                    if str(ey).strip() not in ("", "None") and abs(py) <= 300:
+                        ey = float(ey)
+                        if abs(ey - py) > 10:
+                            st.caption(f"Per-share view — EPS TTM grew **{ey:+.0f}%**, less than profit; the "
+                                       "gap is bonus-share dilution (more shares splitting the same earnings).")
+                        else:
+                            st.caption(f"Per-share view — EPS TTM **{ey:+.0f}%**, in line with profit.")
+                h1 = float(r.get("net_half1", 0) or 0); h2 = float(r.get("net_half2", 0) or 0)
+                want_up = r["side"] == "BUY"
+                dh1 = h1 if want_up else -h1; dh2 = h2 if want_up else -h2   # +ve = in operator's direction
+                if dh1 <= 0 < dh2:
+                    st.markdown(f"**Campaign trend** — **fresh**: almost all of it is in the **last 2 weeks** "
+                                f"(first half ≈ 0, second half {abs(dh2):,.0f} shares). A newly started push.")
+                elif dh2 <= 0 < dh1:
+                    st.markdown(f"**Campaign trend** — **cooling off**: active early ({abs(dh1):,.0f} shares) but "
+                                "essentially **stopped** in the last 2 weeks. The push may be over.")
+                elif dh1 > 0 and dh2 > dh1 * 1.3:
+                    st.markdown(f"**Campaign trend** — **intensifying**: bigger in the last 2 weeks "
+                                f"({abs(dh2):,.0f}) than the first ({abs(dh1):,.0f} shares). Accelerating.")
+                elif dh1 > 0 and dh2 < dh1 * 0.7:
+                    st.markdown(f"**Campaign trend** — **fading**: lighter recently ({abs(dh2):,.0f}) than early "
+                                f"({abs(dh1):,.0f} shares). Momentum is cooling.")
+                else:
+                    st.markdown(f"**Campaign trend** — **steady**: evenly paced across the month "
+                                f"({abs(dh1):,.0f} then {abs(dh2):,.0f} shares).")
+                calc([
+                    ("first half", "sessions 1-10", f"{h1:+,.0f}"),
+                    ("second half", "sessions 11-20", f"{h2:+,.0f}"
+                     + (f"  ·  {dh2/dh1:.2f}× of 1st" if dh1 > 0 else "")),
+                ], tone="#4a5568")
+                ld = r.get("lockin_days", "")
+                if str(ld).strip() not in ("", "None"):
+                    ld = int(float(ld)); exp = r.get("lockin_expiry", "")
+                    if ld < 0:
+                        st.caption(f"Promoter lock-in already expired on {exp} — promoter shares are now "
+                                   "freely sellable (overhang to watch, but the unlock is behind us).")
+                    elif ld <= 45:
+                        st.error(f"⚠ **Promoter lock-in expires in {ld} days** (on {exp}). Locked promoter "
+                                 "shares can hit the market — a supply flood that often caps or crashes the "
+                                 "price. Risky to ride an accumulation into this; wait until after it clears.")
+                    elif ld <= 120:
+                        st.warning(f"**Promoter lock-in expires in {ld} days** (on {exp}). Watch for promoter "
+                                   "selling as the date nears — extra supply can stall the move.")
+                    else:
+                        st.caption(f"Promoter lock-in expires {exp} ({ld} days out) — far enough not to matter yet.")
+                else:
+                    st.caption("No promoter lock-in pending — the free float is stable (no supply shock ahead).")
+                st.caption(f"Avg {verb} price Rs {float(r['avg_price']):,.0f} vs now Rs {float(r['close']):,.0f} "
+                           f"({pv:+.1f}%).  Broker {r['broker']} is heavy in {r['breadth']} stocks.  "
+                           "The chart leg uses NO broker data, so it is a true independent cross-check.")
+
+                # exact day-by-day + period totals for THIS broker, newest = 1d
+                led = broker_ledger(r["symbol"], r["broker"])
+                if led:
+                    st.markdown(f"**Broker {r['broker']}'s exact buying & selling in {r['symbol']} "
+                                "(1d = today):**")
+                    win_days = {"7 days": 7, "15 days": 15, "1 month": 22}
+                    wkey = f"win_{r['symbol']}_{r['broker']}_{r['side']}"
+                    if st.session_state.get(wkey) not in win_days:
+                        st.session_state[wkey] = "7 days"
+                    span = st.segmented_control("window", list(win_days), key=wkey,
+                                                label_visibility="collapsed") or "1 month"
+                    ndays = win_days[span]
+                    recent = led[-ndays:][::-1]               # newest first, chosen window
+                    day = []
+                    for i, d in enumerate(recent):
+                        prev = recent[i + 1] if i + 1 < len(recent) else None
+                        chg = d[3] - prev[3] if prev else 0    # net today − net previous day
+                        base = abs(prev[3]) if prev and prev[3] else 0
+                        pct = (chg / base * 100) if base else 0
+                        day.append({
+                            "day": f"{i+1}d", "date": d[0], "bought": d[1], "sold": d[2], "net": d[3],
+                            "vs_prev": chg, "vs_prev_pct": round(pct, 1) if prev else 0,
+                        })
+
+                    # totals for the SELECTED window (led[-ndays:])
+                    sel = led[-ndays:]
+                    tot_buy = sum(x[1] for x in sel)
+                    tot_sell = sum(x[2] for x in sel)
+                    tot_left = tot_buy - tot_sell
+                    # green/red bar of daily net — buying above zero, selling below
+                    def kfmt(v):
+                        a = abs(v)
+                        if a >= 1e6: return f"{v/1e6:.2f}M"
+                        if a >= 1e4: return f"{v/1e3:.0f}k"     # 10k+ : whole k is precise enough
+                        if a >= 1e3: return f"{v/1e3:.1f}k"     # 1-10k : one decimal (3.4k vs 3.8k)
+                        return f"{v:,.0f}"
+
+                    order = day[::-1]                          # oldest left, newest (1d) right
+                    # NET chart: one two-line label OUTSIDE each bar — quantity (yellow) + date.
+                    # Outside placement means it reads cleanly whether the bar is huge or a sliver.
+                    lbl = [f'<b>{kfmt(d["net"])}</b><br>'
+                           f'<span style="color:#8A93A5;font-size:0.85em">{d["date"]}</span>'
+                           for d in order]
+                    barfig = go.Figure(go.Bar(
+                        x=[d["day"] for d in order], y=[d["net"] for d in order],
+                        marker_color=[GREEN if d["net"] >= 0 else RED for d in order],
+                        marker_line_width=0,
+                        text=lbl, textposition="outside", textangle=0,
+                        textfont=dict(size=13, color="#FFE066"), cliponaxis=False,
+                        hovertext=[f"{d['date']}  net {d['net']:+,.0f}" for d in order],
+                        hoverinfo="text"))
+                    barfig.update_layout(
+                        height=280, margin=dict(l=0, r=0, t=42, b=26), template="plotly_dark",
+                        paper_bgcolor="#171A21", plot_bgcolor="#171A21", showlegend=False, bargap=0.25,
+                        yaxis_title="net shares / day",
+                        hoverlabel=dict(bgcolor="#20242F", font=dict(color="#E6E8EC", size=11)))
+                    # headroom so the two-line label (positive above / negative below) never clips
+                    nvals = [d["net"] for d in order]
+                    hi, lo = max(nvals + [0]), min(nvals + [0])
+                    npad = (hi - lo) * 0.42 or 1
+                    barfig.update_xaxes(gridcolor="rgba(120,123,134,.12)")
+                    barfig.update_yaxes(range=[lo - npad if lo < 0 else 0, hi + npad],
+                                        gridcolor="rgba(120,123,134,.12)", zerolinecolor="#394050")
+                    st.caption("Daily NET — quantity (yellow) and date shown above each bar; green = net buying, red = net selling")
+                    st.plotly_chart(barfig, use_container_width=True,
+                                    config={"displayModeBar": False, "staticPlot": True},
+                                    key=f"opbar_{r['symbol']}_{r['broker']}_{r['side']}")
+
+                    # SELL chart below: how much this broker sold each day (red)
+                    sellfig = go.Figure(go.Bar(
+                        x=[d["day"] for d in order], y=[d["sold"] for d in order],
+                        marker_color=RED, marker_line_width=0,
+                        text=[kfmt(d["sold"]) if d["sold"] else "" for d in order],
+                        textposition="outside", textfont=dict(size=13, color="#FFB3AA"),
+                        cliponaxis=False,
+                        hovertext=[f"{d['date']}  sold {d['sold']:,.0f}" for d in order],
+                        hoverinfo="text"))
+                    sellfig.update_layout(
+                        height=180, margin=dict(l=0, r=0, t=18, b=26), template="plotly_dark",
+                        paper_bgcolor="#171A21", plot_bgcolor="#171A21", showlegend=False, bargap=0.25,
+                        yaxis_title="sold / day",
+                        hoverlabel=dict(bgcolor="#20242F", font=dict(color="#E6E8EC", size=11)))
+                    smax = max([d["sold"] for d in order] + [1])
+                    sellfig.update_xaxes(gridcolor="rgba(120,123,134,.12)")
+                    sellfig.update_yaxes(range=[0, smax * 1.3], gridcolor="rgba(120,123,134,.12)")
+                    st.caption("Daily SELL quantity — how many shares this broker sold each day (red)")
+                    st.plotly_chart(sellfig, use_container_width=True,
+                                    config={"displayModeBar": False, "staticPlot": True},
+                                    key=f"opsell_{r['symbol']}_{r['broker']}_{r['side']}")
+
+                    st.caption("Day by day — vs_prev = how many more/fewer net shares than the day before")
+                    st.dataframe(paint(day), width="stretch", hide_index=True,
+                                 height=min(360, 36 * len(day) + 40))
+
+                    def words(n):                              # South-Asian readable form
+                        a = abs(n); sign = "-" if n < 0 else ""
+                        if a >= 1e7: return f"{sign}{a/1e7:.2f} crore"
+                        if a >= 1e5: return f"{sign}{a/1e5:.2f} lakh"
+                        if a >= 1e3: return f"{sign}{a/1e3:.1f} thousand"
+                        return f"{sign}{a:.0f}"
+                    st.markdown(f"**Totals over the last {span}:**")
+                    t1, t2, t3 = st.columns(3)
+                    t1.metric("Total buy quantity", f"{tot_buy:,.0f} shares", help=words(tot_buy))
+                    t2.metric("Total sell quantity", f"{tot_sell:,.0f} shares", help=words(tot_sell))
+                    t3.metric("Net kept (buy − sell)", f"{tot_left:+,.0f} shares", help=words(tot_left))
+                    kept = (f"net **buying {words(tot_left)}**" if tot_left > 0
+                            else f"net **selling {words(-tot_left)}**")
+                    st.caption(f"In words — over the last {span}, broker {r['broker']} bought "
+                               f"**{words(tot_buy)}** and sold **{words(tot_sell)}** — {kept} shares.")
+
+                trade_setup_div(r["symbol"])
+                render_market_depth(r["symbol"])
+
+        def trade_setup_div(symbol):
+            """Separate panel: the professional technical A+ setup + buy/target/stop levels."""
+            ts = get_trade_setup(symbol)
+            if not ts:
+                return
+            def f0(x): return f"{x:,.0f}" if isinstance(x, (int, float)) else "—"
+            def f1(x): return f"{x:,.1f}" if isinstance(x, (int, float)) else "—"
+            def f2(x): return f"{x:+.2f}" if isinstance(x, (int, float)) else "—"
+            def gt(a, b): return a is not None and b is not None and a > b
+            sig = ts["signal"]
+            col = {"STRONG BUY": "#2ea043", "BUY": "#3fb950", "WATCH": "#d29922",
+                   "SELL": "#f85149", "STRONG SELL": "#da3633"}.get(sig, "#6b7280")
+            st.markdown("<hr style='margin:16px 0 8px;border:none;border-top:1px solid #2b3240'>",
+                        unsafe_allow_html=True)
+            # Two separate things: the badge = the SETUP signal (direction + quality); the chip =
+            # today's ENTRY timing. A grade-A BUY setup can still be "wait" if price already ran.
+            # The entry-timing chip is about BUYING, so only show it on a long/buy setup.
+            is_long = sig in ("STRONG BUY", "BUY", "WATCH")
+            sb = ts.get("still_buy") if is_long else None
+            timing = ("<span style='background:#d29922;color:#0d1117;font-weight:700;padding:2px 10px;"
+                      "border-radius:5px;font-size:.82em'>⏳ entry: wait (extended)</span>" if sb is False
+                      else "<span style='background:#2ea043;color:#fff;font-weight:700;padding:2px 10px;"
+                      "border-radius:5px;font-size:.82em'>✅ entry: buyable now</span>" if sb is True
+                      else "")
+            st.markdown(
+                "<div style='display:flex;align-items:center;gap:12px;flex-wrap:wrap'>"
+                "<span style='font-weight:700;font-size:1.03em'>📐 Professional trade setup</span>"
+                f"<span style='background:{col};color:#fff;font-weight:700;padding:2px 11px;"
+                f"border-radius:5px'>{sig} setup</span>"
+                f"<span style='color:#8a93a5'>score <b style='color:{col}'>{ts['score']}/100</b>"
+                f" · grade {ts['grade']}</span>{timing}</div>", unsafe_allow_html=True)
+            st.caption(f"Daily (1D) as of {ts['date']} · liquidity → 200-SMA → 20/50-EMA → volume → ADX "
+                       "→ RSI → MACD → ATR risk. The **badge is the setup signal** (is this a good buy "
+                       "setup?); the **chip is today's entry timing** (can you get in *now*?) — a "
+                       "grade-A BUY can still say *wait* if price already extended.")
+            if is_long and ts["target1"] and ts["stop"]:
+                e = ts["entry"]
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Entry (buy)", f"Rs {f0(e)}")
+                m2.metric("Target 1", f"Rs {f0(ts['target1'])}", f"{(ts['target1']/e-1)*100:+.1f}%")
+                m3.metric("Target 2", f"Rs {f0(ts['target2'])}", f"{(ts['target2']/e-1)*100:+.1f}%")
+                m4.metric("Stop loss", f"Rs {f0(ts['stop'])}", f"{(ts['stop']/e-1)*100:+.1f}%")
+                st.caption(f"Risk **{ts['risk_pct']}%** per share · reward:risk to T2 ≈ **{ts['rr']}:1** · "
+                           f"support {f0(ts['support'])} / resistance {f0(ts['resistance'])} · ATR(14) {f1(ts['atr'])}")
+                if ts.get("buy_date"):
+                    ago = ts["days_active"]
+                    when = "today" if ago == 0 else ("yesterday" if ago == 1 else f"{ago} sessions ago")
+                    st.markdown(f"**Buy signal date** — triggered on **{ts['buy_date']}** ({when}) at "
+                                f"Rs {f0(ts['buy_close'])}. Price is **{ts['runup']:+.1f}%** from the trigger now.")
+                    oc = ts.get("outcome")
+                    if oc:
+                        vb, vc = {
+                            "t2": ("🎯 Both targets reached — full winner", "#2ea043"),
+                            "t1": ("🟢 Target 1 reached", "#3fb950"),
+                            "stopped": ("🔴 Stopped out — the trade lost", "#da3633"),
+                            "open": ("⚪ Still open — neither target nor stop hit yet", "#d29922"),
+                        }[oc["verdict"]]
+                        st.markdown(f"<b>Did it work?</b> from that entry (Rs {f0(oc['entry'])}) → "
+                                    f"<span style='color:{vc};font-weight:700'>{vb}</span> · "
+                                    f"best move since <b>{oc['peak_pct']:+.1f}%</b>", unsafe_allow_html=True)
+                        calc([
+                            ("target 1", f"Rs {f0(oc['t1'])}",
+                             hit(f"hit {oc['t1_date']}", True) if oc["t1_date"] else mut("not reached yet")),
+                            ("target 2", f"Rs {f0(oc['t2'])}",
+                             hit(f"hit {oc['t2_date']}", True) if oc["t2_date"] else mut("not reached yet")),
+                            ("stop loss", f"Rs {f0(oc['stop'])}",
+                             hit(f"HIT {oc['sl_date']}", False) if oc["sl_date"] else hit("never hit — safe", True)),
+                        ], tone=vc)
+                if ts.get("still_buy") is True:
+                    st.success(f"✅ **Can you still buy? Yes** — {ts['still_reason']}.")
+                elif ts.get("still_buy") is False:
+                    st.warning(f"⏳ **Can you still buy? Not now** — {ts['still_reason']}.")
+            else:
+                why = ("Too thin to trade (illiquid)." if sig == "ILLIQUID"
+                       else "Price is below the major trend, or a false-signal filter blocks a long here.")
+                st.markdown(f"<div style='color:#f0a441'>No long entry — signal is <b>{sig}</b>. {why} "
+                            f"If already holding, protective stop ≈ <b>Rs {f0(ts['stop'])}</b>.</div>",
+                            unsafe_allow_html=True)
+            p = ts["parts"]
+            calc([
+                ("trend 30", "close&gt;200 · 50&gt;200 · 20&gt;50", hit(f"{p['trend']}/30", p['trend'] >= 20)),
+                ("momentum 25", "RSI&gt;50 · MACD&gt;sig · hist↑", hit(f"{p['momentum']}/25", p['momentum'] >= 15)),
+                ("strength 20", "ADX&gt;25 · +DI&gt;−DI", hit(f"{p['strength']}/20", p['strength'] >= 10)),
+                ("volume 15", "1.5× / 2× avg20", hit(f"{p['volume']}/15", p['volume'] >= 10)),
+                ("price 10", "breakout of 20d high", hit(f"{p['price']}/10", p['price'] >= 10)),
+            ], tone=col)
+            aligned = gt(ts['ema20'], ts['ema50']) and gt(ts['ema50'], ts['sma200'])
+            calc([
+                ("trend stack", f"20 {f0(ts['ema20'])} · 50 {f0(ts['ema50'])} · 200 {f0(ts['sma200'])}",
+                 hit("aligned" if aligned else "mixed", aligned)),
+                ("RSI(14)", "50+ healthy · &gt;75 hot",
+                 hit(f0(ts['rsi']), ts['rsi'] is not None and 50 <= ts['rsi'] <= 75)),
+                ("ADX(14)", f"+DI {f0(ts['plus_di'])} / −DI {f0(ts['minus_di'])}",
+                 hit(f0(ts['adx']), ts['adx'] is not None and ts['adx'] > 25)),
+                ("MACD", f"signal {f2(ts['macd_sig'])}", hit(f2(ts['macd']), gt(ts['macd'], ts['macd_sig']))),
+                ("volume", "× 20-day average", hit(f"{ts['vol_ratio']:.2f}×", ts['vol_ratio'] > 1.5)),
+            ], tone="#4a5568")
+
+        proven = [r for r in rows if int(r["proof"]) == 3]
+        partial = [r for r in rows if int(r["proof"]) < 3]
+
+        st.markdown(f"**🔎 Strong lead — all 3 sources agree ({len(proven)})**")
+        st.caption("A lead worth investigating, **not proof of an operator** — the floorsheet shows "
+                   "the broker firm, not the client behind it. A hyperactive broker leading many "
+                   "stocks is excluded; the survivors are one-directional in this stock specifically.")
+        if proven:
+            for r in proven:
+                card(r)
+        else:
+            st.caption("None this session — no stock has floorsheet, chart and position all agreeing.")
+
+        st.markdown(f"**◻️ Only some sources agree — not proven ({len(partial)})**")
+        st.caption("Usually the floorsheet shows a broker buying/selling but the **chart (price+volume) "
+                   "does not confirm** — e.g. the broker bought while the price fell, so the tape is "
+                   "not backing them. Look, but do not trust.")
+        for r in partial[:10]:
+            card(r)
+
+        st.markdown("<div class='section'>All, with the numbers</div>", unsafe_allow_html=True)
+        table = [{
+            "symbol": r["symbol"], "side": r["side"], "verdict": r["verdict"],
+            "proof": f"{r['proof']}/3", "floor": r["floor_ok"], "chart": r["chart_ok"],
+            "position": r["pos_ok"], "float%": float(r["float_pct"]), "broker": r["broker"],
+            "net_1m": float(r["net_1m"]), "pct_float": float(r["pct_float"]),
+            "regular%": float(r["regular_pct"]), "vol_dom%": float(r["vol_dom"]),
+            "AD_trend": float(r["ad_trend"]), "updn_vol": float(r["updown_vol"]),
+            "price_chg": float(r["price_chg"]),
+        } for r in rows]
+        st.dataframe(paint(table), width="stretch", hide_index=True,
+                     height=min(460, 38 * len(table) + 44))

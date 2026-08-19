@@ -7,7 +7,8 @@ __pycache__/
 *.pyc
 *.pyo
 
-# Secrets — the NAASA token lives in an env var, never on disk
+# Secrets — NAASA's session cookie (naasa_session.txt) and, when "remember me" is on, the login
+# (naasa_login.txt, plain text) are saved under Master_data/, already ignored above. Keep .env out too.
 .env
 .env.*
 .streamlit/secrets.toml
@@ -23,3 +24,6 @@ openalgo-pinets/
 # Scratch
 *.tmp
 baseline.json
+
+# Manual data exports (SWP screener etc.) — data lives in Master_data/*.txt, not in git
+*.xlsx

@@ -30,8 +30,12 @@ def save(names, filename):
     assert all(n and n.strip() == n for n in names), f"{filename}: bad symbol in {names}"
     MASTER.mkdir(exist_ok=True)
     path = MASTER / filename
-    path.write_text("\n".join(sorted(names)) + "\n", encoding="utf-8")
-    print(f"{len(names):>4} -> {path}")
+    existing = set(path.read_text(encoding="utf-8").split()) if path.exists() else set()
+    new = names - existing                       # ADD new listings; never drop one on a feed gap
+    merged = existing | names
+    path.write_text("\n".join(sorted(merged)) + "\n", encoding="utf-8")
+    print(f"{len(merged):>4} -> {path}"
+          + (f"  (+{len(new)} new: {', '.join(sorted(new))})" if new else "  (no new)"))
 
 
 if __name__ == "__main__":

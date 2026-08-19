@@ -132,6 +132,44 @@ def atr(highs, lows, closes, n=14):
     return out
 
 
+def adx(highs, lows, closes, n=14):
+    """Wilder's ADX with +DI / -DI. Returns (adx, plus_di, minus_di), each None-padded.
+
+    ADX measures trend STRENGTH (not direction); +DI vs -DI gives the direction. A rising
+    ADX above 25 with +DI over -DI is the classic 'strong up-trend' reading.
+    """
+    L = len(closes)
+    adx_out, pdi, mdi = [None] * L, [None] * L, [None] * L
+    if L <= 2 * n:
+        return adx_out, pdi, mdi
+    tr, plus_dm, minus_dm = [0.0] * L, [0.0] * L, [0.0] * L
+    for i in range(1, L):
+        up, dn = highs[i] - highs[i - 1], lows[i - 1] - lows[i]
+        plus_dm[i] = up if (up > dn and up > 0) else 0.0
+        minus_dm[i] = dn if (dn > up and dn > 0) else 0.0
+        tr[i] = max(highs[i] - lows[i], abs(highs[i] - closes[i - 1]), abs(lows[i] - closes[i - 1]))
+    atr_s = sum(tr[1:n + 1]); sp = sum(plus_dm[1:n + 1]); sm = sum(minus_dm[1:n + 1])
+    p = 100 * sp / atr_s if atr_s else 0.0
+    m = 100 * sm / atr_s if atr_s else 0.0
+    pdi[n], mdi[n] = p, m
+    dx = [(n, 100 * abs(p - m) / (p + m) if (p + m) else 0.0)]
+    for i in range(n + 1, L):
+        atr_s = atr_s - atr_s / n + tr[i]
+        sp = sp - sp / n + plus_dm[i]
+        sm = sm - sm / n + minus_dm[i]
+        p = 100 * sp / atr_s if atr_s else 0.0
+        m = 100 * sm / atr_s if atr_s else 0.0
+        pdi[i], mdi[i] = p, m
+        dx.append((i, 100 * abs(p - m) / (p + m) if (p + m) else 0.0))
+    if len(dx) >= n:
+        prev = sum(d for _, d in dx[:n]) / n
+        adx_out[dx[n - 1][0]] = prev
+        for idx, d in dx[n:]:
+            prev = (prev * (n - 1) + d) / n
+            adx_out[idx] = prev
+    return adx_out, pdi, mdi
+
+
 def trade_levels(signal, price, pivot, atr_now):
     """Stop and two targets for a signal.
 

@@ -12,11 +12,18 @@ Two things it gives us that chukul does not:
     python naasa.py            # refresh Master_data/instruments.txt
 """
 
+import base64
+import html as html_lib
+import http.cookiejar
 import json
+import re
 import string
+import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 
 from fetch_ohlc import MASTER
 
@@ -137,63 +144,514 @@ def main():
     print("  " + "   ".join(f"{k} {v}" for k, v in sorted(counts.items(), key=lambda kv: -kv[1])))
 
 
-# ---------------------------------------------------------------- account access
+# ---------------------------------------------------------------- account session
 #
-# Credentials are never stored by this module. `login()` takes them as arguments, exchanges
-# them for a token, and returns it — the caller keeps the token in memory for the session.
-# Nothing here writes to disk, and no order-placing endpoint is implemented on purpose.
+# The app API (nx.naasasecurities.com.np/api/*) authorizes with the browser's NextAuth
+# session cookie — the Keycloak bearer token is rejected there (401). Direct-grant password
+# login is disabled on the `blaze` realm, so there is no password flow to implement: the one
+# durable credential is that cookie, copied once from a signed-in tab. We persist it to a
+# .txt (the project's only storage) so the login survives restarts; the cookie itself lasts
+# ~30 days and NextAuth slides it forward on each use. Only read endpoints are called here —
+# nothing places or cancels an order on purpose.
 
-AUTH = "https://auth.naasasecurities.com.np/realms/naasa/protocol/openid-connect/token"
-CLIENT_ID = "blaze"
-
-
-USERINFO = "https://auth.naasasecurities.com.np/realms/naasa/protocol/openid-connect/userinfo"
-
-
-def whoami(token):
-    """Validate a pasted token against Keycloak's userinfo endpoint.
-
-    This is how the app checks a token is real and unexpired without ever seeing a
-    password: userinfo answers 200 with the account's profile, or 401 once it lapses.
-    """
-    return authed(USERINFO, token)
+NX = "https://nx.naasasecurities.com.np"
+SESSION_FILE = MASTER / "naasa_session.txt"
+CREDS_FILE = MASTER / "naasa_login.txt"
+COOKIE_NAME = "__Secure-next-auth.session-token"
 
 
-def login(username, password):
-    """Keycloak direct-grant — NOT available on this realm.
+def _cookie_header(raw):
+    """A Cookie header from whatever the user pasted — a bare value or a full name=value."""
+    raw = (raw or "").strip()
+    return raw if "=" in raw.split(";", 1)[0] else f"{COOKIE_NAME}={raw}"
 
-    Kept for reference: the `blaze` client answers 401 unauthorized_client, so the only
-    way in is the browser's authorization-code flow, whose redirect URI is whitelisted to
-    NAASA's own domain. A token therefore has to be copied out of a signed-in session.
-    """
-    body = urllib.parse.urlencode({
-        "client_id": CLIENT_ID,
-        "grant_type": "password",
-        "scope": "openid profile",
-        "username": username,
-        "password": password,
-    }).encode()
-    req = urllib.request.Request(AUTH, data=body, headers={
-        "Content-Type": "application/x-www-form-urlencoded",
+
+def save_session(cookie):
+    """Persist the session cookie so the login is permanent until it expires."""
+    SESSION_FILE.parent.mkdir(parents=True, exist_ok=True)
+    SESSION_FILE.write_text((cookie or "").strip() + "\n", encoding="utf-8")
+
+
+def load_session():
+    """The saved cookie string, or "" if we have never signed in on this machine."""
+    return SESSION_FILE.read_text(encoding="utf-8").strip() if SESSION_FILE.exists() else ""
+
+
+def clear_session():
+    SESSION_FILE.unlink(missing_ok=True)
+
+
+def save_credentials(email, password):
+    """Remember the login for silent auto sign-in. Plain text on disk — gitignored and local
+    only; the user opts into this, and it is what lets the app re-authenticate on its own once
+    the saved cookie lapses."""
+    CREDS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    CREDS_FILE.write_text(f"{email}\n{password}\n", encoding="utf-8")
+
+
+def load_credentials():
+    """(email, password) if remembered, else (None, None)."""
+    if not CREDS_FILE.exists():
+        return None, None
+    lines = CREDS_FILE.read_text(encoding="utf-8").splitlines()
+    return (lines[0].strip(), lines[1]) if len(lines) >= 2 else (None, None)
+
+
+def clear_credentials():
+    CREDS_FILE.unlink(missing_ok=True)
+
+
+def _nx(path, cookie, method="GET", body=None, timeout=30):
+    """Call an nx app endpoint with the session cookie. Origin/Referer/UA mirror the browser
+    so the request is indistinguishable from the SPA's own — read-only by construction."""
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(NX + path, data=data, method=method, headers={
+        "Cookie": _cookie_header(cookie),
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Origin": NX,
+        "Referer": NX + "/",
         "User-Agent": "Mozilla/5.0",
     })
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.load(r)
     except urllib.error.HTTPError as e:
-        detail = e.read().decode("utf-8", "replace")[:200]
-        raise RuntimeError(f"login rejected ({e.code}): {detail}") from None
+        raise RuntimeError(f"{e.code}: {e.read().decode('utf-8', 'replace')[:150]}") from None
 
 
-def authed(url, token, timeout=30):
-    """GET an endpoint that needs the session token. Read-only by construction."""
-    req = urllib.request.Request(url, headers={
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/json",
-        "User-Agent": "Mozilla/5.0",
-    })
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.load(r)
+def session_info(cookie):
+    """Validate the cookie and return the signed-in profile: {user, accessToken, expires}.
+
+    NextAuth answers /api/auth/session with the user object while the cookie is live, and an
+    empty body once it lapses — so a missing `user` means the session must be renewed.
+    """
+    info = _nx("/api/auth/session", cookie)
+    if not info or not info.get("user"):
+        raise RuntimeError("session expired or invalid — sign in again")
+    return info
+
+
+def login_password(email, password):
+    """Log in with a NAASA email + password and return the session cookie string.
+
+    There is no password API — the `blaze` realm disables direct grant — so this drives the
+    same browser flow a human does: NextAuth hands out a Keycloak authorize URL, Keycloak shows
+    a plain login form, we POST the credentials, and Keycloak redirects back through NextAuth's
+    callback, which sets the session cookie. A single cookie jar carries the state/PKCE cookies
+    across those hops. The password is used here and thrown away — only the cookie is returned
+    (and only the cookie is ever persisted). Breaks the day NAASA adds MFA or a CAPTCHA.
+    """
+    jar = http.cookiejar.CookieJar()
+    op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+    op.addheaders = [("User-Agent", "Mozilla/5.0"),
+                     ("Accept", "text/html,application/json,*/*")]
+
+    # 1) CSRF token, then ask NextAuth for the Keycloak authorize URL.
+    csrf = json.load(op.open(NX + "/api/auth/csrf", timeout=30))["csrfToken"]
+    signin = urllib.parse.urlencode({"csrfToken": csrf, "callbackUrl": NX + "/",
+                                     "json": "true"}).encode()
+    resp = op.open(urllib.request.Request(
+        NX + "/api/auth/signin/keycloak", data=signin,
+        headers={"Content-Type": "application/x-www-form-urlencoded",
+                 "Accept": "application/json"}), timeout=30)
+    raw = resp.read().decode("utf-8", "replace")
+    try:
+        auth_url = json.loads(raw)["url"]
+    except (ValueError, KeyError):
+        auth_url = resp.geturl()          # NextAuth already redirected us to Keycloak
+
+    # 2) Load the Keycloak login form (the jar picks up AUTH_SESSION_ID / KC_RESTART).
+    page = op.open(auth_url, timeout=30).read().decode("utf-8", "replace")
+    m = re.search(r'action="([^"]*login-actions/authenticate[^"]*)"', page)
+    if not m:
+        raise RuntimeError("NAASA login form not found — the page changed, or MFA is now on")
+    action = html_lib.unescape(m.group(1))
+
+    # 3) POST the credentials; success 302s back through NextAuth's callback → session cookie.
+    creds = urllib.parse.urlencode({"username": email, "password": password,
+                                    "credentialId": ""}).encode()
+    op.open(urllib.request.Request(action, data=creds, headers={
+        "Content-Type": "application/x-www-form-urlencoded"}), timeout=30).read()
+
+    # The session JWT is big (access + id token), so NextAuth splits it across chunk cookies
+    # `…session-token.0`, `.1`, … — return every chunk, in order, or the token is only half sent.
+    chunks = sorted((c for c in jar if "session-token" in c.name), key=lambda c: c.name)
+    if chunks:
+        return "; ".join(f"{c.name}={c.value}" for c in chunks)
+    raise RuntimeError("login failed — wrong email/password, or NAASA blocked the sign-in")
+
+
+def report(cookie, report_type):
+    """Personal report by type: ORDERBOOK (your orders), HOLDINGREPORT (your holdings).
+
+    The nx route reads clientCode/sessionNo from the session server-side (the browser sends
+    neither), so we send exactly what it does. It answers 400 "Missing sessionNo or clientCode"
+    when the session has been superseded by a newer NAASA login elsewhere — re-login to fix.
+    """
+    body = {"reportType": report_type}
+    if report_type == "ORDERBOOK":
+        body |= {"fromDate": "", "toDate": ""}
+    return _nx("/api/report", cookie, "POST", body)
+
+
+def dashboard(cookie):
+    """Collateral and trade-summary block behind the account dashboard."""
+    return _nx("/api/dashboard-details", cookie, "POST", {})
+
+
+# ---------------------------------------------------------------- live market feed
+#
+# The order screen's live Top-5 depth and stock stats are NOT a websocket — they are GET calls
+# to nx's market-feed proxy, `/api/feed/Services.<Name>`, that answer with the exact numbers on
+# screen. Each wraps its payload as a JSON *string* in `data`, so it is parsed twice. Authed by
+# the session cookie, same as the account endpoints (so the superseded-session 400 applies).
+
+def _feed(cookie, service, **params):
+    payload = _nx(f"/api/feed/Services.{service}?{urllib.parse.urlencode(params)}", cookie)
+    raw = payload.get("data")
+    return json.loads(raw) if isinstance(raw, str) else (raw or [])
+
+
+def _f(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def market_depth(cookie, symbol, exchange="NEPSE"):
+    """Live Top-5 order book: {time, levels:[{bid_price,bid_qty,bid_orders,ask_price,ask_qty,
+    ask_orders}]}. Ladder is empty pre-open; the exact data NAASA's order screen shows."""
+    rows = _feed(cookie, "GetMDepth", Tickers=symbol, Exchange=exchange)
+    if not rows:
+        return {"time": "", "levels": []}
+    d = rows[0]
+    levels = [{"bid_price": _f(l.get("BBR")), "bid_qty": _f(l.get("BBQ")), "bid_orders": _f(l.get("BO")),
+               "ask_price": _f(l.get("BSR")), "ask_qty": _f(l.get("BSQ")), "ask_orders": _f(l.get("SO"))}
+              for l in d.get("depth", [])]
+    return {"time": d.get("DateTime", ""), "levels": levels}
+
+
+QUOTE_COLUMNS = ("LTP", "Open", "High", "Low", "Close", "PreviousClose", "Volume",
+                 "WeightedAverage", "Turnover", "TotalBuyQty", "TotalSellQty")
+
+
+def market_quote(cookie, symbol, exchange="NEPSE"):
+    """Live quote: {LTP, Open, High, Low, Close, PreviousClose, Volume, WeightedAverage (avg
+    price), Turnover, TotalBuyQty, TotalSellQty} as floats. Same feed the screen reads."""
+    rows = _feed(cookie, "GetSpecifiedQuote", Tickers=f"{exchange}.{symbol}",
+                 Columns=",".join(QUOTE_COLUMNS))
+    if not rows:
+        return {}
+    q = rows[0]
+    return {k: _f(q.get(k)) for k in QUOTE_COLUMNS}
+
+
+# ---------------------------------------------------------------- live WebSocket feed
+#
+# NAASA streams live ticks over a WebSocket (the same feed the order screen's Top-5 ladder
+# uses). Frames are `102^` + base64(zlib-deflate(`type$seq$EXCH!SYMBOL$datetime$field^field…`)),
+# the client subscribes with `ADD^<count>^25.1!SYMBOL…`, and the server pushes updates.
+#
+# The working endpoint is the OLD NAASA X app's socket, `wss://x.naasasecurities.com.np:8006/
+# WebSocket/Connect`, authed by `?UserId=<hdnLogin>&Password=<hdnSession>&protocol=WSS&
+# ClientIP=<ip>&Source=1`. hdnLogin/hdnSession are hidden fields the OLD app renders after an
+# OAuth login — hdnSession is a feed token, NOT the account password. feed_auth() logs in and
+# scrapes them. (The nx app's `serverx` variant needs a routing key we can't reconstruct — 503.)
+# Needs `websocket-client`.
+
+X_APP = "https://x.naasasecurities.com.np"
+FEED_URL = "wss://x.naasasecurities.com.np:8006/WebSocket/Connect"
+X_AUTH = ("https://auth.naasasecurities.com.np/realms/naasa/protocol/openid-connect/auth"
+          "?client_id=blaze&scope=openid%20profile&response_type=code"
+          "&redirect_uri=https://x.naasasecurities.com.np/login")
+
+
+def _inflate(b64):
+    """base64 → raw bytes → inflate (zlib / raw-deflate / gzip). '' when it can't be inflated."""
+    try:
+        raw = base64.b64decode(b64)
+    except (ValueError, TypeError):
+        return ""
+    for wbits in (15, -15, 47):
+        try:
+            return zlib.decompress(raw, wbits).decode("utf-8", "replace")
+        except zlib.error:
+            continue
+    return ""
+
+
+# Per message-type field layout, straight from the `101^` schema frame. 75/1 = stock quote,
+# 77 = index quote, 76/2 = 5-level depth (repeats), the rest are summaries/circuit limits.
+FEED_SCHEMA = {
+    "2":  ["BestBuyRate", "BestBuyQty", "BuyOrders", "BestSellRate", "BestSellQty", "SellOrders"],
+    "76": ["BestBuyRate", "BestBuyQty", "BuyOrders", "BestSellRate", "BestSellQty", "SellOrders"],
+    "77": ["LTP", "High", "Low", "Open", "Close", "52WeekHigh", "52WeekLow", "TTQ", "TTV", "LTV",
+           "TradedSymbolCount", "LastTradeTime"],
+    "75": ["LTP", "LTQ", "LastTradeTime", "TTQ", "WeightedAverage", "BidPrice", "OfferPrice",
+           "BidQty", "OfferQty", "TotalBuyQty", "TotalSellQty", "High", "Low", "Open", "Close"],
+    "1":  ["LTP", "LTQ", "LastTradeTime", "TTQ", "WeightedAverage", "BidPrice", "OfferPrice",
+           "BidQty", "OfferQty", "TotalBuyQty", "TotalSellQty", "High", "Low", "Open", "Close"],
+    "73": ["Exchange", "TodayClose"],
+    "78": ["LowerCKTLimit", "UpperCKTLimit", "52WeekHigh", "52WeekLow"],
+    "74": ["TTQ", "TTV", "TradedSymbolCount", "LTP", "High", "Low", "Open", "Close"],
+}
+
+
+def decode_tick(message):
+    """A `102^…` data frame → {type, symbol, fields}, or None. `fields` is the raw `$`-split of
+    the FIRST record (kept for quick inspection); use parse_records() for the full mapped parse."""
+    if not isinstance(message, str) or not message.startswith("102^"):
+        return None
+    body = _inflate(message.split("^", 1)[1])
+    if not body:
+        return None
+    fields = body.split("$")
+    symbol = next((f.split("!", 1)[1] for f in fields if "!" in f), "")
+    return {"type": "102", "symbol": symbol, "fields": fields}
+
+
+DEPTH_TYPES = {"2", "76"}
+DEPTH_FIELDS = ("BuyRate", "BuyQty", "BuyOrders", "SellRate", "SellQty", "SellOrders")
+
+
+def parse_records(message):
+    """A `102^…` frame → list of {type, symbol, time, fields}. One frame can carry several
+    newline-separated records, each `exch$type$25.X!SYMBOL$datetime$values`. Quote/index records
+    (types 75/1/77…) map values by FEED_SCHEMA; depth records (76/2, key `25.2!`) carry a 5-level
+    book — `|`-separated levels, each `BuyRate^BuyQty^BuyOrders^SellRate^SellQty^SellOrders` — and
+    land as fields={"depth": [ {level dict} × up to 5 ]}."""
+    if not isinstance(message, str) or not message.startswith("102^"):
+        return []
+    body = _inflate(message.split("^", 1)[1])
+    out = []
+    for rec in body.split("\n"):
+        parts = rec.split("$")
+        if len(parts) < 5:
+            continue
+        mtype, symkey, raw = parts[1], parts[2], parts[4]
+        sym = symkey.split("!", 1)[1] if "!" in symkey else symkey
+        if mtype in DEPTH_TYPES:
+            levels = [dict(zip(DEPTH_FIELDS, lvl.split("^")))
+                      for lvl in raw.split("|") if lvl.count("^") >= 5]
+            fields = {"depth": levels}
+        else:
+            names, values = FEED_SCHEMA.get(mtype, []), raw.split("^")
+            fields = {names[i]: values[i] for i in range(min(len(names), len(values)))}
+        out.append({"type": mtype, "symbol": sym, "time": parts[3], "fields": fields})
+    return out
+
+
+# NEPSE headline + sector indices (from NAASA's own sectorMapMarketWatch). Streamed as type-77
+# over the same socket; carry no depth book. The extras past the first 13 are subscribed too and
+# simply return nothing if NEPSE doesn't publish them — the UI shows only indices that have data.
+INDEX_SYMBOLS = (
+    "NEPSE", "SENSIND", "FLOATIND", "SENFLOAT",
+    "BANKSUBIND", "DEVBANKIND", "FININD", "HOTELIND", "HYDPOWIND",
+    "INVIDX", "LIFINSIND", "MANPROCIND", "MICRFININD", "NONLIFIND",
+    "OTHERSIND", "TRADIND", "MUTUALIND",
+)
+_INDEX_KEYS = set(INDEX_SYMBOLS)
+
+
+def subscribe_frame(symbols):
+    """`ADD^<count>^25.1!SYM…^25.2!SYM…` — the quote feed (`25.1!`) for every symbol/index, plus
+    the 5-level depth book (`25.2!`) for the stocks (NAASA's own order screen builds the depth key
+    by swapping `.1!`→`.2!`; indices carry no book so they're left out)."""
+    keys = ["25.1!%s" % s for s in symbols]
+    keys += ["25.2!%s" % s for s in symbols if s not in _INDEX_KEYS]
+    return "ADD^%d^%s" % (len(keys), "^".join(keys))
+
+
+_X_TTL = 540  # re-login the X-app session after ~9 min
+_x_sess = {"op": None, "user_id": None, "session": None, "ts": 0.0, "lock": threading.Lock()}
+
+
+def _x_login(email, password, force=False):
+    """Authenticated opener for the OLD NAASA X app (x.naasasecurities.com.np), cached module-wide
+    so the WSS feed AND the order-book/holdings/collateral report calls share ONE login — exactly
+    like the browser's order screen, which holds the socket and calls the report API on the same
+    session. Sharing one login is what stops the reports from fighting the live feed for NAASA's
+    single-active-session-per-account. Returns the cached {op, user_id, session}; re-logs in on
+    `force` or once the TTL lapses."""
+    with _x_sess["lock"]:
+        if not force and _x_sess["op"] and (time.time() - _x_sess["ts"] < _X_TTL):
+            return _x_sess
+        jar = http.cookiejar.CookieJar()
+        op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+        op.addheaders = [("User-Agent", "Mozilla/5.0")]
+        page = op.open(X_AUTH, timeout=30).read().decode("utf-8", "replace")
+        m = re.search(r'action="([^"]*login-actions/authenticate[^"]*)"', page)
+        if m:                                          # not already SSO'd from a shared session
+            creds = urllib.parse.urlencode({"username": email, "password": password,
+                                            "credentialId": ""}).encode()
+            op.open(urllib.request.Request(html_lib.unescape(m.group(1)), data=creds, headers={
+                "Content-Type": "application/x-www-form-urlencoded"}), timeout=30).read()
+        order = op.open(X_APP + "/MarketOrder/Order", timeout=30).read().decode("utf-8", "replace")
+
+        def field(name):
+            hit = (re.search(r'id=["\']%s["\'][^>]*value=["\']([^"\']*)' % name, order)
+                   or re.search(r'name=["\']%s["\'][^>]*value=["\']([^"\']*)' % name, order))
+            return hit.group(1) if hit else None
+        user_id, session = field("hdnLogin"), field("hdnSession")
+        if not (user_id and session):
+            raise RuntimeError("X-app login failed — could not scrape hdnLogin/hdnSession")
+        _x_sess.update(op=op, user_id=user_id, session=session, ts=time.time())
+        return _x_sess
+
+
+def feed_auth(email, password):
+    """(UserId=hdnLogin, session=hdnSession) for the WSS handshake — from the shared X-app login."""
+    s = _x_login(email, password)
+    return s["user_id"], s["session"]
+
+
+def _decode_report(data):
+    """An X-app report `data` field is either plain JSON (a `[`/`{`-string, e.g. Indices) or
+    base64(JSON) (the order-book/holdings grids), or an already-parsed value. Return the useful
+    part — a list/dict of rows where possible, else the raw value."""
+    if isinstance(data, str):
+        s = data.strip()
+        if not s:
+            return []
+        if s[0] in "[{":                                   # already JSON text
+            try:
+                return json.loads(s)
+            except Exception:
+                return s
+        try:                                               # base64(JSON)
+            return json.loads(base64.b64decode(s).decode("utf-8", "replace"))
+        except Exception:
+            try:
+                return json.loads(s)
+            except Exception:
+                return s
+    return data
+
+
+def x_report(email, password, controller, action, body=None):
+    """POST `/<controller>/<action>` on the X app (shared feed session) → decoded report. The app's
+    `ExecuteAPI(POST, action, controller, body)` helper: JSON body, `{errorCode, data}` envelope
+    where `data` is base64(JSON). Re-logs in once on failure (stale session)."""
+    err = None
+    for attempt in (0, 1):
+        s = _x_login(email, password, force=(attempt == 1))
+        req = urllib.request.Request(
+            X_APP + "/" + controller + "/" + action,
+            data=json.dumps(body or {}).encode(), method="POST",
+            headers={"Content-Type": "application/json; charset=utf-8",
+                     "X-Requested-With": "XMLHttpRequest", "Accept": "application/json"})
+        try:
+            raw = s["op"].open(req, timeout=30).read().decode("utf-8", "replace")
+        except Exception as e:
+            err = e
+            continue
+        try:
+            resp = json.loads(raw)
+        except Exception:
+            return raw
+        if isinstance(resp, str):            # double-encoded body (Indices, DashboardDetails)
+            try:
+                resp = json.loads(resp)
+            except Exception:
+                return resp
+        if isinstance(resp, dict):
+            if "data" in resp:               # lowercase 'data' = encoded rows (base64 or JSON text)
+                return _decode_report(resp["data"])
+            return resp                      # e.g. DashboardDetails {ServiceName, Data:[...groups...]}
+        return resp
+    raise err if err else RuntimeError("x_report failed")
+
+
+def x_orderbook(email, password):
+    """Open orders (order book) — list of row dicts. Cols incl Scrip, B/S, RemainingQty, Price,
+    OrderStatus, BrokerOrderTime, BuySellType."""
+    rows = x_report(email, password, "MarketOrder", "OrderBook")
+    return rows if isinstance(rows, list) else []
+
+
+def x_holdings(email, password):
+    """Holdings — list of row dicts. Cols incl NEPSECode, AvailableQty, LastTradedPrice,
+    ClosePrice, ValueAsOfLTP, DayGainLoss."""
+    rows = x_report(email, password, "TradeBook", "HoldingDataReport")
+    return rows if isinstance(rows, list) else []
+
+
+def x_quotes(email, password, tickers):
+    """Batch quote — POST /MarketOrder/SpecifiedQuote {ticker:"NEPSE.A,NEPSE.B,…"} → list of dicts
+    (ticker, LTP, High, Low, Open, Close, %Change, Volume, TTQ, 52WeekHigh/Low). Works for stocks
+    AND indices, and even when the market is CLOSED (returns the closing snapshot). Shared X-app
+    session, so it coexists with the live socket."""
+    q = ",".join("NEPSE." + t for t in tickers)
+    rows = x_report(email, password, "MarketOrder", "SpecifiedQuote", {"ticker": q})
+    return rows if isinstance(rows, list) else []
+
+
+def x_indices(email, password):
+    """NEPSE index watchlist (headline + all sector indices) — batched SpecifiedQuote over
+    INDEX_SYMBOLS. Only indices that actually publish a price are returned. Works while closed."""
+    return [r for r in x_quotes(email, password, INDEX_SYMBOLS) if r.get("LTP")]
+
+
+def heatmap_sectors(email, password):
+    """Stock→sector map for the heatmap — GET /HeatMap/SectorStock → [{stock, sector, stockName}]."""
+    for attempt in (0, 1):
+        s = _x_login(email, password, force=(attempt == 1))
+        try:
+            raw = s["op"].open(urllib.request.Request(
+                X_APP + "/HeatMap/SectorStock",
+                headers={"X-Requested-With": "XMLHttpRequest", "Accept": "application/json"}),
+                timeout=30).read().decode("utf-8", "replace")
+        except Exception:
+            if attempt == 0:
+                continue
+            return []
+        try:
+            resp = json.loads(raw)
+        except Exception:
+            return []
+        rows = _decode_report(resp.get("data", resp.get("Data"))) if isinstance(resp, dict) else resp
+        return rows if isinstance(rows, list) else []
+    return []
+
+
+def x_collateral(email, password):
+    """Dashboard / collateral summary (Home/DashboardDetails). Returns the dict `{Data: [...]}`
+    where Data is 5 positional one-row groups: [0] order summary, [1] trade summary, [2] holdings
+    totals, [3] collateral (GrossAllocatedExposure / GrossUsedExposure / GrossAvalibleExposure),
+    [4] client PII (do NOT render). The body is double-encoded JSON, so parse again if needed."""
+    resp = x_report(email, password, "Home", "DashboardDetails")
+    if isinstance(resp, str):
+        try:
+            resp = json.loads(resp)
+        except Exception:
+            return {}
+    return resp if isinstance(resp, dict) else {}
+
+
+def feed_ws_url(user_id, session, client_ip="10.0.0.1"):
+    q = urllib.parse.quote
+    return (FEED_URL + "?UserId=" + q(user_id) + "&Password=" + q(session)
+            + "&protocol=WSS&ClientIP=" + q(client_ip) + "&Source=1")
+
+
+def stream_ticks(email, password, symbols, on_tick, stop=None):
+    """Full live feed: log in to NAASA X, open the socket, subscribe to `symbols`, call
+    on_tick(decoded) for each frame. Blocks — run in a thread. One NAASA session per account is
+    active at a time, so this evicts a browser tab logged in as the same account (and vice versa)."""
+    import ssl
+    import websocket
+    user_id, session = feed_auth(email, password)
+    ws = websocket.create_connection(feed_ws_url(user_id, session), timeout=15,
+                                     sslopt={"cert_reqs": ssl.CERT_NONE})
+    try:
+        ws.send(subscribe_frame(symbols))
+        while stop is None or not stop():
+            for record in parse_records(ws.recv()):
+                on_tick(record)
+    finally:
+        ws.close()
 
 
 if __name__ == "__main__":
