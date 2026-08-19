@@ -1280,8 +1280,8 @@ def paint(rows, columns=None):
 names = universe()
 st.sidebar.title("NEPSE archive")
 PAGES = ["Chart", "Floorsheet", "Broker flow", "Scanner",
-         "Volume spike", "Operator radar", "Swing master", "Master signal", "Backtest",
-         "NAASA", "Heatmap", "Cron"]
+         "Volume spike", "Operator radar", "Master operator", "Swing master", "Master signal",
+         "Backtest", "NAASA", "Heatmap", "Cron"]
 # Persist the current page in the URL (?page=…) so a refresh / hard refresh / redeploy keeps you
 # where you are — a browser reload starts a fresh Streamlit session, so session_state alone resets.
 _qp_page = st.query_params.get("page")
@@ -2288,6 +2288,44 @@ def _tsv(path):
         return None, []
     lines = [ln for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
     return (lines[0].split("\t"), [ln.split("\t") for ln in lines[1:]]) if lines else (None, [])
+
+
+if page == "Master operator":
+    st.markdown("<div class='section'>Master operator — floorsheet only, four windows</div>",
+                unsafe_allow_html=True)
+    st.caption("Built from the **per-trade floorsheet alone** (1,056 sessions, 2022→2026) — no "
+               "OHLC indicators, no fundamentals, none of the earlier signal logic. Every measure "
+               "is expressed across the four lookbacks you asked for: **1 month · 15d · 7d · 3d**. "
+               "Even the price series is the floorsheet's own daily VWAP.")
+    hdr, rows = _tsv("operator_master.txt")
+    if not rows:
+        st.info("No `operator_master.txt` yet. The research run that builds this logic is still "
+                "going — it explores several independent operator signatures in parallel, then "
+                "tries to refute each one before anything is allowed into the master score.")
+        with st.expander("What is being tested (floorsheet-only signatures)", expanded=True):
+            st.markdown(
+                "- **Cascade** — is one broker's accumulation *accelerating* across 20→15→7→3 "
+                "sessions, rather than just present?\n"
+                "- **Counterparty breadth** — is the accumulator absorbing from **many** sellers "
+                "(real float accumulation) or from one (a block/cross that means nothing)? "
+                "*Daily aggregates physically cannot see this — only per-trade data can.*\n"
+                "- **Clip size** — are its trades institutional-sized versus the day's median clip?\n"
+                "- **Aggression** — does it pay above VWAP (urgent) or sit below it (patient)? "
+                "And does it buy late in the session?\n"
+                "- **Seller exhaustion** — is supply drying up while the buyer keeps taking?\n"
+                "- **Persistence vs wash** — same broker leading all four windows, and is volume "
+                "manufactured by circular trades? *Wash should predict **worse** returns — that is "
+                "the honesty check on the whole exercise.*")
+    else:
+        df = pd.DataFrame(rows, columns=hdr)
+        st.dataframe(df, width="stretch", hide_index=True)
+        st.caption(f"{len(rows)} candidate(s) · rebuilt by `operator_master.py`.")
+    if st.button("↻ Recompute now", key="mo_run"):
+        run_job("Master operator", "operator_master.py")
+        st.rerun()
+    st.warning("Read against the real base rate: a random NEPSE 20-day hold wins **44%** with a "
+               "**negative median**. Any signal here is only interesting to the extent it beats "
+               "that, out of sample — not to the extent it looks good on past data.")
 
 
 if page == "Swing master":
