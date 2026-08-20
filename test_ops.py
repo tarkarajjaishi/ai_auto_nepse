@@ -73,10 +73,8 @@ def test_ex_date_detection():
     the 139 events it flagged were ordinary limit-downs, and 48 symbols had their entire prior
     history multiplied by a fabricated factor (NIL 0.34, CORBL 0.49, ULHC 0.62).
     """
-    d = ["d1", "d2"]
-
-    def ex(open2, close2, close1=100.0):
-        return prices.ex_dates(d, [close1, close2], [close1, open2])
+    def ex(open2, close2, close1=100.0, dates=("2026-08-11", "2026-08-12")):
+        return prices.ex_dates(list(dates), [close1, close2], [close1, open2])
 
     # a bonus ex-date: restated overnight, so the gap is already in the open and it stays
     assert ex(50.0, 50.0), "a genuine restatement must be detected"
@@ -87,7 +85,17 @@ def test_ex_date_detection():
     assert not ex(80.0, 98.0), "a gap-down that recovered was not a restatement"
     # bad data guard still holds
     assert not ex(5.0, 5.0), "a >5x drop is bad data, not a splice"
-    print("  prices.ex_dates     restatement yes; limit-down, bought-back gap and bad data no")
+
+    # A restatement is OVERNIGHT. MDBPO trades a few times a YEAR in single blocks
+    # (open=high=low=close) and the step between two such trades is elapsed time, not an ex-date.
+    assert not ex(50.0, 50.0, dates=("2025-08-07", "2026-08-17")), \
+        "two trades a year apart are not a corporate action"
+    # ...but the cutoff must stay generous: H8020 and NIBLGF are REAL ex-dates 13 days after
+    # their previous bar, corroborated by a book close, because trading halts around one.
+    assert ex(50.0, 50.0, dates=("2025-09-08", "2025-09-21")), \
+        "a 13-day gap is normal around a book closure and must still be detected"
+    print("  prices.ex_dates     restatement yes; limit-down, bought-back gap, bad data and")
+    print("                      two-trades-a-year-apart no; a book-close halt still yes")
 
 
 def test_position_never_exceeds_the_book():

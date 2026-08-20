@@ -557,6 +557,17 @@ def x_report(email, password, controller, action, body=None):
             except Exception:
                 return resp
         if isinstance(resp, dict):
+            # NAASA reports an expired session as HTTP 200 with an in-body error, so the transport
+            # `except` above never sees it. Left unhandled the caller gets Data:[] and renders it
+            # as "no open orders" / "no holdings" — a dead session that reads like a flat account.
+            note = str(resp.get("Message") or "")
+            stale = ("session" in note.lower() or "login again" in note.lower()
+                     or resp.get("ErrorCode") == -1006001)
+            if stale:
+                if attempt == 0:
+                    err = RuntimeError(note or "session expired")
+                    continue                 # re-login with force=True and try once more
+                raise RuntimeError(f"NAASA session rejected: {note or 'session expired'}")
             if "data" in resp:               # lowercase 'data' = encoded rows (base64 or JSON text)
                 return _decode_report(resp["data"])
             return resp                      # e.g. DashboardDetails {ServiceName, Data:[...groups...]}

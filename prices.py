@@ -21,6 +21,19 @@ from fetch_ohlc import MASTER
 
 CIRCUIT_DROP = -0.105        # a gap this big AT THE OPEN did not trade; it was restated
 MIN_FACTOR = 0.2             # a >5x split is implausible in this market; treat as bad data
+STALE_DAYS = 60              # a restatement is overnight; two trades months apart are not one
+
+
+def _days_apart(dates, i):
+    """Calendar days between bar i and the one before it. A big number means the instrument
+    simply did not trade in between, so any step in its price is elapsed time, not an ex-date."""
+    try:
+        a, b = dates[i - 1], dates[i]
+        ay, am, ad = int(a[:4]), int(a[5:7]), int(a[8:10])
+        by, bm, bd = int(b[:4]), int(b[5:7]), int(b[8:10])
+    except (ValueError, IndexError, TypeError):
+        return 0                                  # unparseable date: do not veto on it
+    return (by - ay) * 365 + (bm - am) * 30 + (bd - ad)
 
 
 def raw_bars(symbol):
@@ -59,7 +72,18 @@ def ex_dates(dates, closes, opens):
     that gets bought back during the session looks like one too — the price opened low but the
     market disagreed and it did not stay there, so nothing was restated.
 
-    The factor is still measured close-to-close, so the 72 genuine adjustments are unchanged.
+    A third condition rejects a third impostor: a restatement happens OVERNIGHT, so the previous
+    bar has to be a recent session. Some instruments here trade a handful of times a year in
+    single blocks — MDBPO printed 311, 379, 359, 318 with open=high=low=close on bars 4 to 12
+    MONTHS apart — and the step between two such trades is the passage of time, not a corporate
+    action. STALE_DAYS is deliberately generous rather than tight: H8020 and NIBLGF both sit 13
+    days after their previous bar and both are REAL, corroborated by a book-closure date in
+    corporate_actions.txt, because trading halts around a book close. Only gaps of months are
+    rejected.
+
+    The factor is still measured close-to-close, so the genuine adjustments are unchanged.
+    Sanity-checked against the archive's own witness: of the 22 events inside the last 250 bars,
+    16 match a published book close in the same month and several match it to the exact day.
     """
     out = []
     for i in range(1, len(closes)):
@@ -68,7 +92,8 @@ def ex_dates(dates, closes, opens):
             continue
         f = closes[i] / prev
         gap = opens[i] / prev - 1              # what was already gone before a share changed hands
-        if gap <= CIRCUIT_DROP and (f - 1) <= CIRCUIT_DROP and f >= MIN_FACTOR:
+        if gap <= CIRCUIT_DROP and (f - 1) <= CIRCUIT_DROP and f >= MIN_FACTOR \
+                and _days_apart(dates, i) <= STALE_DAYS:
             out.append((i, f))
     return out
 
