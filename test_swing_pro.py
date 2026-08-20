@@ -89,7 +89,9 @@ SPEC_SECTIONS = {
     "13 fundamentals": [("ROE", "roe"), ("P/E", "pe"), ("book value", "bvps"), ("P/B", "pb"),
                         ("EPS", "eps"), ("deteriorating flag", "fund_warn")],
     "14 liquidity": [("turnover", "turnover"), ("avg daily volume", "avg_vol"),
+                     ("trading frequency", "trade_freq"),
                      ("unexplained gaps", "gap_flag"), ("manipulation traits", "manip"),
+                     ("bid/ask stated unavailable", "EXEC_UNAVAILABLE"),
                      ("HIGH EXECUTION RISK", "HIGH EXECUTION RISK")],
     "15 smart money": [("demand/supply zone", "demand_zone"), ("liquidity sweep", "sweep"),
                        ("support reclaim", "reclaim"), ("BOS/retest", "retest")],
@@ -370,12 +372,16 @@ def main():
         # near resistance must be the CLOSEST level overhead, not the most recent one. T1 is
         # measured to it, so getting this wrong fed the mandatory gate a resistance further
         # away than the one price actually reaches first — on 227 of 307 symbols.
+        # The pivot ORDER here is the whole point: the newest high (index 1) is 130 and the
+        # nearest is 105, so "most recent" and "closest" give different answers. An earlier
+        # version of this guard listed them the other way round, where index 1 was both — it
+        # passed under either implementation and could never have failed.
         ("[10] near resistance is the nearest level overhead, not merely the newest",
          swing_pro._levels([100.0], [100.0], [100.0], 2.0,
-                           [(0, 130.0), (1, 105.0)], [(0, 96.0)])["near_res"] == 105.0),
+                           [(0, 105.0), (1, 130.0)], [(0, 96.0)])["near_res"] == 105.0),
         ("[10] major resistance is still the highest, not the nearest",
          swing_pro._levels([100.0], [100.0], [100.0], 2.0,
-                           [(0, 130.0), (1, 105.0)], [(0, 96.0)])["major_res"] == 130.0),
+                           [(0, 105.0), (1, 130.0)], [(0, 96.0)])["major_res"] == 130.0),
         # Section 10 REPORTS the closest level overhead even when price is on top of it, but a
         # level inside half an ATR must not SET T1 — otherwise the target collapses onto the
         # close (a stock at 10.00 under a swing high of 10.01 scored a "realistic target" of 0.1%).
@@ -388,6 +394,23 @@ def main():
          max(g["parts"]["volume"] for g in sample) == 15),
         ("[11] the target-realism warning is measured on a target that is not already capped",
          'f["t1_atr"] <= 15' not in src),
+        # Four bullets the spec names that had NO implementation, while PASS 2 read 98/98 over
+        # them because its probes aliased onto a different bullet's code. Check the produced
+        # report, not the source — that is the only thing a substring search cannot fake.
+        ("[4] momentum acceleration is its own measure, not aliased to advances/declines",
+         all(g["mom_accel"] is not None for g in sample) and "%/day, 5d pace vs 20d" in text),
+        ("[6] RSI momentum acceleration is measured, not just direction",
+         any(g["rsi_accel"] is not None for g in sample)
+         and ("momentum accelerating" in text or "momentum decelerating" in text)),
+        ("[9] 'buyers return near support' is computed and surfaced",
+         any(g["buyers_return"] is not None for g in sample)
+         and ("buyers returned at support" in text
+              or "no buyers stepping in at support" in text)),
+        ("[2] whether pullbacks RESPECT the 20/50 EMA is measured over history, not just today",
+         "Pullbacks respect:" in text
+         and any(g["e20_respect"] is not None for g in sample)),
+        ("[14] bid/ask and depth are declared unavailable rather than silently dropped",
+         swing_pro.EXEC_UNAVAILABLE in text),
     ]
     ok6 = sum(1 for _, good in gates if good)
     print(f"PASS 6  mandatory gates actually gate ....... {ok6}/{len(gates)}")
