@@ -21,6 +21,7 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 import live_1d
+import jobs
 import market_hours
 import naasa
 import supply_demand
@@ -1442,6 +1443,11 @@ CRON_JOBS = {
     # after fetch_swp, because the fundamental-quality part of its rubric reads fundamentals.txt
     "swing":   {"label": "Swing Trader Pro (22-section 1D framework)",
                 "scripts": ["swing_pro.py"]},
+    # Floorsheet-only, so it needs nothing from swp/supply/swing — but it does need the session
+    # `fetch_last_session.py` just wrote, which is why it is not first. Its own node so a failure
+    # here is visible rather than buried in another job's tail. Writes Master_data/swing_quantam/.
+    "quantam": {"label": "swing_quantam (floorsheet engine — 3D/7D/15D/30D, zones)",
+                "scripts": ["build_swing_quantam.py"]},
 }
 
 # Full-archive backfills — a SEPARATE section, run on demand (each re-walks ALL history, slow). NOT
@@ -1507,28 +1513,42 @@ def cron_scheduler():
             pass
 
     def run_pipeline():
-        with state["lock"]:                        # one pipeline at a time
+        # TWO locks, and both are needed. `state["lock"]` stops this Streamlit session starting a
+        # second run; jobs.acquire() stops it colliding with the systemd timer or the API's
+        # rebuild endpoint, which are different processes and cannot see a threading.Lock.
+        with state["lock"]:                        # one pipeline at a time, in THIS process
             if state["running"] is not None:
+                return
+            if jobs.acquire("cron page") is None:  # ...and one on the whole box
+                busy = jobs.busy() or {}
+                state["log"]["_"] = ["another rebuild is already running (%s, %ss)"
+                                     % (busy.get("what", "?"), busy.get("seconds", "?"))]
                 return
             state["running"] = "start"
             for j in CRON_JOBS:
                 state["status"][j] = "pending"
-        for job, cfg in CRON_JOBS.items():         # strict one-by-one
-            state["running"] = job
-            state["status"][job] = "running"
-            outs, ok = [], True
-            for script in cfg["scripts"]:          # each script fully finishes before the next
-                try:
-                    p = subprocess.run([sys.executable, script], cwd=Path(__file__).parent,
-                                       capture_output=True, text=True, timeout=7200)
-                    ok = ok and (p.returncode == 0)
-                    outs.append(f"{script} {'ok' if p.returncode == 0 else 'FAIL'}")
-                except Exception as e:
-                    ok = False
-                    outs.append(f"{script} {type(e).__name__}")
-            state["status"][job] = "done" if ok else "failed"
-            state["log"][job] = " · ".join(outs)
-        state["running"] = None
+        try:
+            for job, cfg in CRON_JOBS.items():     # strict one-by-one
+                state["running"] = job
+                state["status"][job] = "running"
+                outs, ok = [], True
+                for script in cfg["scripts"]:      # each script fully finishes before the next
+                    try:
+                        p = subprocess.run([sys.executable, script], cwd=Path(__file__).parent,
+                                           capture_output=True, text=True, timeout=7200)
+                        ok = ok and (p.returncode == 0)
+                        outs.append(f"{script} {'ok' if p.returncode == 0 else 'FAIL'}")
+                    except Exception as e:
+                        ok = False
+                        outs.append(f"{script} {type(e).__name__}")
+                state["status"][job] = "done" if ok else "failed"
+                state["log"][job] = " · ".join(outs)
+        finally:
+            # However this ends. Acquiring without a finally is worse than not locking at all:
+            # one raise leaves the lock file on disk and every later rebuild -- this button, the
+            # API, the timer -- is refused until STALE_AFTER expires three hours later.
+            jobs.release()
+            state["running"] = None
         state["last"] = datetime.now(NPT).strftime("%Y-%m-%d %H:%M")
 
     state["run"] = run_pipeline                    # exposed so the ▶ Run-all button can start it
@@ -1550,25 +1570,24 @@ def cron_scheduler():
 
     state["run_hist"] = run_hist
 
-    def loop():
-        while True:
-            now = datetime.now(NPT)
-            today = now.strftime("%Y-%m-%d")
-            weekend = not market_hours.is_trading_day(now)   # "closed today", per the switch
-            now_min = now.hour * 60 + now.minute
-            for t in load_master_times():
-                key = f"master@{t}@{today}"
-                try:
-                    due = now_min - (int(t[:2]) * 60 + int(t[3:]))
-                except ValueError:
-                    continue
-                if (not weekend and 0 <= due <= CRON_CATCHUP_MIN and key not in state["ran"]
-                        and state["running"] is None):
-                    mark_ran(key, today)
-                    run_pipeline()
-            time.sleep(15)
-
-    threading.Thread(target=loop, daemon=True).start()
+    # ---- NO CLOCK HERE ANY MORE ------------------------------------------------------------
+    #
+    # This used to be a thread that woke every 15s and fired the whole pipeline at each master
+    # time. It has been removed, and the removal is the point rather than a tidy-up.
+    #
+    # `chukul-update.timer` fires the same pipeline at 15:15 NPT on the VPS, and on 2026-08-20
+    # both ran -- cron_ran.txt held `master@15:15@2026-08-20`, which only this loop writes, while
+    # journalctl showed the unit starting at 09:30:18 UTC, the same minute. Two processes ran
+    # daily_update / scan / volume_spike over the same .txt files at once. Nothing detected it,
+    # because the only guard was `state["lock"]`, a threading.Lock, and a systemd unit cannot see
+    # one. The archive happened to survive; that was luck, not a mechanism.
+    #
+    # This thread also only existed while somebody had the Cron page open and died on every
+    # restart, so it was never a dependable scheduler -- it was a second, invisible one. The
+    # timer is now the only clock. This page runs the pipeline when you press the button, and
+    # `mark_ran` still records that, so the page can show you when it last did.
+    #
+    # See DEPLOYMENT.md, which described the opposite arrangement until this was found.
     return state
 
 

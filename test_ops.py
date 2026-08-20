@@ -31,6 +31,7 @@ import backtest
 import fetch_ohlc
 import fetch_swp
 import indicators
+import jobs
 import live_1d
 import market_hours
 import master_signal
@@ -482,8 +483,27 @@ def test_freshness_is_never_reported_from_one_half():
                   or "def _missed_sessions" in f.read_text(encoding="utf-8"))]
     assert [f.name for f in impls] == ["market_hours.py"],         "the session-age rule must live only in market_hours.py, found: %s" % [f.name for f in impls]
 
-    print("  freshness           both halves reach every consumer (%d screens, 1 rule)"
-          % len(consumers))
+    # Every board either rebuilds itself overnight or is declared manual WITH A REASON. A
+    # board nothing rebuilds still ticks green the day it is written and then ages out
+    # silently -- which is how backtest.txt fell a session behind under a Cron page saying
+    # rebuilds "happen on their own".
+    from api import tables as _tables
+    unclassified = [b for b in _tables.BOARDS
+                    if not jobs.auto(b) and b not in jobs.MANUAL]
+    assert not unclassified, (
+        "these boards are in neither the nightly chain nor jobs.MANUAL, so nothing says "
+        "whether they refresh: %s" % unclassified)
+    for board, why in jobs.MANUAL.items():
+        assert board in _tables.BOARDS, "jobs.MANUAL names %s, which is not a board" % board
+        assert why and len(why) > 20, (
+            "jobs.MANUAL[%r] needs a real reason -- the screen prints it" % board)
+        assert not jobs.auto(board), (
+            "%s is in the nightly chain AND listed as manual" % board)
+
+    print("  freshness           both halves reach every consumer (%d screens, 1 rule); "
+          "%d boards nightly, %d manual"
+          % (len(consumers),
+             sum(1 for b in _tables.BOARDS if jobs.auto(b)), len(jobs.MANUAL)))
 
 
 def test_money_calls_never_auto_retry():
@@ -676,17 +696,58 @@ def test_api_can_never_place_an_order():
         hit = reaches(key)
         assert not hit, f"api/{key.replace('.', '.py:')}() can reach {hit}()"
 
-    # The server must also be GET-only: a handler that cannot receive a POST cannot be talked
-    # into one, regardless of what the routing table grows into later.
+    # The API used to be GET-only, and the rule was "a handler that cannot receive a POST cannot
+    # be talked into one". That was given up deliberately for the rebuild button, so the
+    # replacement has to carry the same weight rather than simply being weaker.
     #
     # Checked against DEFINED METHOD NAMES, not `"do_POST" in source`. The naive spelling failed
-    # the moment the module docstring explained that do_POST does not exist — a test that a
-    # comment can turn red is a test people learn to edit rather than believe.
-    handlers = {n.name
-                for n in ast.walk(ast.parse((root / "__main__.py").read_text(encoding="utf-8")))
+    # the moment the module docstring mentioned do_POST — a test that a comment can turn red is a
+    # test people learn to edit rather than believe.
+    api_src = (root / "__main__.py").read_text(encoding="utf-8")
+    api_tree = ast.parse(api_src)
+    handlers = {n.name for n in ast.walk(api_tree)
                 if isinstance(n, ast.FunctionDef) and n.name.startswith("do_")}
-    assert handlers == {"do_GET", "do_OPTIONS"}, \
-        f"the API answers more than GET now: {sorted(handlers)}"
+    assert handlers == {"do_GET", "do_POST", "do_OPTIONS"}, \
+        f"the API answers a verb nobody designed: {sorted(handlers)}"
+
+    # The one write handler must dispatch on a KEY, never on anything the client can shape into a
+    # path or a command. If this lookup ever goes, the endpoint becomes a remote shell.
+    post = next(n for n in ast.walk(api_tree)
+                if isinstance(n, ast.FunctionDef) and n.name == "do_POST")
+    post_src = ast.get_source_segment(api_src, post) or ""
+    # Look for the GUARD, not a mention. `"jobs.SCRIPTS" in post_src` passed even when the
+    # validation was replaced by `if False:`, because the name still appeared in the 404 body
+    # underneath it -- a substring test cannot tell a validation from an error message.
+    guarded = any(
+        isinstance(n, ast.If)
+        and any(getattr(d, "attr", None) == "SCRIPTS" for d in ast.walk(n.test))
+        and any(isinstance(r, ast.Return) for r in ast.walk(n))
+        for n in ast.walk(post))
+    assert guarded, (
+        "do_POST must REFUSE a board that is not in jobs.SCRIPTS, not merely mention the "
+        "allow-list -- without that the board name reaches jobs.start() unchecked")
+    for forbidden in ("subprocess", "os.system", "eval(", "exec(", "shell=True"):
+        assert forbidden not in post_src, \
+            "do_POST must not run anything itself (%s); it may only call jobs.start()" % forbidden
+    assert "rebuild" in post_src, "do_POST serves some path other than /api/rebuild"
+
+    # The allow-list itself: plain filenames that exist, and nothing that reaches the broker.
+    import jobs as _jobs
+    for board, scripts in _jobs.SCRIPTS.items():
+        for script in scripts:
+            assert script.endswith(".py"), (board, script)
+            assert "/" not in script and "\\" not in script and ".." not in script, \
+                "%s names a path, not a script in the project root: %r" % (board, script)
+            assert (Path(__file__).parent / script).exists(), \
+                "%s rebuilds with %s, which does not exist" % (board, script)
+            assert script != "naasa.py", "a rebuild may never run the broker module"
+
+    # ...and a rebuild must not be able to reach a money call either, by any route.
+    jobs_src = (Path(__file__).parent / "jobs.py").read_text(encoding="utf-8")
+    assert "import naasa" not in jobs_src and "from naasa" not in jobs_src, \
+        "jobs.py imports naasa — a rebuild could then reach an order path"
+    for name in money:
+        assert name not in jobs_src, "jobs.py mentions %s" % name
 
     # ...and the walk must be able to fail, or it proves nothing.
     probe = ast.parse("def a():\n    b()\ndef b():\n    naasa.x_place_order(1,2,3,4,5)\n")
@@ -695,7 +756,7 @@ def test_api_can_never_place_an_order():
     by_name = {k.split(".", 1)[1]: [k] for k in pf}
     assert reaches("p.a") == "x_place_order", \
         "the transitive walk cannot see an indirect money call — it proves nothing"
-    print("  api read-only       no route reaches a money call; GET is the only verb")
+    print("  api write surface   one POST route, allow-listed scripts, no path to a money call")
 
 
 def test_collateral_never_returns_client_pii():
@@ -850,6 +911,7 @@ def main():
     test_forced_relogin_is_coalesced()
     live_1d.demo()          # today's bar maths + the archive-never-shrinks rule
     market_hours.demo()     # the one open/closed switch: defaults, toggles, bad file
+    jobs.demo()             # the cross-process rebuild lock: exclusive, breakable, safe
     print("ok")
     return 0
 

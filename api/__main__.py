@@ -15,14 +15,22 @@ Routes (all GET, all JSON):
     /api/floorsheet/<symbol>          the session dates on file
     /api/floorsheet/<symbol>?date=…   one session: every trade, and each broker's net
     /api/brokerflow/<symbol>?n=20     who accumulated and who distributed over n sessions
+    /api/swingquantam/<symbol>        the floorsheet engine's sections, zones and reasons
     /api/heatmap                      every equity under its sector, from the archive
     /api/indices                      the last bar of every index
     /api/account/holdings|orderbook|collateral      NAASA, read-only
     /api/auth?probe=1                 whether the saved NAASA / SWP logins still work
 
-GET only, and that is load-bearing rather than incidental: `do_POST` does not exist, so no
-route can mutate anything even by accident. The account routes reach a live broker session but
-only ever read from it — see api/account.py for why no order path is importable from here.
+Reads are GET. There is exactly ONE write route, and it is narrow on purpose:
+
+    POST /api/rebuild/<board>          re-run that board's script; 409 if one is already running
+    GET  /api/rebuild                  what is running, and how the last run went
+
+That is load-bearing rather than incidental, and the rule that replaced "no do_POST at all" is
+still checkable: `do_POST` serves that one path and 404s everything else, the board name is
+looked up in `jobs.SCRIPTS` so a client can never name a script or a path, and `jobs.py` does not
+import naasa — so no rebuild can reach a money call. The account routes reach a live broker
+session but only ever read from it; see api/account.py for why no order path is importable here.
 
 Nothing here computes. Every route calls a function that already exists and is already tested.
 """
@@ -35,6 +43,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from fetch_ohlc import MASTER
 
+import jobs
 import market_hours
 from . import tables
 
@@ -157,6 +166,41 @@ def route(path, query):
         from . import market
         return 200, {"symbols": _universe(), "indices": market.index_names()}
 
+    if head == "swingquantam" and arg:
+        # The board index is served by /api/board/swing_quantam like every other board.
+        # This is the per-symbol detail behind one of its rows.
+        # `tables` is imported at module level -- a local `from . import tables` here
+        # would make the name local to route() and unbind it for every other branch.
+        from swing_quantam import store
+        d = store.read_detail(arg.upper())
+        if d is None:
+            # Not an error -- the engine simply has not been run for this symbol. Say
+            # which, so the page can tell "no such company" from "not built yet".
+            known = arg.upper() in _universe()
+            return 404, {"error": f"swing_quantam has not been built for {arg.upper()!r}"
+                                  if known else f"no such symbol {arg.upper()!r}",
+                         "known_symbol": known}
+        newest = tables.newest_bar()
+        return 200, {
+            "symbol": d.symbol,
+            "session": d.session,
+            "archive_session": newest,
+            "stale": bool(d.session and newest and d.session < newest),
+            "signal": d.signal,
+            "score": d.score,
+            "confidence": d.confidence,
+            "reasons": list(d.reasons),
+            "warnings": list(d.warnings),
+            "sections": [
+                {"n": s.n, "title": s.title, "note": s.note,
+                 # tables._num is the same coercion every board goes through, so a number
+                 # reaches the frontend as a number and it never parses strings itself.
+                 "rows": [{"metric": r.metric, "value": tables._num(r.value), "note": r.note}
+                          for r in s.rows]}
+                for s in d.sections
+            ],
+        }
+
     if head == "bars" and arg:
         from prices import bars as adjusted
         from . import market
@@ -223,6 +267,11 @@ def route(path, query):
         if arg.upper() not in _universe():
             return 404, {"error": f"no such symbol {arg.upper()!r}"}
         return 200, market.broker_flow(arg, max(1, min(500, n)))
+
+    if head == "rebuild":
+        # Read-only status. Starting a rebuild is a POST; a GET here can never begin one, which
+        # matters because anything that runs on a GET runs on a link, a prefetch and a crawler.
+        return 200, jobs.status()
 
     if head == "heatmap":
         from . import market
@@ -321,10 +370,36 @@ class Handler(BaseHTTPRequestHandler):
             # log look broken.
             pass
 
+    def do_POST(self):
+        """The only write verb, and it serves exactly one path.
+
+        `POST /api/rebuild/<board>` starts that board's script in the background. The board name
+        is a KEY into jobs.SCRIPTS -- never a path, never a command -- so the worst a caller can
+        ask for is one of the analysis scripts this project already runs on a timer.
+
+        409 rather than a queue when something is already running: two concurrent rebuilds write
+        the same .txt files, which is the exact collision jobs.py's lock exists to stop, and
+        silently queueing would hide it from whoever pressed the button.
+        """
+        u = urlparse(self.path)
+        parts = [p for p in u.path.strip("/").split("/") if p]
+        if len(parts) != 3 or parts[0] != "api" or parts[1] != "rebuild":
+            return self._send(404, {"error": "the only write route is POST /api/rebuild/<board>"})
+        board = unquote(parts[2])
+        if board not in jobs.SCRIPTS:
+            return self._send(404, {"error": "no rebuild for %r" % board,
+                                    "boards": sorted(jobs.SCRIPTS)})
+        try:
+            out = jobs.start(board)
+        except Exception as e:
+            traceback.print_exc()
+            return self._send(500, {"error": "%s: %s" % (type(e).__name__, e)})
+        return self._send(202 if out.get("started") else 409, out)
+
     def do_OPTIONS(self):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", _ALLOW)
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.end_headers()
 
     def log_message(self, fmt, *a):        # one tidy line, not apache's

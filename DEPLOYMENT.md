@@ -90,10 +90,31 @@ one-by-one with colour-highlighted flowchart nodes (pending → running → done
    → `scan.py` → `volume_spike.py`
 2. **SmartWealthPro → Operator** — `fetch_swp.py` → `operator_scan.py`
 
-Latest-session only (~10 min). Fired times persist in `cron_ran.txt` so a redeploy never
-re-fires; a missed time is caught up within 30 min; skips Fri/Sat. The scheduler is an
-in-app daemon thread (`cron_scheduler()` in `ui.py`) — **no systemd timer** (the old
-`chukul-update.timer` is disabled; don't re-enable it or jobs double-fire).
+Latest-session only (~10 min).
+
+**The scheduler is `chukul-update.timer` (systemd), and it is the only clock.** It fires at
+`09:30 UTC = 15:15 NPT`, `Persistent=true` so it catches up after downtime.
+
+> **This section said the opposite until 2026-08-21**, claiming the timer was disabled and that
+> an in-app daemon thread in `ui.py` was the scheduler. Both halves were wrong, and the error ran
+> in the damaging direction: the timer was `enabled` *and* `active`, and the in-app loop fired
+> too. On 2026-08-20 they ran the whole pipeline **concurrently** — `cron_ran.txt` held
+> `master@15:15@2026-08-20`, which only `ui.py` writes, while `journalctl -u chukul-update`
+> showed the unit starting at `09:30:18 UTC`, the same minute. Two processes ran
+> `daily_update` / `scan` / `volume_spike` over the same `.txt` files at once, guarded only by a
+> `threading.Lock` that a systemd unit cannot see. The archive survived; that was luck.
+
+The in-app clock has been **removed** (`cron_scheduler()` no longer starts a timing thread). It
+was never dependable anyway: it only existed while somebody had the Cron page open in a browser,
+and died on every service restart.
+
+**Anything that rebuilds boards now takes a cross-process lock first** — `jobs.acquire()`, an
+`O_EXCL` file at `Master_data/pipeline.lock`. That covers all three starters: the timer, the Cron
+page's manual ▶ button, and `POST /api/rebuild/<board>`. A second starter gets refused, not
+queued. A lock whose owner is dead, is older than 3 hours, or is unreadable, is broken
+automatically.
+
+`cron_ran.txt` still records manual runs, so the page can show when it last ran one.
 
 **Full history backfill** — a separate on-page section (NOT part of the daily run):
 - Chart history: `fetch_ohlc.py` → `fetch_intraday.py` (all bars, all symbols, all dates)
