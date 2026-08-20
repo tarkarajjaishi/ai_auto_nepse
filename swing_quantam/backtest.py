@@ -117,6 +117,13 @@ PIT_LOOKBACK, PIT_MIN = 250, 60
 #: are a subset of the grid and every family shares one date set.
 #: ZONE_STRIDE == PRIMARY also makes the zone observations non-overlapping,
 #: which is the only sample here where the 20-day windows do not overlap.
+#:
+#: The stride is walked over a SHARED calendar built in :func:`run`, not over
+#: each symbol's own session index. Striding per symbol looks equivalent and is
+#: not: symbols have different session counts, so their grids fall out of phase
+#: and the pilot run put 1.9 stocks on the average decision date. Date-demeaning
+#: against a universe of two is not a control, it is a rounding error, and it
+#: would have quietly reported every family's excess as ~0.00%.
 GRID_STRIDE, ZONE_STRIDE = 5, 20
 
 #: Below this many occurrences a rate is not reported at all. Sections 94-96 all
@@ -128,11 +135,13 @@ GRID_STRIDE, ZONE_STRIDE = 5, 20
 MIN_OBS = 30
 
 #: How much of a 15-session window's volume the dominant broker PAIR must carry
-#: before section 96 will look at it. Lower than the single-broker floor because
-#: a pair is one cell of a roughly 50x50 matrix and 5% of a fortnight's volume
-#: through one ordered pair is close to unheard of; the report prints the
-#: measured distribution beside the count so the floor can be argued with.
-PAIR_MIN_SHARE = 0.02
+#: before section 96 will look at it. Set from the MEASURED scale of the
+#: quantity, not from an outcome: across 6,964 stock-days the busiest ordered
+#: pair carries a median of 0.0%, a p90 of 0.0% and a MAXIMUM of 1.2% of the
+#: window's volume, so the 5% single-broker floor is unreachable by construction
+#: and would make section 96 vacuous rather than negative. The report prints that
+#: distribution beside the result so the floor can be argued with.
+PAIR_MIN_SHARE = 0.005
 
 #: How many date-matched random draws form the control distribution.
 CONTROL_DRAWS = 200
@@ -488,9 +497,15 @@ def _window_flow(books: Sequence[dict], w: int) -> dict[str, float]:
 
 
 def _panel(symbol: str, start: str = START, end: str = END,
-           grid: int = GRID_STRIDE, zone_stride: int = ZONE_STRIDE,
+           grid: frozenset[str] | None = None, zones_on: frozenset[str] | None = None,
            sens: bool = False) -> tuple[list[Obs], list[tuple]]:
     """Build every observation for one symbol. The whole per-symbol pipeline.
+
+    ``grid`` and ``zones_on`` are the SHARED decision dates -- see GRID_STRIDE
+    for why they are dates and not a per-symbol stride. When they are None the
+    function falls back to striding this symbol's own sessions, which is what
+    :func:`leakage_check` wants: a single symbol, no universe, and a grid that
+    cannot move when the archive is truncated.
 
     Walks the archive oldest-first keeping a bounded rolling state, so memory is
     a hundred-odd sessions rather than the symbol's whole history -- NIFRA alone
@@ -631,14 +646,16 @@ def _panel(symbol: str, start: str = START, end: str = END,
             sens_rows.append(_sensitivity_row(s, prior_amounts, rng))
 
         # --- everything that needs the rolling window, done while we have it --
-        if i % grid or d < start:
+        on_grid = (d in grid) if grid is not None else (i % GRID_STRIDE == 0)
+        if not on_grid or d < start:
             continue
         fwd = _forward(abars, bdates, d)
         if fwd is None:
             continue
         entry, path = fwd
         zone = None
-        if i % zone_stride == 0 and len(win) >= 30:
+        want_zone = (d in zones_on) if zones_on is not None else (i % ZONE_STRIDE == 0)
+        if want_zone and len(win) >= 30:
             zone = _zone_obs(symbol, list(win), entry, path)
         marks[i] = (entry, path,
                     _broker_marks(list(books), list(pair_hist), list(vol_hist)), zone)
@@ -789,9 +806,9 @@ def _sensitivity_row(session, prior_amounts, rng) -> tuple:
 
 def _worker(args) -> tuple:
     """Process-pool entry point. Must stay module-level and picklable."""
-    symbol, start, end, grid, zone_stride, sens = args
+    symbol, start, end, grid, zones_on, sens = args
     try:
-        obs, sr = _panel(symbol, start, end, grid, zone_stride, sens)
+        obs, sr = _panel(symbol, start, end, grid, zones_on, sens)
     except Exception as exc:  # one bad symbol must not lose the whole study
         return symbol, [], [], f"{type(exc).__name__}: {exc}"
     return symbol, obs, sr, ""
@@ -1154,14 +1171,31 @@ def _score(o: Obs, w: dict[str, float]) -> float:
 
 def _decile_split(obs: Sequence[Obs], w: dict[str, float],
                   demean: Demean) -> tuple[float, float, float]:
+    """(pooled rank IC, top-decile excess, bottom-decile excess) on one block.
+
+    The deciles are taken WITHIN EACH DATE and then averaged across dates, not
+    pooled over the block. Pooling looks equivalent and is not: the top pooled
+    decile can be a handful of dates on which every stock scored highly, which
+    makes the "portfolio" a bet on those weeks rather than a cross-sectional
+    selection. Per date, it is what it claims to be -- own the best few names
+    today, rebalance next signal date.
+    """
     if len(obs) < 20:
         return 0.0, 0.0, 0.0
-    sc = [_score(o, w) for o in obs]
-    y = _demeaned(obs, demean)
-    ic = _spearman(sc, y)
-    order = sorted(range(len(obs)), key=lambda i: sc[i])
-    k = max(1, len(obs) // 10)
-    return ic, _mean([y[i] for i in order[-k:]]), _mean([y[i] for i in order[:k]])
+    y_all = _demeaned(obs, demean)
+    ic = _spearman([_score(o, w) for o in obs], y_all)
+    by_date: dict[str, list[tuple[float, float]]] = {}
+    for o, y in zip(obs, y_all):
+        by_date.setdefault(o.date, []).append((_score(o, w), y))
+    tops, bots = [], []
+    for rows in by_date.values():
+        if len(rows) < 5:
+            continue
+        rows.sort()
+        k = max(1, len(rows) // 10)
+        tops.append(_mean([y for _, y in rows[-k:]]))
+        bots.append(_mean([y for _, y in rows[:k]]))
+    return ic, _mean(tops), _mean(bots)
 
 
 def walk_forward(obs: Sequence[Obs], demean: Demean,
@@ -1313,40 +1347,89 @@ def _edge(key: str, sel: Sequence[Obs], demean: Demean) -> Edge:
     )
 
 
-def broker_edge(obs: Sequence[Obs], demean: Demean, min_share: float = 0.05) -> list[Edge]:
-    """Section 94 -- when broker X becomes a major net buyer, what happens after?
+#: The three grouping rules of sections 94-96 and the floor each one uses.
+#: "Major net buyer" is a measured, stated cut -- net buying of at least this
+#: share of the trailing 15-session volume AND being the single largest net
+#: buyer. Nothing about it is fitted to an outcome.
+EDGE_KINDS: dict[str, tuple[str, float]] = {
+    "94 broker": ("broker", 0.05),
+    "95 broker-stock": ("broker_stock", 0.05),
+    "96 broker-pair": ("pair", PAIR_MIN_SHARE),
+}
 
-    "Major" is a measured, stated cut: net buying of at least ``min_share`` of the
-    trailing 15-session volume AND being the single largest net buyer. Nothing
-    about it is fitted.
+
+def _edge_groups(obs: Sequence[Obs], kind: str, min_share: float) -> dict:
+    """The observation groups behind sections 94-96. One place, three keys."""
+    by: dict = {}
+    for o in obs:
+        if kind == "pair":
+            if o.pair != (0, 0) and o.pair_share >= min_share:
+                by.setdefault(o.pair, []).append(o)
+        elif o.top_buyer and o.top_buyer_share >= min_share:
+            by.setdefault(o.top_buyer if kind == "broker" else (o.top_buyer, o.symbol),
+                          []).append(o)
+    return by
+
+
+def _edge_key(kind: str, k) -> str:
+    if kind == "broker":
+        return f"broker {k}"
+    if kind == "broker_stock":
+        return f"broker {k[0]} on {k[1]}"
+    return f"pair {k[0]}<-{k[1]}"
+
+
+def edges(obs: Sequence[Obs], demean: Demean, kind: str, min_share: float) -> list[Edge]:
+    """Sections 94, 95 and 96 -- what happened after this broker / pair showed up."""
+    by = _edge_groups(obs, kind, min_share)
+    return sorted((_edge(_edge_key(kind, k), v, demean) for k, v in by.items()),
+                  key=lambda e: (e.suppressed, -e.mean))
+
+
+class Screen(NamedTuple):
+    """Best-of-N control for a screened table. The number that kills most of them."""
+
+    best: float      # the best group's date-demeaned mean excess
+    p_value: float   # share of random regroupings whose BEST matched or beat it
+    groups: int      # how many groups cleared the sample floor
+    candidates: int  # how many were screened to find them
+
+
+def screening_test(obs: Sequence[Obs], demean: Demean, kind: str, min_share: float,
+                   draws: int = 200, seed: int = 13) -> Screen:
+    """Is the best broker better than the best of N RANDOM brokers?
+
+    Sections 94-96 screen dozens to hundreds of candidates and then report the
+    top of the list. With 80 brokers, the best of them has a large mean excess
+    with probability ~1 even when broker identity carries nothing at all, which
+    is precisely how this repo previously convinced itself of six operator
+    families. The control: keep the group SIZES, shuffle which observation lands
+    in which group, and ask how often the best of that random partition matches
+    the best real one. A p-value near 1 means the table is a sorting artefact.
+
+    Date-demeaned excess is what gets shuffled, so a broker that only traded in
+    one good year cannot win on that alone. Residual date clustering inside a
+    group is not removed and is the known limitation of this control.
     """
-    by: dict[int, list[Obs]] = {}
-    for o in obs:
-        if o.top_buyer and o.top_buyer_share >= min_share:
-            by.setdefault(o.top_buyer, []).append(o)
-    return sorted((_edge(f"broker {k}", v, demean) for k, v in by.items()),
-                  key=lambda e: (e.suppressed, -e.mean))
-
-
-def broker_stock_edge(obs: Sequence[Obs], demean: Demean,
-                      min_share: float = 0.05) -> list[Edge]:
-    """Section 95 -- broker X on stock Y specifically. Almost all get suppressed."""
-    by: dict[tuple[int, str], list[Obs]] = {}
-    for o in obs:
-        if o.top_buyer and o.top_buyer_share >= min_share:
-            by.setdefault((o.top_buyer, o.symbol), []).append(o)
-    return sorted((_edge(f"broker {k[0]} on {k[1]}", v, demean) for k, v in by.items()),
-                  key=lambda e: (e.suppressed, -e.mean))
-
-
-def pair_edge(obs: Sequence[Obs], demean: Demean, min_share: float = 0.05) -> list[Edge]:
-    """Section 96 -- broker X buying while broker Y sells, as the dominant pair."""
-    by: dict[tuple[int, int], list[Obs]] = {}
-    for o in obs:
-        if o.pair != (0, 0) and o.pair_share >= min_share:
-            by.setdefault(o.pair, []).append(o)
-    return sorted((_edge(f"pair {k[0]}<-{k[1]}", v, demean) for k, v in by.items()),
-                  key=lambda e: (e.suppressed, -e.mean))
+    groups = [[o.ret - _dm(demean, o.date) for o in v]
+              for v in _edge_groups(obs, kind, min_share).values()]
+    live = [g for g in groups if len(g) >= MIN_OBS]
+    if not live:
+        return Screen(0.0, 1.0, 0, len(groups))
+    pool = [e for g in groups for e in g]
+    sizes = [len(g) for g in live]
+    observed = max(_mean(g) for g in live)
+    rng = random.Random(seed)
+    beat = 0
+    for _ in range(draws):
+        rng.shuffle(pool)
+        i, best = 0, -1e9
+        for s in sizes:
+            best = max(best, _mean(pool[i:i + s]))
+            i += s
+        if best >= observed:
+            beat += 1
+    return Screen(observed, beat / draws, len(live), len(groups))
 
 
 # ---------------------------------------------------------------------------
@@ -1564,7 +1647,7 @@ def probabilistic(name: str, p: Perf, cal: Calibration) -> str:
         f"{name}",
         f"  observations                 {p.n}",
         f"  historical favourable rate   {p.win_rate:.1%}   (raw)  "
-        f"{p.excess_win_rate:.1%}  (vs the same-day universe)",
+        f"{p.excess_win_rate:.1%}  (vs the same-day universe -- compare to the baseline's, not to 50%)",
         f"  average favourable movement  {p.mfe_mean:+.2%}   median {p.mfe_median:+.2%}",
         f"  average adverse movement     {p.mae_mean:+.2%}   median {p.mae_median:+.2%}",
         f"  expected value               {p.expected_value:+.2%}  "
@@ -1654,9 +1737,7 @@ class Result(NamedTuple):
     groups: dict[str, float]
     stab: tuple[Stability, ...]
     inter: tuple[Interaction, ...]
-    edges94: tuple[Edge, ...]
-    edges95: tuple[Edge, ...]
-    edges96: tuple[Edge, ...]
+    edge_tables: tuple[tuple[str, tuple[Edge, ...], Screen], ...]  # sections 94, 95, 96
     cal: Calibration
     seconds: float
     errors: tuple[str, ...]
@@ -1674,7 +1755,15 @@ def run(symbols: Sequence[str] | None = None, start: str = START, end: str = END
     """
     t0 = time.time()
     syms = list(symbols) if symbols else universe()
-    args = [(s, start, end, grid, zone_stride, sens) for s in syms]
+
+    # One shared calendar, so every symbol is asked the same question on the same
+    # day and the cross-section is a real cross-section. The union of the
+    # universe's session dates IS the NEPSE trading calendar for this universe;
+    # it costs one listdir per symbol and nothing is parsed.
+    cal = sorted({d for s in syms for d in loader.sessions(s) if d <= end})
+    grid_dates = frozenset(cal[i] for i in range(0, len(cal), grid))
+    zone_dates = frozenset(cal[i] for i in range(0, len(cal), zone_stride))
+    args = [(s, start, end, grid_dates, zone_dates, sens) for s in syms]
     results: list[tuple] = []
     errors: list[str] = []
 
@@ -1717,13 +1806,13 @@ def run(symbols: Sequence[str] | None = None, start: str = START, end: str = END
         prior = daily_mkt[max(0, i - 6):i + 1]
         regime[d] = 1 if _mean(prior) > 0 else -1
 
-    base = perf("buy-and-hold (every stock-day on the grid)", obs, demean)
+    base = perf("buy-and-hold (every stock-day on the grid)", obs, demean, "long", by_date)
     base_years = per_year(obs, demean)
 
     fams = []
     for name, side, fn in families():
         sel = [o for o in obs if fn(o)]
-        fams.append((name, side, perf(name, sel, demean, side),
+        fams.append((name, side, perf(name, sel, demean, side, by_date),
                      control(sel, by_date, side), per_year(sel, demean, side)))
 
     folds = walk_forward(obs, demean)
@@ -1744,9 +1833,11 @@ def run(symbols: Sequence[str] | None = None, start: str = START, end: str = END
         groups=grp,
         stab=tuple(stability(obs, demean, sens_rows, regime)),
         inter=tuple(interactions(obs, demean)),
-        edges94=tuple(broker_edge(obs, demean)),
-        edges95=tuple(broker_stock_edge(obs, demean)),
-        edges96=tuple(pair_edge(obs, demean)),
+        edge_tables=tuple(
+            (title, tuple(edges(obs, demean, kind, share)),
+             screening_test(obs, demean, kind, share))
+            for title, (kind, share) in EDGE_KINDS.items()
+        ),
         cal=cal,
         seconds=time.time() - t0,
         errors=tuple(errors),
@@ -1803,22 +1894,30 @@ def report(r: Result) -> str:
     add("SECTION 98 -- RULE FAMILIES, each against the baseline and a date-matched random control")
     add("-" * 100)
     add(f"  {'family':<26}{'side':>6}{'n':>7}{'win':>8}{'mean':>9}{'median':>9}"
-        f"{'EXCESS':>9}{'rand':>9}{'p':>7}{'PF':>7}{'MFE':>8}{'MAE':>8}{'hold':>6}")
+        f"{'EXCESS':>9}{'rand':>9}{'p':>7}{'PF':>7}{'MFE':>8}{'MAE':>8}{'hold':>6}{'cov':>7}")
     for name, side, p, c, _ in r.fams:
         if p.n == 0:
-            add(f"  {name:<26}{side:>6}{0:>7}   (never fired)")
+            add(f"  {name:<26}{side:>6}{0:>7}   (never fired -- the rule is unreachable on this archive)")
             continue
-        flag = "" if p.usable else "  <SUPPRESSED n<%d>" % MIN_OBS
+        if not p.usable:
+            add(f"  {name:<26}{side:>6}{p.n:>7}   SUPPRESSED: below the {MIN_OBS}-observation floor, "
+                f"no rate reported")
+            continue
         add(f"  {name:<26}{side:>6}{p.n:>7}{p.win_rate:>8.1%}{p.mean:>9.2%}{p.median:>9.2%}"
             f"{p.excess_mean:>9.2%}{c.mean:>9.2%}{c.p_value:>7.2f}{p.profit_factor:>7.2f}"
-            f"{p.mfe_mean:>8.2%}{p.mae_mean:>8.2%}{p.avg_hold:>6.1f}{flag}")
+            f"{p.mfe_mean:>8.2%}{p.mae_mean:>8.2%}{p.avg_hold:>6.1f}{p.coverage:>7.0%}")
     add("")
     add("  EXCESS is the date-demeaned edge: the family's return minus the mean of EVERY stock in")
     add("  the universe on the same day. On a strong market day every stock looks accumulated, so")
     add("  this column -- not `mean` -- is the one that says whether the rule knew anything.")
     add("  p is the share of 200 date-matched random-entry draws that matched or beat the family.")
+    add("  cov is the share of the universe the family holds on its own firing dates. A family")
+    add("  with high coverage IS most of the universe mean, so its EXCESS is mechanically pulled")
+    add("  toward zero and a null result there is weaker evidence than it looks.")
     add("  A `short` side is an AVOIDANCE signal, sign-flipped so 'right' reads positive: NEPSE")
     add("  has no short selling, so a profitable short row is not a tradeable strategy.")
+    add(f"  Compare every excess win rate against the BASELINE's {b.excess_win_rate:.1%}, not against")
+    add("  50%: forward returns are right-skewed, so most stocks lose to the same-day mean.")
 
     add("")
     add("  section 93 EXPECTED VALUE and section 97 LABELS, per family:")
@@ -1828,7 +1927,7 @@ def report(r: Result) -> str:
         add(f"    {name} ({side}, n={p.n})")
         add(f"      win {p.win_rate:.1%} / loss {p.loss_rate:.1%}   avg win {p.avg_win:+.2%} "
             f"(median {p.median_win:+.2%}) / avg loss {p.avg_loss:.2%} (median {p.median_loss:.2%})")
-        add(f"      EV {p.expected_value:+.2%}   expectancy {p.expectancy:+.2%}   payoff {p.payoff:.2f}   "
+        add(f"      EV {p.expected_value:+.2%}   expectancy {p.expectancy:+.2f}R   payoff {p.payoff:.2f}   "
             f"max fav {p.max_mfe:+.1%} / max adv {p.max_mae:+.1%}   max DD {p.max_drawdown:.1%}")
         add(f"      time to target {p.time_to_target:.1f} sessions ({p.target_rate:.0%} got there), "
             f"time to invalidation {p.time_to_invalidation:.1f} ({p.invalidation_rate:.0%})")
@@ -1893,28 +1992,41 @@ def report(r: Result) -> str:
             f"{s.extreme_sensitivity:>9.3f}{s.missing_sensitivity:>9.3f}{s.lookback_sensitivity:>10.3f}")
     add("  'yr agree' is the share of years whose IC keeps the overall sign -- under ~70% the")
     add("  feature is not stable enough to trade regardless of how good the pooled IC looks.")
-    add("  'extreme'/'missing' are 1 - corr after removing the day's largest trade / 10% of rows.")
+    add("  'extreme'/'missing' are the mean per-day shift, in the feature's own cross-day standard")
+    add("  deviations, after removing the day's single largest trade / a random 10% of its rows.")
+    lb = [s for s in r.stab if s.lookback_sensitivity]
+    if lb:
+        add("  lookback sensitivity (1 - corr between the 7D and 15D definition of the same idea):")
+        add("    " + "   ".join(f"{s.feature}={s.lookback_sensitivity:.3f}" for s in
+                                sorted(lb, key=lambda s: -s.lookback_sensitivity)[:8]))
 
     add("")
     add("-" * 100)
     add("SECTION 101 -- FEATURE INTERACTIONS")
     add("-" * 100)
-    add(f"  {'pattern':<58}{'n':>7}{'excess':>10}{'additive':>10}{'lift':>9}")
+    add(f"  {'pattern (tercile cuts)':<58}{'n':>7}{'excess':>10}{'additive':>10}{'lift':>9}")
     for it in r.inter:
-        tag = "  SUPPRESSED" if it.suppressed else ""
-        add(f"  {it.name:<58}{it.n:>7}{it.excess:>10.2%}{it.additive:>10.2%}{it.lift:>9.2%}{tag}")
+        if it.suppressed:
+            add(f"  {it.name:<58}{it.n:>7}   SUPPRESSED: below the {MIN_OBS}-observation floor")
+            continue
+        add(f"  {it.name:<58}{it.n:>7}{it.excess:>10.2%}{it.additive:>10.2%}{it.lift:>9.2%}")
     add("  'lift' is the conjunction minus the sum of its parts. Near zero = the interaction is")
     add("  nothing more than its ingredients arriving on the same day.")
+    add("  Terciles, not quintiles: the spec's five-way conjunction at the quintile cut fires on")
+    add("  zero stock-days, and an untestable pattern is worse than a weak one.")
 
     add("")
     add("-" * 100)
     add(f"SECTIONS 94-96 -- BROKER EDGE (no rate reported below {MIN_OBS} occurrences)")
     add("-" * 100)
-    for title, edges in (("94 broker", r.edges94), ("95 broker-stock", r.edges95),
-                         ("96 broker-pair", r.edges96)):
-        live = [e for e in edges if not e.suppressed]
-        add(f"  section {title}: {len(edges)} candidates, {len(live)} above the floor, "
-            f"{len(edges) - len(live)} SUPPRESSED for sample size")
+    shares = sorted(o.pair_share for o in r.obs)
+    add(f"  dominant-pair share of 15-session volume across all {len(shares):,} stock-days: "
+        f"median {history.percentile(shares, 50):.1%}, p90 {history.percentile(shares, 90):.1%}, "
+        f"max {shares[-1]:.1%} (section 96 floor is {PAIR_MIN_SHARE:.1%})")
+    for title, table, sc in r.edge_tables:
+        live = [e for e in table if not e.suppressed]
+        add(f"  section {title}: {len(table)} candidates, {len(live)} above the floor, "
+            f"{len(table) - len(live)} SUPPRESSED for sample size")
         if not live:
             add("    nothing reportable -- every candidate is below the floor. That is the result.")
             continue
@@ -1927,9 +2039,12 @@ def report(r: Result) -> str:
         if len(live) > 8:
             add(f"    ... and {len(live) - 8} more")
         best = live[0]
-        add(f"    NOTE: with {len(live)} brokers tested, the best one is expected to look good by "
-            f"chance alone. {best.key} is positive in {best.consistency:.0%} of years -- "
-            f"{'that is the number that matters' if best.consistency >= 0.7 else 'well short of consistent'}.")
+        add(f"    BEST-OF-N CONTROL: {sc.candidates} candidates screened, {sc.groups} above the "
+            f"floor. Shuffling which observation lands in which group, keeping the group sizes,")
+        add(f"    produces a best group at least as good as {best.key}'s {sc.best:+.2%} in "
+            f"{sc.p_value:.0%} of 200 random partitions.")
+        add(f"    -> {'this table is a sorting artefact' if sc.p_value > 0.10 else 'the top of this table survives its own screening control'}"
+            f"; {best.key} is positive in {best.consistency:.0%} of years.")
 
     add("")
     add("-" * 100)
@@ -1937,30 +2052,60 @@ def report(r: Result) -> str:
     add("-" * 100)
     add("  " + r.cal.note)
     if r.cal.buckets:
+        add("  The walk-forward score is min-max scaled into [0, 1] inside each test block and then")
+        add("  read as if it were P(positive 20-day return). A real probability would need a fitted")
+        add("  link (isotonic or Platt) on out-of-sample scores; this is the test of whether the raw")
+        add("  score already behaves like one, and the answer is what decides the wording above.")
         add(f"  {'predicted':>11}{'realised':>11}{'n':>8}")
         for pr, re_, n in r.cal.buckets:
             add(f"  {pr:>11.2f}{re_:>11.2f}{n:>8}")
+        lo_b, hi_b = r.cal.buckets[0][1], r.cal.buckets[-1][1]
+        add(f"  bottom bucket wins {lo_b:.1%} of the time, top bucket {hi_b:.1%}: the score "
+            f"{'at least RANKS' if hi_b - lo_b > 0.05 else 'does not even RANK'} "
+            f"(spread {hi_b - lo_b:+.1%}).")
     add("")
     best = max((f for f in r.fams if f[2].usable), key=lambda f: f[2].excess_mean, default=None)
     if best:
-        add(probabilistic(f"best family by date-demeaned excess: {best[0]}", best[2], r.cal))
+        add(probabilistic(f"best family by date-demeaned excess: {best[0]} ({best[1]})",
+                          best[2], r.cal))
     add("")
     add("=" * 100)
     add("VERDICT")
     add("=" * 100)
-    wins = [(n, p) for n, s, p, c, _ in r.fams if p.usable and p.excess_mean > 0 and c.p_value < 0.05]
+    # Three states, not two. Screening fifteen families and reporting whichever
+    # ones clear p<0.05 is the error that manufactures a finding out of noise, so
+    # the corrected threshold is what earns the word EDGE and the naive one only
+    # earns "weak". Both are shown; neither is chosen after looking.
+    tested = sum(1 for _, _, p, _, _ in r.fams if p.usable)
+    bonf = 0.05 / max(1, tested)
+    strong, weak = [], []
+    add(f"  criterion: positive date-demeaned excess, positive in >=60% of years with n>=10, and")
+    add(f"  a control p below {bonf:.4f} (0.05 Bonferroni-corrected for {tested} screened families).")
+    add(f"  'weak' clears the uncorrected 0.05 only -- which is what screening {tested} rules")
+    add("  produces on data with no signal in it.")
+    add("")
     for n, s, p, c, ys in r.fams:
         if not p.usable:
+            add(f"  {n:<26}{'SUPPRESSED':<9} n={p.n}, below the {MIN_OBS}-observation floor")
             continue
         yrs = [q for q in ys.values() if q.n >= 10]
         pos = sum(1 for q in yrs if q.excess_mean > 0)
-        verdict = ("EDGE" if (p.excess_mean > 0 and c.p_value < 0.05 and yrs and pos / len(yrs) >= 0.6)
-                   else "no edge")
+        ok = p.excess_mean > 0 and yrs and pos / len(yrs) >= 0.6
+        if ok and c.p_value < bonf:
+            verdict = "EDGE"
+            strong.append(n)
+        elif ok and c.p_value < 0.05:
+            verdict = "weak"
+            weak.append(n)
+        else:
+            verdict = "no edge"
         add(f"  {n:<26}{verdict:<9} excess {p.excess_mean:+.2%}, control p {c.p_value:.2f}, "
             f"positive in {pos}/{len(yrs)} years")
     add("")
-    add(f"  {len(wins)} of {sum(1 for _, _, p, _, _ in r.fams if p.usable)} testable families beat their "
-        f"random control at p<0.05 with a positive date-demeaned excess.")
+    add(f"  {len(strong)} of {tested} testable families survive the corrected threshold"
+        f"{': ' + ', '.join(strong) if strong else '.'}")
+    add(f"  {len(weak)} clear the uncorrected 0.05 only"
+        f"{': ' + ', '.join(weak) if weak else '.'}")
     add("  Anything not marked EDGE should not be traded, and no threshold in this file was moved")
     add("  to make one appear.")
     return "\n".join(L)
@@ -2024,6 +2169,18 @@ def _demo() -> None:
     assert r.obs, "no observations at all"
     assert 0.0 <= r.baseline.win_rate <= 1.0, "a win rate outside [0, 1]"
     assert r.baseline.n >= 1000, f"baseline only has {r.baseline.n} observations"
+
+    # The baseline IS the universe, so its date-demeaned excess must vanish. If
+    # this drifts, the demean is being taken over the wrong set and every EXCESS
+    # column in the report is quietly wrong.
+    assert abs(r.baseline.excess_mean) < 1e-9, (
+        f"the universe does not demean to zero ({r.baseline.excess_mean}) -- the control is broken")
+    assert r.baseline.coverage > 0.99, "buy-and-hold must hold the whole universe by definition"
+    per_date = Counter(o.date for o in r.obs)
+    assert _mean([float(v) for v in per_date.values()]) >= 10, (
+        f"only {_mean([float(v) for v in per_date.values()]):.1f} stocks per decision date -- "
+        "the cross-section is too thin to demean against")
+
     years = {o.year for o in r.obs}
     assert set(r.baseline_years) == years, (
         f"the per-year table misses {years - set(r.baseline_years)}")
@@ -2032,13 +2189,30 @@ def _demo() -> None:
         if p.usable:
             assert c.draws > 0, f"{name}: the random control is empty"
             assert set(ys) <= years and ys, f"{name}: per-year table broken"
-    for e in r.edges94 + r.edges95 + r.edges96:
-        if e.n < MIN_OBS:
-            assert e.suppressed and e.positive_rate == 0.0, (
-                f"{e.key}: a rate was reported off {e.n} occurrences")
+    for _, table, sc in r.edge_tables:
+        for e in table:
+            if e.n < MIN_OBS:
+                assert e.suppressed and e.positive_rate == 0.0, (
+                    f"{e.key}: a rate was reported off {e.n} occurrences")
+        assert 0.0 <= sc.p_value <= 1.0, "the best-of-N control returned a non-probability"
+
     assert r.cal.note, "section 114 must always state a calibration verdict"
+    if not r.cal.calibrated:
+        assert "NOT CALIBRATED" in r.cal.note, "an uncalibrated score must say so in words"
 
     text = report(r)
+
+    # Nothing under the floor may print a percentage anywhere in the report.
+    for name, side, p, _, _ in r.fams:
+        if 0 < p.n < MIN_OBS:
+            line = next(ln for ln in text.split("\n")
+                        if ln.strip().startswith(name) and "SUPPRESSED" in ln)
+            assert "%" not in line, f"{name}: a rate leaked into the report off {p.n} observations"
+    for it in r.inter:
+        if it.suppressed and it.n:
+            line = next(ln for ln in text.split("\n") if it.name in ln and "SUPPRESSED" in ln)
+            assert "%" not in line, f"{it.name}: a rate leaked off {it.n} observations"
+
     print(text)
 
     path = os.path.join(loader.OUT, "backtest.txt")

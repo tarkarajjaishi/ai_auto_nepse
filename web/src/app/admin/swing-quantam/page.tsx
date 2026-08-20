@@ -49,7 +49,10 @@ function SwingQuantamInner() {
     setDraft(symbol);
   }
 
-  const symbols = useQuery({ queryKey: qk.symbols, queryFn: ({ signal }) => api.symbols(signal) });
+  const symbols = useQuery({
+    queryKey: qk.symbols,
+    queryFn: ({ signal }) => api.symbols(signal),
+  });
   const q = useQuery({
     queryKey: qk.swingQuantam(symbol),
     queryFn: ({ signal }) => api.swingQuantam(symbol, signal),
@@ -58,7 +61,10 @@ function SwingQuantamInner() {
     retry: false,
   });
 
-  const known = useMemo(() => new Set(symbols.data?.symbols ?? []), [symbols.data]);
+  const known = useMemo(
+    () => new Set(symbols.data?.symbols ?? []),
+    [symbols.data],
+  );
 
   function go(next: string) {
     const s = next.trim().toUpperCase();
@@ -94,19 +100,22 @@ function SwingQuantamInner() {
       </div>
 
       <p className="max-w-4xl text-[13px] leading-relaxed text-muted-foreground">
-        Floorsheet only — 3D/7D/15D/30D broker windows, the zones they build, and what survived
-        backtest. Every number is <strong>pre-computed</strong> by{" "}
-        <span className="font-mono text-foreground">{REBUILD}</span>, so it is only as fresh as the
-        last time that ran. Sections start collapsed; click one to open it.
+        Floorsheet only — 3D/7D/15D/30D broker windows, the zones they build,
+        and what survived backtest. Every number is{" "}
+        <strong>pre-computed</strong> by{" "}
+        <span className="font-mono text-foreground">{REBUILD}</span>, so it is
+        only as fresh as the last time that ran. Sections start collapsed; click
+        one to open it.
       </p>
 
       {notComputed && (
         <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/40 p-3.5 text-[13px]">
           <Inbox className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
           <div className="text-muted-foreground">
-            <span className="font-mono text-foreground">{symbol}</span> has not been computed yet —
-            there is no file for it, which is not the same as a neutral verdict. Build the board
-            once and it will appear: <span className="font-mono text-foreground">{REBUILD}</span>.
+            <span className="font-mono text-foreground">{symbol}</span> has not
+            been computed yet — there is no file for it, which is not the same
+            as a neutral verdict. Build the board once and it will appear:{" "}
+            <span className="font-mono text-foreground">{REBUILD}</span>.
           </div>
         </div>
       )}
@@ -116,7 +125,9 @@ function SwingQuantamInner() {
           <CircleAlert className="mt-0.5 size-4 shrink-0 text-destructive" />
           <div>
             <div className="font-medium">Could not load swing_quantam.</div>
-            <p className="mt-1 text-muted-foreground">{(q.error as Error).message}</p>
+            <p className="mt-1 text-muted-foreground">
+              {(q.error as Error).message}
+            </p>
           </div>
         </div>
       )}
@@ -147,7 +158,9 @@ function SwingQuantamInner() {
                 <span className="font-mono text-[15px]">{d.confidence}</span>
               </Stat>
               <Stat label="Symbol">
-                <span className="font-mono text-[15px] font-semibold">{d.symbol}</span>
+                <span className="font-mono text-[15px] font-semibold">
+                  {d.symbol}
+                </span>
               </Stat>
               <span className="ml-auto rounded-md bg-primary/15 px-2 py-1 font-mono text-[11px]">
                 session {d.session_unknown ? "unknown" : d.session}
@@ -164,9 +177,13 @@ function SwingQuantamInner() {
             <div className="flex items-start gap-3 rounded-lg border border-primary/40 bg-primary/10 p-3.5 text-[13px]">
               <AlertTriangle className="mt-0.5 size-4 shrink-0 text-primary" />
               <div className="text-muted-foreground">
-                This detail file carries no session date, so there is no way to tell how old these
-                numbers are — treat every figure below as undated. The archive reaches{" "}
-                <span className="font-mono text-foreground">{d.archive_session}</span>. Rebuild with{" "}
+                This detail file carries no session date, so there is no way to
+                tell how old these numbers are — treat every figure below as
+                undated. The archive reaches{" "}
+                <span className="font-mono text-foreground">
+                  {d.archive_session}
+                </span>
+                . Rebuild with{" "}
                 <span className="font-mono text-foreground">{REBUILD}</span>.
               </div>
             </div>
@@ -176,13 +193,16 @@ function SwingQuantamInner() {
             <div className="flex items-start gap-3 rounded-lg border border-primary/40 bg-primary/10 p-3.5 text-[13px]">
               <AlertTriangle className="mt-0.5 size-4 shrink-0 text-primary" />
               <div className="text-muted-foreground">
-                Computed on <span className="font-mono text-foreground">{d.session}</span>, but the
-                archive already reaches{" "}
-                <span className="font-mono text-foreground">{d.archive_session}</span>. Every number
-                below is from the earlier session — rebuild with{" "}
-                <span className="font-mono text-foreground">{REBUILD}</span>. Before the 15:00 NPT
-                close the newest bar is a partial session, so rebuilding mid-day scores an
-                unfinished candle.
+                Computed on{" "}
+                <span className="font-mono text-foreground">{d.session}</span>,
+                but the archive already reaches{" "}
+                <span className="font-mono text-foreground">
+                  {d.archive_session}
+                </span>
+                . Every number below is from the earlier session — rebuild with{" "}
+                <span className="font-mono text-foreground">{REBUILD}</span>.
+                Before the 15:00 NPT close the newest bar is a partial session,
+                so rebuilding mid-day scores an unfinished candle.
               </div>
             </div>
           )}
@@ -229,8 +249,9 @@ function SwingQuantamInner() {
             ))}
             {!d.sections.length && (
               <p className="text-[13px] text-muted-foreground">
-                This symbol carries a verdict but no sections — the detail tables were not written.
-                Rebuild with <span className="font-mono text-foreground">{REBUILD}</span>.
+                This symbol carries a verdict but no sections — the detail
+                tables were not written. Rebuild with{" "}
+                <span className="font-mono text-foreground">{REBUILD}</span>.
               </p>
             )}
           </div>
@@ -240,7 +261,13 @@ function SwingQuantamInner() {
   );
 }
 
-function Stat({ label, children }: { label: string; children: React.ReactNode }) {
+function Stat({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div>
       <div className="font-mono text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
@@ -257,13 +284,28 @@ function Stat({ label, children }: { label: string; children: React.ReactNode })
  * Base UI's Collapsible rather than hand-rolled `useState`: it is the same primitive library every
  * component under `ui/` already wraps, and it wires the button semantics, `aria-expanded` and the
  * panel id itself. Nothing new is installed.
+ *
+ * The rows are mounted only once the section has been opened, and that is load-bearing rather than
+ * an optimisation. A symbol carries ~87 sections and ~2,400 rows; `Collapsible.Panel` sizes itself
+ * from `--collapsible-panel-height`, so leaving the contents mounted makes the browser lay out
+ * every row of every closed section to measure it. Measured on the deployed page: it pinned the
+ * main thread hard enough that screenshots and script injection timed out repeatedly. Base UI has
+ * no `keepMounted={false}`, so the latch is ours. `opened` stays true after the first open, so
+ * closing still animates instead of snapping.
  */
 function Section({ section: s }: { section: SqSection }) {
+  const [opened, setOpened] = useState(false);
+
   return (
-    <Collapsible.Root className="overflow-hidden rounded-lg border border-border bg-card">
+    <Collapsible.Root
+      className="overflow-hidden rounded-lg border border-border bg-card"
+      onOpenChange={(open) => open && setOpened(true)}
+    >
       <Collapsible.Trigger className="group flex w-full cursor-pointer items-center gap-2 px-4 py-2.5 text-left text-[13px] font-semibold tracking-tight transition-colors hover:bg-accent/40">
         <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-150 ease-out group-data-panel-open:rotate-90" />
-        <span className="font-mono text-[11px] font-normal text-muted-foreground">§{s.n}</span>
+        <span className="font-mono text-[11px] font-normal text-muted-foreground">
+          §{s.n}
+        </span>
         {s.title}
         <span className="ml-auto font-mono text-[11px] font-normal text-muted-foreground">
           {s.rows.length}
@@ -271,32 +313,41 @@ function Section({ section: s }: { section: SqSection }) {
       </Collapsible.Trigger>
       <Collapsible.Panel className="h-[var(--collapsible-panel-height)] overflow-hidden transition-[height] duration-150 ease-out [&[hidden]:not([hidden='until-found'])]:hidden data-ending-style:h-0 data-starting-style:h-0">
         <div className="border-t border-border">
-          {s.note && (
-            <p className="border-b border-border/50 px-3 py-2 text-[12px] text-muted-foreground">
-              {s.note}
-            </p>
-          )}
-          <table className="w-full text-[13px]">
-            <tbody>
-              {s.rows.map((r, i) => (
-                <tr key={`${r.metric}-${i}`} className="border-b border-border/50 last:border-b-0">
-                  <td className="px-3 py-1.5 text-left">
-                    {r.metric}
-                    {r.note && (
-                      <span className="ml-2 text-[11px] text-muted-foreground">{r.note}</span>
-                    )}
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-1.5 text-right font-mono tabular-nums">
-                    {r.value === null || r.value === "" ? "—" : r.value}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!s.rows.length && (
-            <p className="px-3 py-3 text-[13px] text-muted-foreground">
-              Nothing in this section.
-            </p>
+          {!opened ? null : (
+            <>
+              {s.note && (
+                <p className="border-b border-border/50 px-3 py-2 text-[12px] text-muted-foreground">
+                  {s.note}
+                </p>
+              )}
+              <table className="w-full text-[13px]">
+                <tbody>
+                  {s.rows.map((r, i) => (
+                    <tr
+                      key={`${r.metric}-${i}`}
+                      className="border-b border-border/50 last:border-b-0"
+                    >
+                      <td className="px-3 py-1.5 text-left">
+                        {r.metric}
+                        {r.note && (
+                          <span className="ml-2 text-[11px] text-muted-foreground">
+                            {r.note}
+                          </span>
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-1.5 text-right font-mono tabular-nums">
+                        {r.value === null || r.value === "" ? "—" : r.value}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {!s.rows.length && (
+                <p className="px-3 py-3 text-[13px] text-muted-foreground">
+                  Nothing in this section.
+                </p>
+              )}
+            </>
           )}
         </div>
       </Collapsible.Panel>
