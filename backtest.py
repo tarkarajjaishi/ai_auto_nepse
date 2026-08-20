@@ -285,28 +285,61 @@ VARIANTS = {
                                               and not REGIME.get(t["date"], True)
                                               and t["vol_ratio"] > 2.0),
     # ---- NEPSE-specific factors, each ALONE first so nothing hides behind volume ----
-    "NP float turn >0.5%": lambda t: (t["turnover"] >= LIQUID_MIN
-                                      and (t["float_turn"] or 0) > 0.5),
-    "NP float turn >1%": lambda t: (t["turnover"] >= LIQUID_MIN
-                                    and (t["float_turn"] or 0) > 1.0),
-    "NP float turn >2%": lambda t: (t["turnover"] >= LIQUID_MIN
-                                    and (t["float_turn"] or 0) > 2.0),
+    # Ranked WITHIN the day, not against an absolute %, because the float is not point-in-time —
+    # see rank_float_turn(). An absolute threshold made these a filter on the calendar.
+    "NP float turn top 50% of day": lambda t: (t["turnover"] >= LIQUID_MIN
+                                               and (t["float_rank"] or 0) > 0.50),
+    "NP float turn top 20% of day": lambda t: (t["turnover"] >= LIQUID_MIN
+                                               and (t["float_rank"] or 0) > 0.80),
+    "NP float turn top 5% of day": lambda t: (t["turnover"] >= LIQUID_MIN
+                                              and (t["float_rank"] or 0) > 0.95),
     "NP upper-circuit close": lambda t: t["turnover"] >= LIQUID_MIN and t["circuit_up"],
     "NP closed top 25% of day": lambda t: t["turnover"] >= LIQUID_MIN and t["close_pos"] > 0.75,
     "NP <45d to book close": lambda t: (t["turnover"] >= LIQUID_MIN
                                         and t["to_bookclose"] is not None
                                         and 0 < t["to_bookclose"] <= 45),
     # ---- and combined with the one filter already proven to survive ----
-    "NP float>1% & vol>2x": lambda t: (t["turnover"] >= LIQUID_MIN and (t["float_turn"] or 0) > 1.0
-                                       and t["vol_ratio"] > 2.0),
+    "NP float top20% & vol>2x": lambda t: (t["turnover"] >= LIQUID_MIN
+                                           and (t["float_rank"] or 0) > 0.80
+                                           and t["vol_ratio"] > 2.0),
     "NP circuit & vol>2x": lambda t: (t["turnover"] >= LIQUID_MIN and t["circuit_up"]
                                       and t["vol_ratio"] > 2.0),
     "NP top25% & vol>2x": lambda t: (t["turnover"] >= LIQUID_MIN and t["close_pos"] > 0.75
                                      and t["vol_ratio"] > 2.0),
-    "NP MASTER (float>1% & vol>2x & top25%)":
-        lambda t: (t["turnover"] >= LIQUID_MIN and (t["float_turn"] or 0) > 1.0
+    "NP MASTER (float top20% & vol>2x & top25%)":
+        lambda t: (t["turnover"] >= LIQUID_MIN and (t["float_rank"] or 0) > 0.80
                    and t["vol_ratio"] > 2.0 and t["close_pos"] > 0.75),
 }
+
+
+def rank_float_turn(trades):
+    """Replace float_turn's absolute % with its RANK among that day's trades (0..1).
+
+    `float_turn` divides bar k's volume by the free float in TODAY's fundamentals.txt, and there
+    is no point-in-time float in the archive. Floats only grow — RBCL alone issued a 114.27%
+    bonus — so an old bar is divided by a float that did not exist yet and its float_turn comes
+    out far too small. Measured across the replay the median runs 0.007% in 2012 and 2013 against
+    thresholds of 0.5%, 1% and 2%, so those variants passed almost nothing in the early years and
+    steadily more later: they were selecting a DATE, not a stock. That silently breaks the one
+    thing report() exists to do, because the in-sample and out-of-sample halves then hold
+    different populations rather than the same rule tested twice.
+
+    Ranking within the day removes the level entirely — whatever the float error is, it is
+    roughly the same for every stock on that date. This is the repo's standing lesson from the
+    floorsheet work: always date-demean before comparing across time.
+    """
+    byday = {}
+    for t in trades:
+        if t.get("float_turn") is not None:
+            byday.setdefault(t["date"], []).append(t)
+    for day, ts in byday.items():
+        ts.sort(key=lambda t: t["float_turn"])
+        n = len(ts)
+        for i, t in enumerate(ts):
+            t["float_rank"] = (i + 0.5) / n          # 0..1, 1 = heaviest float turnover that day
+    for t in trades:
+        t.setdefault("float_rank", None)
+    return trades
 
 
 def by_year(trades, name):
@@ -398,7 +431,7 @@ def main():
     print(f"market regime loaded for {len(REGIME):,} sessions "
           f"({100*sum(REGIME.values())/max(len(REGIME),1):.0f}% of days NEPSE was above its 200-SMA)")
     print(f"replaying {len(names)} symbols ...", flush=True)
-    trades = collect(names)
+    trades = rank_float_turn(collect(names))
     if not trades:
         sys.exit("no trades — archive missing or too short")
     assert all(t["entry"] > 0 and t["bars"] >= 0 for t in trades), "bad trade record"

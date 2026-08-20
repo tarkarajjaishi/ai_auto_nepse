@@ -181,8 +181,10 @@ st.markdown("""
   .stMain .block-container { display: flex !important; flex-direction: column !important;
       height: 100dvh !important; max-height: 100dvh !important; overflow: hidden !important;
       padding-bottom: .3rem !important; }
-  .st-key-mainchart { height: 366px !important; flex: 0 0 auto !important;
-      overflow: hidden !important; }          /* mirrors HM_H in ui.py — keep the two in step */
+  /* the box's height is NOT written here — it is emitted from HM_H just below this block, so
+     the figure and its container cannot drift. They already had: this rule said 366px against
+     an HM_H of 360 while a comment asked a human to keep the two in step. */
+  .st-key-mainchart { flex: 0 0 auto !important; overflow: hidden !important; }
   /* the index table scrolls inside itself: the page is pinned to 100dvh with overflow hidden,
      so without this the last rows are clipped away with no scrollbar to reach them */
   .idxtbl { overflow: auto; max-height: calc(100dvh - 500px); min-height: 120px; }
@@ -252,6 +254,16 @@ st.markdown("""
   * { scrollbar-width: none !important; }
 </style>
 """, unsafe_allow_html=True)
+
+# The treemap's height, in one place. It is set on the FIGURE (so Plotly lays out at exactly this
+# size — it measures once at init and never re-lays-out when CSS moves the box afterwards) AND on
+# the container, which is why it has to be a single constant rather than a number typed into both.
+# It was typed into both: the stylesheet said 366px against an HM_H of 360, with a comment asking
+# whoever came next to keep them in step. The box is deliberately a few px taller than the figure
+# so a 1px rounding difference cannot clip the bottom row of tiles.
+HM_H = 360
+st.markdown(f"<style>.st-key-mainchart{{height:{HM_H + 6}px !important}}</style>",
+            unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------------- data access
@@ -971,11 +983,6 @@ def stock_heatmap_rows():
     return out
 
 
-# The map's height in px. Set on the FIGURE (so Plotly renders exactly this) and mirrored by the
-# .st-key-mainchart rule below. Every attempt to derive it — flex:1 1 0, height:100%, dvh units,
-# autosize — failed in a different way, because Plotly sizes itself at init from whatever the box
-# reports and never re-lays-out when CSS changes it afterwards. One explicit number cannot drift.
-HM_H = 360
 _HM_BUCKETS = [("≤ -2%", "#8b1a1a"), ("-1%", "#c0392b"), ("-0%", "#e0736a"), ("0%", "#5b6472"),
                ("+0%", "#5bbf7a"), ("+1%", "#27ae60"), ("≥ +2%", "#1c8b45")]
 
