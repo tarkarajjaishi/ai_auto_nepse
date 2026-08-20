@@ -430,7 +430,12 @@ def get_trade_setup(symbol):
 
 @st.cache_data(ttl=1, show_spinner=False)
 def live_snapshot(symbol):
-    """NAASA's public quote for one symbol (no login), cached 15s so redraws don't refetch."""
+    """NAASA's public quote for one symbol (no login), cached 1s so redraws don't refetch.
+
+    The TTL and the fragments' run_every are deliberately equal: a cache longer than the poll
+    makes the poll redraw the same numbers, and a cache shorter than it just refetches for
+    nothing. Keep them in step if either changes.
+    """
     try:
         return naasa.quotes([symbol]).get(symbol.replace("/", "-")) or {}
     except Exception:
@@ -630,7 +635,7 @@ def market_status():
 def render_market_depth(symbol):
     """Live market snapshot — NAASA's public quote (no login). The full Top-5 ladder streams
     only over their signed-in socket, so over REST we show best bid/ask + the day's stock stats.
-    One quote, cached 15s, so a page full of cards stays cheap."""
+    One quote, cached 1s, so a page full of cards stays cheap."""
     q = live_snapshot(symbol)
     status, scol = market_status()
     def n(x): return f"{x:,.2f}" if isinstance(x, (int, float)) else "–"
@@ -678,7 +683,7 @@ def render_market_depth(symbol):
     c1.markdown(ladder("TOP 5 BUY", "#0d3b2e", q.get("bid"), "buy"), unsafe_allow_html=True)
     c2.markdown(ladder("TOP 5 SELL", "#3b1d0d", q.get("ask"), "sell"), unsafe_allow_html=True)
     c3.markdown(info, unsafe_allow_html=True)
-    st.caption("Best bid/ask + day stats from NAASA's public feed (cached 15s). The full Top-5 "
+    st.caption("Best bid/ask + day stats from NAASA's public feed (cached 1s). The full Top-5 "
                "ladder, average price and turnover stream only over NAASA's signed-in socket. "
                "NEPSE pre-open is 10:30–10:45 — you can queue orders before the open.")
 
@@ -757,7 +762,7 @@ def render_live_depth(symbol):
 @st.cache_data(ttl=1, show_spinner=False)
 def indices_snapshot():
     """NEPSE index quotes from NAASA (batched SpecifiedQuote) — works live AND while closed.
-    Cached 8s so the sidebar + heatmap page share one fetch. [] when signed out / unreachable."""
+    Cached 1s so the sidebar + heatmap page share one fetch. [] when signed out / unreachable."""
     em, pw = naasa.load_credentials()
     if not (em and pw):
         return []
@@ -1801,7 +1806,7 @@ if page in PER_SYMBOL and symbol:
             c.metric("Ask", f"{q.get('ask') or 0:,.2f}")
             d.metric("Volume", f"{q.get('volume') or 0:,.0f}")
             e.metric("Prev close", f"{q.get('prev_close') or 0:,.2f}")
-            st.caption("Public quote (cached 15s) — go live on the NAASA page for the socket feed.")
+            st.caption("Public quote (cached 1s) — go live on the NAASA page for the socket feed.")
     live_quote()
 
 
