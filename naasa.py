@@ -456,12 +456,16 @@ INDEX_SYMBOLS = (
 _INDEX_KEYS = set(INDEX_SYMBOLS)
 
 
-def subscribe_frame(symbols):
+def subscribe_frame(symbols, depth=()):
     """`ADD^<count>^25.1!SYM…^25.2!SYM…` — the quote feed (`25.1!`) for every symbol/index, plus
     the 5-level depth book (`25.2!`) for the stocks (NAASA's own order screen builds the depth key
-    by swapping `.1!`→`.2!`; indices carry no book so they're left out)."""
+    by swapping `.1!`→`.2!`; indices carry no book so they're left out).
+
+    Depth is opt-in because we subscribe the WHOLE market for the archive updater: asking for
+    360 order books as well would double the key count and stream ladders nobody reads. Only the
+    scrip actually on screen needs one. Verified live: 360 quote keys in one ADD is accepted."""
     keys = ["25.1!%s" % s for s in symbols]
-    keys += ["25.2!%s" % s for s in symbols if s not in _INDEX_KEYS]
+    keys += ["25.2!%s" % s for s in depth if s not in _INDEX_KEYS]
     return "ADD^%d^%s" % (len(keys), "^".join(keys))
 
 
@@ -470,6 +474,22 @@ _X_TTL = 1800         # re-login on a schedule only every 30 min: each one re-mi
 _X_RELOGIN_GAP = 20   # ...but never mint two sessions within this many seconds
 _x_sess = {"op": None, "user_id": None, "session": None, "ts": 0.0, "gen": 0,
            "lock": threading.Lock()}
+
+
+def _validate_session(op):
+    """POST Login/ValidateSessionNo -> the sessionNo to use for the NEXT socket connect.
+
+    NOT idempotent, and that is the whole point: each call mints a number and invalidates the
+    previous one, and the number only becomes usable once a socket connects with it. The order
+    screen calls this immediately before EVERY WS_connect(), reconnects included — a session
+    number is good for exactly ONE connection. Reuse it on a reconnect and NAASA accepts the
+    socket and then never sends a single frame, which is indistinguishable from a quiet market.
+    """
+    req = urllib.request.Request(
+        X_APP + "/Login/ValidateSessionNo", data=b"{}", method="POST",
+        headers={"Content-Type": "application/json; charset=utf-8",
+                 "X-Requested-With": "XMLHttpRequest"})
+    return json.loads(op.open(req, timeout=30).read().decode("utf-8", "replace")).get("sessionNo")
 
 
 def _x_login(email, password, force=False):
@@ -518,12 +538,7 @@ def _x_login(email, password, force=False):
         # still connects but never sends a tick — a live-looking feed with no data. Activate it
         # here, once, so the socket and the reports share one working session.
         try:
-            req = urllib.request.Request(
-                X_APP + "/Login/ValidateSessionNo", data=b"{}", method="POST",
-                headers={"Content-Type": "application/json; charset=utf-8",
-                         "X-Requested-With": "XMLHttpRequest"})
-            session = (json.loads(op.open(req, timeout=30).read().decode("utf-8", "replace"))
-                       .get("sessionNo") or session)
+            session = _validate_session(op) or session
         except (OSError, ValueError):
             pass                       # keep the scraped value; account calls fail loudly anyway
         # `gen` bumps on every successful login. Login/ValidateSessionNo above is NOT
@@ -790,7 +805,7 @@ FEED_POLL = 5      # socket read timeout — how often the loop re-checks stop()
 FEED_SILENCE = 45  # ...and how long a connected-but-silent feed is tolerated before reconnecting
 
 
-def stream_ticks(email, password, symbols, on_tick, stop=None):
+def stream_ticks(email, password, symbols, on_tick, stop=None, depth=()):
     """Full live feed: log in to NAASA X, open the socket, subscribe to `symbols`, call
     on_tick(decoded) for each frame. Blocks — run in a thread. One NAASA session per account is
     active at a time, so this evicts a browser tab logged in as the same account (and vice versa)."""
@@ -798,11 +813,17 @@ def stream_ticks(email, password, symbols, on_tick, stop=None):
     import websocket
     s = _x_login(email, password)
     gen = s["gen"]
+    # A session number is single-use (see _validate_session), so mint a fresh one for THIS
+    # connection. Without it every reconnect produced a socket that was accepted and then
+    # starved. Reports read the same value, so publish it before connecting.
+    fresh = _validate_session(s["op"])
+    if fresh:
+        _x_sess["session"] = fresh
     ws = websocket.create_connection(
-        feed_ws_url(s["user_id"], s["session"], _client_ip(s["op"])), timeout=FEED_POLL,
+        feed_ws_url(s["user_id"], _x_sess["session"], _client_ip(s["op"])), timeout=FEED_POLL,
         sslopt={"cert_reqs": ssl.CERT_NONE})
     try:
-        ws.send(subscribe_frame(symbols))
+        ws.send(subscribe_frame(symbols, depth))
         last = time.time()
         while (stop is None or not stop()) and _x_sess["gen"] == gen:
             try:

@@ -31,6 +31,7 @@ import backtest
 import fetch_ohlc
 import fetch_swp
 import indicators
+import live_1d
 import master_signal
 import naasa
 import prices
@@ -192,6 +193,41 @@ def test_no_pivot_lookahead():
 
 def _ui_src():
     return (Path(__file__).parent / "ui.py").read_text(encoding="utf-8")
+
+
+def test_ui_positional_columns():
+    """ui.py reads four of these tables by COLUMN INDEX, not by name.
+
+    `int(r[9])` for swing_master's risk_rs, `r[1] == "BUY"` for both signal sheets, and thirteen
+    indices into backtest.txt. The writer owns the order and the reader hardcodes it, with
+    nothing connecting them — insert a column mid-header and the page shows a different number
+    with no error at all. That nearly happened when cost_rs was added to swing_master; it went
+    at the END of the header specifically to keep index 9 pointing at risk_rs.
+
+    Checked against each writer's HEADER constant rather than the produced .txt, so a stale file
+    on disk cannot make this pass.
+    """
+    import backtest as _bt
+    import master_signal as _ms
+    import swing_master as _sm
+
+    contract = [
+        (_sm.HEADER, "swing_master", {1: "verdict", 9: "risk_rs"}),
+        (_ms.HEADER, "master_signal", {1: "verdict"}),
+        (_bt.OUT_HEADER, "backtest", {0: "variant", 1: "is_n", 2: "is_win", 3: "is_avg",
+                                      4: "oos_n", 5: "oos_win", 6: "oos_avg", 7: "trades",
+                                      8: "split", 9: "from", 10: "to", 11: "cost_pct",
+                                      12: "max_hold"}),
+    ]
+    n = 0
+    for header, who, want in contract:
+        cols = header.split("\t")
+        for idx, name in want.items():
+            assert idx < len(cols), f"{who}: ui.py reads r[{idx}] but the header has {len(cols)}"
+            assert cols[idx] == name, \
+                f"{who}: ui.py reads r[{idx}] expecting '{name}', header now has '{cols[idx]}'"
+            n += 1
+    print(f"  ui column indices   {n} positional reads still point at the column they mean")
 
 
 def test_no_nested_expanders():
@@ -445,12 +481,14 @@ def main():
     test_rsi_undefined_on_a_frozen_series()
     test_no_pivot_lookahead()
     test_one_price_loader()
+    test_ui_positional_columns()
     test_no_nested_expanders()
     test_every_page_has_a_body()
     test_order_body_is_exactly_what_the_screen_sends()
     test_money_calls_never_auto_retry()
     test_order_ticket_is_not_on_a_timer()
     test_forced_relogin_is_coalesced()
+    live_1d.demo()          # today's bar maths + the archive-never-shrinks rule
     print("ok")
     return 0
 

@@ -20,6 +20,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
+import live_1d
 import naasa
 import supply_demand
 import swing_pro
@@ -524,9 +525,8 @@ def live_vs_plan(sym, entry, stop, target, key):
     """Where the live price sits against a plan the board computed on the last closed session."""
     try:                                   # point the socket at whatever the trader is reading
         feed = naasa_feed()
-        want = (sym, "NEPSE", "SENSIND")
-        if feed["subs"] != want:
-            feed["subs"] = want
+        if feed["depth"] != (sym,):
+            feed["depth"] = (sym,)
     except Exception:
         pass
 
@@ -559,8 +559,11 @@ def naasa_feed():
     idles only when no login is saved. Survives Streamlit reruns. ONE NAASA session per account —
     this holds it, so a browser tab logged in as the same account gets evicted (use a dedicated
     feed account to avoid that). `subs` is updated to the symbol currently being viewed."""
-    state = {"snap": {}, "want": True, "subs": ("NEPSE", "SENSIND"), "status": "off",
-             "err": "", "lock": threading.Lock()}
+    # `subs` is now the WHOLE market and stays constant, so the socket is not torn down every
+    # time somebody looks at a different scrip. Only `depth` follows the viewed symbol.
+    state = {"snap": {}, "want": True, "subs": tuple(live_1d.names()), "depth": ("NEPSE",),
+             "status": "off", "err": "", "lock": threading.Lock(),
+             "saved": 0, "saved_at": "", "saved_err": ""}
 
     def on_tick(rec):
         with state["lock"]:
@@ -575,15 +578,38 @@ def naasa_feed():
             em, pw = naasa.load_credentials()
             if not (em and pw):
                 state["status"] = "no login saved"; state["want"] = False; continue
-            subs = state["subs"]
+            subs, depth = state["subs"], state["depth"]
             try:
                 state["status"] = "connecting"; state["err"] = ""
-                naasa.stream_ticks(em, pw, list(subs), on_tick,
-                                   stop=lambda: (not state["want"]) or state["subs"] != subs)
+                naasa.stream_ticks(em, pw, list(subs), on_tick, depth=list(depth),
+                                   stop=lambda: (not state["want"]) or state["subs"] != subs
+                                   or state["depth"] != depth)
             except Exception as e:
                 state["err"] = str(e)[:110]; state["status"] = "reconnecting"; time.sleep(4)
 
+    def archiver():
+        """Push today's live bar into every instrument's 1D.txt while the session is running.
+
+        Only while the market is LIVE: a snapshot left over from a finished session would keep
+        rewriting today's row on top of the official bar the daily fetch writes after close.
+        """
+        while True:
+            time.sleep(LIVE_1D_FLUSH)
+            try:
+                if market_status()[0] != "LIVE":
+                    continue
+                with state["lock"]:
+                    snap = {k: dict(v) for k, v in state["snap"].items()}
+                written, _ = live_1d.flush(snap)
+                state["saved_err"] = ""
+                if written:
+                    state["saved"] = written
+                    state["saved_at"] = datetime.now(NPT).strftime("%H:%M:%S")
+            except Exception as e:                 # a bad bar must never kill the archiver
+                state["saved_err"] = str(e)[:110]
+
     threading.Thread(target=loop, daemon=True).start()
+    threading.Thread(target=archiver, daemon=True).start()
     return state
 
 
@@ -594,7 +620,8 @@ def naasa_feed():
 # meaningfully inside a second: an order book moves when you place or fill something, holdings
 # and collateral move slower still. 3s is indistinguishable to a human watching and a third of
 # the load. Raise it if the broker ever complains; do not lower it.
-ACCT_POLL = 3    # order book / holdings / collateral — authed report calls
+ACCT_POLL = 3     # order book / holdings / collateral — authed report calls
+LIVE_1D_FLUSH = 20   # how often today's live bar is written to the archive, in seconds
 IDX_POLL = 5     # index table — one batched quote call for every index
 HM_POLL = 10     # sector heatmap — a batched quote for ~282 scrips, the heaviest call we make
 
@@ -2541,13 +2568,28 @@ if page == "NAASA":
     # Live feed is always on (NAASA WSS) — no toggle, NO cache. Show the socket snapshot only, the
     # instant it arrives. No public/REST fallback here: this panel is live-or-nothing on purpose.
     feed = naasa_feed()
-    want = (sym, "NEPSE", "SENSIND")
-    if feed["subs"] != want:
-        feed["subs"] = want
+    if feed["depth"] != (sym,):
+        feed["depth"] = (sym,)
     @st.fragment(run_every=1)
     def _depth():
         render_socket_depth(sym, feed)
     _depth()
+
+    @st.fragment(run_every=LIVE_1D_FLUSH)
+    def _archive_status():
+        """What the whole-market archiver is doing — otherwise it is invisible until you diff
+        a 1D.txt, and a silently dead updater is exactly the failure this project keeps hitting."""
+        n_live = len(feed["snap"])
+        if feed.get("saved_err"):
+            st.caption(f"⚠ Archive updater: {feed['saved_err']}")
+        elif feed.get("saved_at"):
+            st.caption(f"💾 Today's 1D bar written for {feed['saved']} instrument(s) at "
+                       f"{feed['saved_at']} NPT · {n_live} instruments live in the feed · "
+                       f"flushing every {LIVE_1D_FLUSH}s while the market is open.")
+        else:
+            st.caption(f"💾 Archive updater armed · {n_live} instruments live in the feed · "
+                       f"writes today's 1D bar every {LIVE_1D_FLUSH}s while the market is open.")
+    _archive_status()
 
     # Order Book / Holdings / Collateral all come from the SAME X-app session the live feed holds
     # (naasa.x_*), so they no longer fight the socket for NAASA's one-session-per-account. They need
