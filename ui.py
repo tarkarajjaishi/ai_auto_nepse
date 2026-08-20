@@ -767,7 +767,11 @@ def render_socket_depth(symbol, feed):
     c1.markdown(ladder("TOP 5 BUY", "#0d3b2e", True), unsafe_allow_html=True)
     c2.markdown(ladder("TOP 5 SELL", "#3b1d0d", False), unsafe_allow_html=True)
     c3.markdown(info, unsafe_allow_html=True)
-    st.caption(f"🔴 Real-time from NAASA's WebSocket (x:8006), sub-second · last tick {q.get('_t','—')}.")
+    # Two clocks on purpose: "last tick" is when THIS scrip last traded, "drawn" is when the
+    # panel last re-rendered. Without the second one a quiet stock and a frozen page look
+    # identical — which is exactly the confusion that hid a real freeze.
+    st.caption(f"🔴 Real-time from NAASA's WebSocket (x:8006), sub-second · last tick "
+               f"{q.get('_t','—')} · drawn {datetime.now(NPT):%H:%M:%S}")
 
 
 NPT = timezone(timedelta(hours=5, minutes=45))
