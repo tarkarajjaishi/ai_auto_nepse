@@ -1,4 +1,4 @@
-import { readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -13,6 +13,20 @@ import { ALL_NAV_ITEMS, NAV } from "./nav";
  */
 const APP = join(process.cwd(), "src", "app");
 
+/** A page that only calls redirect() is a doorway, not a destination — there is nothing on it
+ *  to reach, so the sidebar has no reason to link it. Detected from the source rather than
+ *  hardcoding a path, so a real page added at the same route is still caught as an orphan. */
+function isRedirectOnly(dir: string): boolean {
+  const page = readdirSync(dir).find((f) => f === "page.tsx" || f === "page.ts");
+  if (!page) return false;
+  const src = readFileSync(join(dir, page), "utf8");
+  // Plain string tests on purpose. The obvious regex for "renders no JSX" has to contain an
+  // angle bracket followed by a slash, and a .ts transform mis-parses that inside a regex
+  // literal: the helper returned false under vitest while behaving correctly under plain
+  // node. Anything that renders contains an angle bracket; a doorway page has none.
+  return src.includes("redirect(") && !src.includes("<");
+}
+
 function routesUnder(dir: string, prefix = ""): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {
@@ -22,7 +36,9 @@ function routesUnder(dir: string, prefix = ""): string[] {
     if (entry.startsWith("_")) continue;
     const seg = entry.startsWith("(") ? "" : `/${entry}`;
     const here = `${prefix}${seg}`;
-    if (readdirSync(full).some((f) => /^page\.tsx?$/.test(f))) out.push(here || "/");
+    if (readdirSync(full).some((f) => /^page\.tsx?$/.test(f)) && !isRedirectOnly(full)) {
+      out.push(here || "/");
+    }
     out.push(...routesUnder(full, here));
   }
   return out;

@@ -42,7 +42,7 @@ export const NAV: NavGroup[] = [
   {
     group: "Market",
     items: [
-      { href: "/admin", label: "Overview", icon: Gauge, hint: "Everything at a glance" },
+      { href: "/admin/overview", label: "Overview", icon: Gauge, hint: "Everything at a glance" },
       {
         href: "/admin/chart",
         label: "Chart",

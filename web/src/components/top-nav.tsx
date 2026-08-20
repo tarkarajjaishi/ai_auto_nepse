@@ -45,9 +45,10 @@ export function TopNav() {
 
       <nav className="flex items-center gap-0.5">
         {NAV.map((group) => {
-          const active = group.items.some((i) =>
-            i.href === "/admin" ? pathname === "/admin" : pathname.startsWith(i.href),
-          );
+          // Plain prefix match: every nav route is now at least two segments deep, so none is a
+          // prefix of another. Overview used to sit on bare "/admin", which prefixes every admin
+          // route, and needed an exact-match special case to stop it lighting up everywhere.
+          const active = group.items.some((i) => pathname.startsWith(i.href));
           return (
             <DropdownMenu key={group.group}>
               <DropdownMenuTrigger
@@ -78,10 +79,7 @@ export function TopNav() {
               <DropdownMenuContent align="start" className="w-60">
                 {group.items.map((item) => {
                   const Icon = item.icon;
-                  const here =
-                    item.href === "/admin"
-                      ? pathname === "/admin"
-                      : pathname.startsWith(item.href);
+                  const here = pathname.startsWith(item.href);
                   return (
                     <DropdownMenuItem key={item.href} render={<Link href={item.href} />}>
                       <Icon
