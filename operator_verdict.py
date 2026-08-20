@@ -43,7 +43,11 @@ OUT = Path(__file__).parent / "Master_data" / "operator_verdict.txt"
 WINDOW = 20
 MIN_TURNOVER = 500_000
 HEADER = ("symbol\tverdict\tpasses\tside\tbroker\tshare_in\tshare_out\tratio\tclip\tclip_mkt"
-          "\tblock_pct\tblock_mkt\tpersist_pct\tcounterparties\tnet_shares\tvalue_rs")
+          "\tblock_pct\tblock_mkt\tpersist_pct\tcounterparties\tnet_shares\tvalue_rs"
+          # LAST on purpose: without a `date` column api/tables.read() reports
+          # session=None, and its stale check turns that into "not stale" — the board
+          # then claims to be current forever.
+          "\tdate")
 
 
 def read_day(path):
@@ -170,7 +174,7 @@ def main():
         r["symbol"], r["verdict"], r["passes"], r["side"], r["broker"],
         round(r["share_in"], 1), round(r["share_out"], 2), round(r["ratio"], 1),
         int(r["clip"]), int(r["clip_mkt"]), round(r["block"], 1), round(r["block_mkt"], 1),
-        round(r["persist"]), r["ctp"], r["net"], round(r["value"]))) for r in rows]) + "\n",
+        round(r["persist"]), r["ctp"], r["net"], round(r["value"]), dates[-1])) for r in rows]) + "\n",
         encoding="utf-8")
 
     engaged = [r for r in rows if r["passes"] == 4]

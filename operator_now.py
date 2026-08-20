@@ -42,7 +42,25 @@ MIN_SELLERS = 5                 # the leader must be absorbing from a real crowd
 MAX_STALE = 5                   # its last session must be within N sessions of the archive's latest
 MIN_BROKERS = 10                # a day with a handful of brokers is a block market, not a tape
 HEADER = ("side\tsymbol\tscore\tbroker\tregular\tgrip20\tgrip15\tgrip7\tgrip3\ttighten\tpersist"
-          "\tcounterparties\tnet20\tturnover\tvwap\tsessions")
+          "\tcounterparties\tnet20\tturnover\tvwap\tsessions"
+          # LAST on purpose — same reason as operator_verdict.py.
+          "\tdate")
+
+
+def run_session():
+    """The newest floorsheet session on disk — the session this scan was computed on.
+
+    Probed from one liquid symbol rather than globbing every folder: the archive holds ~308k
+    floorsheet files across ~595 symbols, so walking all of them to learn one date would cost
+    more than the scan itself. NABIL trades every session; the fallbacks cover it being absent.
+    """
+    for probe in ("NABIL", "NICA", "NIFRA"):
+        d = FLOOR / probe
+        if d.is_dir():
+            files = sorted(d.glob("*.txt"))
+            if files:
+                return files[-1].stem
+    return ""
 
 
 def sessions(symbol, n):
@@ -186,6 +204,7 @@ def main():
     # Score each SIDE against its own cross-section on the same date — a 40% buy-grip and a 40%
     # sell-grip are not comparable, so they get separate baselines.
     out_lines, printed = [HEADER], {}
+    day = run_session()
     for side in ("BUY", "SELL"):
         sel = [r for r in ranked if r["side"] == side]
         if not sel:
@@ -209,7 +228,7 @@ def main():
             round(r["grip"][20], 2), round(r["grip"][15], 2), round(r["grip"][7], 2),
             round(r["grip"][3], 2), round(r["tighten"], 2), r["persist"],
             r["counterparties"], r["net20"], round(r["turnover"]), round(r["vwap"], 2),
-            r["sessions"])) for r in sel]
+            r["sessions"], day)) for r in sel]
     OUT.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
 
     print(f"\n=== DOMINANT BROKERS · tape to {latest} ===")

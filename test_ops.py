@@ -698,7 +698,8 @@ def test_board_writers_emit_exactly_their_header():
     here = Path(__file__).parent
     # writers that build a row as `"\t".join(str(x) for x in (...))`
     for fname, hname in (("master_signal.py", "HEADER"), ("swing_master.py", "HEADER"),
-                         ("operator_scan.py", "HEADER")):
+                         ("operator_scan.py", "HEADER"), ("operator_now.py", "HEADER"),
+                         ("operator_verdict.py", "HEADER")):
         tree = _ast.parse((here / fname).read_text(encoding="utf-8"))
         cols = header_cols(tree, hname)
         tuples = [len(n.generators[0].iter.elts) for n in _ast.walk(tree)
@@ -720,7 +721,7 @@ def test_board_writers_emit_exactly_their_header():
     assert fields == cols, \
         f"backtest.py: OUT_HEADER has {cols} columns but save() emits {fields} fields"
 
-    print("  board writers       header width == fields written (4 boards)")
+    print("  board writers       header width == fields written (6 boards)")
 
 
 def main():
