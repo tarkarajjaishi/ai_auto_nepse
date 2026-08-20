@@ -131,7 +131,13 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             traceback.print_exc()
             status, payload = 500, {"error": f"{type(e).__name__}: {e}"}
-        self._send(status, payload)
+        try:
+            self._send(status, payload)
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+            # The client went away mid-response — a cancelled TanStack query, a closed tab, a
+            # curl that stopped reading. Routine, and not worth a traceback that makes a healthy
+            # log look broken.
+            pass
 
     def do_OPTIONS(self):
         self.send_response(204)
