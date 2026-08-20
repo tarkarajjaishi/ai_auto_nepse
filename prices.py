@@ -54,6 +54,11 @@ def ex_dates(dates, closes, opens):
     restated. 48 symbols had their entire pre-event history multiplied by a fabricated factor —
     NIL by 0.34, CORBL by 0.49, ULHC by 0.62 — and every consumer of bars() saw the invention.
 
+    BOTH conditions are required, and each rejects a different impostor. Without the open test,
+    an ordinary limit-down looks like a restatement. Without the close test, a panic gap-down
+    that gets bought back during the session looks like one too — the price opened low but the
+    market disagreed and it did not stay there, so nothing was restated.
+
     The factor is still measured close-to-close, so the 72 genuine adjustments are unchanged.
     """
     out = []
@@ -63,7 +68,7 @@ def ex_dates(dates, closes, opens):
             continue
         f = closes[i] / prev
         gap = opens[i] / prev - 1              # what was already gone before a share changed hands
-        if gap <= CIRCUIT_DROP and f >= MIN_FACTOR:
+        if gap <= CIRCUIT_DROP and (f - 1) <= CIRCUIT_DROP and f >= MIN_FACTOR:
             out.append((i, f))
     return out
 
@@ -75,7 +80,7 @@ def bars(symbol, adjust=True):
     if not b or not adjust:
         return b
     d, o, h, l, c, v = b
-    evs = ex_dates(d, c)
+    evs = ex_dates(d, c, o)
     if not evs:
         return b
     o, h, l, c = o[:], h[:], l[:], c[:]
@@ -92,7 +97,7 @@ def main():
         b = raw_bars(s)
         if not b or len(b[4]) < 30:
             continue
-        evs = ex_dates(b[0], b[4])
+        evs = ex_dates(b[0], b[4], b[1])
         if evs:
             affected += 1
             total += len(evs)
