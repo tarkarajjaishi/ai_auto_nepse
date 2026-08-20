@@ -1315,12 +1315,15 @@ class Edge(NamedTuple):
     consistency: float   # share of YEARS in which the mean excess was positive
     lead_time: float     # mean sessions to +TARGET among the occurrences that got there
     decay: tuple[float, ...]  # mean excess at each of HORIZONS -- the signal-decay curve
+    symbols: int         # distinct stocks the occurrences are spread over
+    top_symbol_share: float  # share of them coming from the single busiest stock
     suppressed: bool
 
 
 def _edge(key: str, sel: Sequence[Obs], demean: Demean) -> Edge:
     if len(sel) < MIN_OBS:
-        return Edge(key, len(sel), 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, (), True)
+        return Edge(key, len(sel), 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, (), 0, 0.0, True)
+    syms = Counter(o.symbol for o in sel)
     ex = [o.ret - _dm(demean, o.date) for o in sel]
     years: dict[str, list[float]] = {}
     for o, e in zip(sel, ex):
@@ -1343,6 +1346,13 @@ def _edge(key: str, sel: Sequence[Obs], demean: Demean) -> Edge:
         consistency=sum(1 for v in years.values() if _mean(v) > 0) / len(years),
         lead_time=_mean(lead),
         decay=decay,
+        # The shuffle control in screening_test removes the market effect but NOT
+        # symbol clustering: a broker whose occurrences are one stock's good run
+        # scores exactly like a broker with a real edge. These two columns are how
+        # you tell them apart, and they are the difference between a finding and
+        # the sixth dead operator family.
+        symbols=len(syms),
+        top_symbol_share=syms.most_common(1)[0][1] / len(sel),
         suppressed=False,
     )
 
@@ -2031,11 +2041,12 @@ def report(r: Result) -> str:
             add("    nothing reportable -- every candidate is below the floor. That is the result.")
             continue
         add(f"    {'key':<26}{'n':>6}{'pos':>7}{'mean ex':>10}{'median':>9}{'consist':>9}"
-            f"{'lead':>7}{'5d':>8}{'10d':>8}{'20d':>8}")
+            f"{'lead':>7}{'syms':>6}{'top sym':>9}{'5d':>8}{'10d':>8}{'20d':>8}")
         for e in live[:8]:
             d = e.decay + (0.0,) * 3
             add(f"    {e.key:<26}{e.n:>6}{e.positive_rate:>7.0%}{e.mean:>10.2%}{e.median:>9.2%}"
-                f"{e.consistency:>9.0%}{e.lead_time:>7.1f}{d[0]:>8.2%}{d[1]:>8.2%}{d[2]:>8.2%}")
+                f"{e.consistency:>9.0%}{e.lead_time:>7.1f}{e.symbols:>6}{e.top_symbol_share:>9.0%}"
+                f"{d[0]:>8.2%}{d[1]:>8.2%}{d[2]:>8.2%}")
         if len(live) > 8:
             add(f"    ... and {len(live) - 8} more")
         best = live[0]
@@ -2043,8 +2054,14 @@ def report(r: Result) -> str:
             f"floor. Shuffling which observation lands in which group, keeping the group sizes,")
         add(f"    produces a best group at least as good as {best.key}'s {sc.best:+.2%} in "
             f"{sc.p_value:.0%} of 200 random partitions.")
-        add(f"    -> {'this table is a sorting artefact' if sc.p_value > 0.10 else 'the top of this table survives its own screening control'}"
-            f"; {best.key} is positive in {best.consistency:.0%} of years.")
+        conc = best.top_symbol_share >= 0.5 or best.symbols <= 2
+        add(f"    -> {'this table is a sorting artefact' if sc.p_value > 0.10 else 'the top of this table survives the shuffle control'}"
+            f"; {best.key} is positive in {best.consistency:.0%} of years, spread over "
+            f"{best.symbols} stock(s) with {best.top_symbol_share:.0%} on the busiest.")
+        if sc.p_value <= 0.10 and conc:
+            add("       BUT the shuffle control does not remove SYMBOL clustering, and this one is")
+            add("       concentrated in one or two names -- that is one stock's run wearing a")
+            add("       broker's number, not evidence that the broker knew anything.")
 
     add("")
     add("-" * 100)
