@@ -36,7 +36,12 @@ from fetch_ohlc import MASTER
 
 from . import tables
 
-_ALLOW = "http://127.0.0.1:3000"          # the Next.js dev server; nginx serves same-origin
+# The Next dev server's origin, for CORS. Only ever used in DEVELOPMENT — in production nginx
+# serves the frontend and the API from the same origin, so no cross-origin request happens and
+# this header is irrelevant. Overridable because the dev port is not reliably free: 3000 is often
+# already held by another project on this machine, and a hardcoded port fails as a wall of CORS
+# errors with a page that renders perfectly and shows no data.
+_ALLOW = "http://127.0.0.1:3000"
 
 
 def _universe():
@@ -233,9 +238,13 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--port", type=int, default=8600)
     ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--allow-origin", default=_ALLOW,
+                    help="CORS origin for the dev frontend (production is same-origin)")
     a = ap.parse_args()
+    globals()["_ALLOW"] = a.allow_origin
     srv = ThreadingHTTPServer((a.host, a.port), Handler)
     print(f"chukul api on http://{a.host}:{a.port}  ·  archive {tables.newest_bar()}")
+    print(f"  CORS allows {a.allow_origin}")
     print(f"  {len(tables.BOARDS)} boards · {len(_universe())} symbols · read-only")
     try:
         srv.serve_forever()
