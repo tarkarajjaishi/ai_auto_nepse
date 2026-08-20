@@ -423,6 +423,21 @@ def main():
         ("[9] a pullback on distribution is never called healthy",
          not [g for g in sample if g["accum"] == "Distribution"
               and g["pullback"] in ("BUY ZONE", "HEALTHY PULLBACK")]),
+        # PASS 5 already asserts this over the sample, and that guard passed locally while
+        # FAILING on the VPS one session later (EBL, STRONG PERFORMER on Distribution). The rule
+        # always allowed it — Q7 is one of ten booleans — and only the sample hid it. Pinned on
+        # synthetic input so it cannot depend on which 120 symbols happen to load.
+        ("[1] distribution caps the top tier, whatever the rest of Section 1 says",
+         swing_pro._performer(dict(sample[0], accum="Distribution", trend="Bullish",
+                                   hh=True, hl=True, liquid=True, pullback="NO PULLBACK"))
+         not in ("ELITE PERFORMER", "STRONG PERFORMER")),
+        ("[1] the same stock ACCUMULATING is not capped",
+         swing_pro._performer(dict(sample[0], accum="Accumulation", trend="Bullish",
+                                   hh=True, hl=True, liquid=True, pullback="NO PULLBACK",
+                                   e20=110, e50=105, e200=100, e20_slope=1, e50_slope=1,
+                                   rsi=60, hist_slope=1, vol_x=2.0, ret20=5, ret60=10,
+                                   ext_atr=1, room_r=5, close=120))
+         in ("ELITE PERFORMER", "STRONG PERFORMER")),
         # §8's last bullet is "retest behaviour", the only one that had no number behind it.
         # Synthetic, because a real Breakout Retest occurs 0 times on some sessions and a guard
         # that depends on today's tape would go quietly green when the market has none.

@@ -736,8 +736,19 @@ def _performer(f):
     ])
     if f["pullback"] == "TREND BREAKDOWN" or not f["liquid"]:
         return "AVOID"
-    return ("ELITE PERFORMER" if yes >= 9 else "STRONG PERFORMER" if yes >= 7 else
+    tier = ("ELITE PERFORMER" if yes >= 9 else "STRONG PERFORMER" if yes >= 7 else
             "DEVELOPING" if yes >= 5 else "NEUTRAL" if yes >= 3 else "WEAK")
+    # Section 1's whole question is "is this ACTUALLY a performing stock", and Q7 asks whether it
+    # is accumulating rather than distributing. As one of ten booleans that was survivable: fail
+    # it, clear seven of the rest, and the label still read STRONG PERFORMER while volume was
+    # arriving on the stock's down days. Distribution caps the top two tiers.
+    #
+    # Found by a guard that passed locally and failed on the VPS, whose archive was one session
+    # fresher (EBL, 2026-08-20). The rule always permitted this; only the sample hid it. A
+    # data-dependent guard is not a guard, so PASS 6 now pins it on synthetic input as well.
+    if f["accum"] == "Distribution" and tier in ("ELITE PERFORMER", "STRONG PERFORMER"):
+        return "DEVELOPING"
+    return tier
 
 
 def _decision(f, score, flags):
