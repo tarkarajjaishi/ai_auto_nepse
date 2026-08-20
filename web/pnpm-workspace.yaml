@@ -1,3 +1,18 @@
+# Real directories in node_modules, not pnpm's symlink farm.
+#
+# The default (`isolated`) builds node_modules out of symlinks into .pnpm, and on Windows those
+# links carry MSYS-style absolute paths like /c/Tarkaproject/... . `next build` copies that shape
+# straight into .next/standalone, so the bundle runs perfectly on the machine that built it and
+# dies on the server with "Cannot find module 'next'" — the links point at a drive the VPS does
+# not have. Dereferencing at ship time does not save you either: tar -h cannot follow an MSYS
+# path, and it SKIPS what it cannot follow, so you get a bundle quietly missing @swc/helpers
+# instead of one obviously missing next.
+#
+# This key lives here and not in .npmrc: pnpm 10 moved its settings into this file, and pnpm 11
+# ignores `node-linker` in .npmrc silently — `pnpm config get node-linker` answers `undefined`
+# and the install looks like it worked.
+nodeLinker: hoisted
+
 allowBuilds:
   sharp: false
   unrs-resolver: false

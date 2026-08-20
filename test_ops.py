@@ -81,9 +81,63 @@ def test_deploy_health():
         "the substring test used to read 'inactive' as healthy — keep that documented"
     assert '"active" in ship.stdout' not in src, "the substring health check is back"
     assert 'state == "active"' in src, "is-active must be matched exactly"
+    assert 'all(s == "active" for s in states)' in src, \
+        "every shipped unit must be checked, not just the first"
     assert "SKIPPED — the push failed" in src, \
         "a failed push must block the VPS ship, or the box runs code GitHub does not have"
     print("  deploy              only exact 'active' is healthy; a failed push blocks the ship")
+
+
+def test_deploy_ships_all_three_services():
+    """Three units serve one site, and shipping a subset is a silent half-deploy.
+
+    nginx routes / to Streamlit, /api to the Python API and /admin to the Next server. The API
+    imports the SAME modules Streamlit does, so a deploy that restarts only `chukul` leaves the
+    terminal answering from a process that loaded yesterday's swing_pro.py — the pages render,
+    every number is real, and every number is stale. Nothing goes red.
+    """
+    src = (Path(__file__).parent / "deploy.py").read_text(encoding="utf-8")
+    restart = src.split("systemctl restart")[1:]
+    assert restart, "deploy no longer restarts anything"
+    assert any("{API_SERVICE}" in r[:60] for r in restart), \
+        "the python source ships without restarting the API — it will serve stale modules"
+    assert any("{WEB_SERVICE}" in r[:60] for r in restart), "the frontend is never restarted"
+    print("  deploy services     ui, api and web all restart — no silent half-deploy")
+
+
+def test_web_bundle_cannot_ship_symlinks():
+    """The frontend bundle must contain real files, never pnpm's symlinks.
+
+    pnpm's default node_modules is a symlink farm pointing into .pnpm, and on Windows those links
+    carry MSYS paths (/c/Tarkaproject/...). `next build` copies that shape into .next/standalone,
+    so the bundle runs on the machine that built it and dies on the box with "Cannot find module
+    'next'". Dereferencing at ship time does not save you: tar -h cannot follow an MSYS path and
+    SKIPS what it cannot follow, which produced a bundle quietly missing @swc/helpers instead.
+
+    Two things have to hold, and this checks both, because either alone fails open.
+    """
+    root = Path(__file__).parent
+    src = (root / "deploy.py").read_text(encoding="utf-8")
+    assert "find . -type l | wc -l" in src, \
+        "the ship no longer refuses a symlinked bundle — it will fail after the swap, not before"
+
+    ws = root / "web" / "pnpm-workspace.yaml"
+    assert ws.exists(), "web/pnpm-workspace.yaml is gone"
+    # Line-anchored, not `"nodeLinker: hoisted" in text` — commenting the key OUT leaves that
+    # substring intact, so the obvious spelling of this assertion passes on the exact edit it
+    # exists to catch. Same shape as the "active" in "inactive" bug two tests up.
+    keys = [ln.split(":", 1) for ln in ws.read_text(encoding="utf-8").splitlines()
+            if ln.strip() and not ln.lstrip().startswith("#") and ":" in ln]
+    linker = [v.strip() for k, v in keys if k.strip() == "nodeLinker"]
+    assert linker == ["hoisted"], \
+        f"nodeLinker must be an active key set to hoisted, found {linker or 'nothing'} — without " \
+        "it pnpm rebuilds the symlink farm and every deploy ships links that die on the box"
+    # It belongs HERE and not in .npmrc: pnpm 11 ignores node-linker in .npmrc without a word,
+    # and `pnpm config get node-linker` answers undefined while the install looks fine.
+    npmrc = root / "web" / ".npmrc"
+    assert not (npmrc.exists() and "node-linker" in npmrc.read_text(encoding="utf-8")), \
+        ".npmrc node-linker is silently ignored by pnpm 11 — it must live in pnpm-workspace.yaml"
+    print("  web bundle          hoisted node_modules; a symlinked bundle is refused before swap")
 
 
 def test_ex_date_detection():
@@ -510,6 +564,8 @@ def main():
     print("ops safety:")
     test_rewrite()
     test_deploy_health()
+    test_deploy_ships_all_three_services()
+    test_web_bundle_cannot_ship_symlinks()
     test_ex_date_detection()
     test_position_never_exceeds_the_book()
     test_edge_is_read_not_transcribed()

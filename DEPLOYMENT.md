@@ -1,10 +1,26 @@
 # chukul_data — what's built & what runs on the VPS
 
-NEPSE market archive + Streamlit analysis app. Python only; every stored artifact is a
-plain `.txt` under `Master_data/` (no database). This file is the operational map: what
-the app does, which external services it talks to, and how the VPS is set up.
+NEPSE market archive, a Streamlit analysis app, and a Next.js admin terminal in front of a
+read-only Python API. Every stored artifact is a plain `.txt` under `Master_data/` (no
+database). This file is the operational map: what runs, which external services it talks to,
+and how the VPS is set up.
 
 Live at **https://ai.tarkarajjaishi.com.np** (HTTP Basic Auth, user `tarka`).
+
+| URL | Serves | Process |
+|---|---|---|
+| `/` | the Streamlit app | `chukul` — `streamlit run ui.py`, `127.0.0.1:8501` |
+| `/admin` | the Next.js terminal | `chukul-web` — `node server.js`, `127.0.0.1:3101` |
+| `/api/…` | read-only JSON | `chukul-api` — `python -m api`, `127.0.0.1:8600` |
+
+Same origin on purpose: the browser already holds Basic Auth for this realm, so the API
+inherits the wall instead of needing a second one, and no hostname is baked into the JS
+bundle. **`/_next` must be proxied too** — Next serves its JS and CSS from there, not from
+under `/admin`, and proxying only `/admin` yields a styleless page that never hydrates.
+
+The frontend computes nothing. Every number on a page came from a Python function that read
+the archive; `web/src/lib/api.ts` is the only file in `web/` that makes a network call, so
+that rule stays checkable by reading one file.
 
 ---
 
@@ -94,19 +110,48 @@ their own Backfill buttons.
 |---|---|
 | Host | `ubuntu@202.51.70.101` (`ubuntu-kathmandu-01`, in Nepal — NAASA feeds are local). Key-auth SSH. |
 | App | `~/chukul_data`, venv at `.venv` (streamlit, pandas, plotly, websocket-client) |
-| Service | systemd **`chukul.service`** → `streamlit run ui.py` on `127.0.0.1:8501`, `MemoryMax=1200M`, auto-restart |
-| Web | nginx `ai.tarkarajjaishi` vhost: 80→443, self-signed cert, **Basic Auth** (`/etc/nginx/.htpasswd-ai`), proxy to 8501 with WebSocket headers |
+| Frontend | `~/chukul-web` — the built Next.js standalone tree, ~27 MB. Previous bundle kept at `~/chukul-web.old` for a one-command rollback. |
+| Node | `v24.19.0` LTS at `/opt/nodejs`, symlinked to `/usr/local/bin/node`. Installed from the official tarball with its SHASUMS256 verified. |
+| Services | `chukul` (8501, `MemoryMax=1200M`) · `chukul-api` (8600, `MemoryMax=256M`, measured at 23 MB) · `chukul-web` (3101, `MemoryMax=512M`, ~93 MB). All `Restart=always`, all bound to 127.0.0.1. |
+| Web | nginx `ai.tarkarajjaishi` vhost: 80→443, self-signed cert, **Basic Auth** (`/etc/nginx/.htpasswd-ai`) at server level so it covers all three. `/admin` + `/_next` → 3101, `/api` → 8600, `/` → 8501 with WebSocket headers. |
 | DNS | Cloudflare `ai.tarkarajjaishi.com.np` → proxied, SSL mode **Full** |
 | Data | `Master_data/` partial archive (~3 GB): 1D + 1m bars, indices, broker_flow, report txts. Historical `floorsheet/` (~3.5 GB) not transferred — disk. |
 | Secrets | `naasa_login/session.txt`, `swp_login/session.txt` live only in `Master_data/` on the box (gitignored) |
+
+**This box is shared and it is tight.** 3.8 GB RAM with ~350 MB free and ~2.7 GB of swap
+already in use, 2 cores, and it also runs k3s, buildkit, postgres, redis and three other
+sites (`churchnepal`, `nepalidriver.com`, `padma`). Do not `pnpm install` or `next build`
+here — it will OOM something that is currently serving. The frontend is built on the dev
+machine and shipped as a runnable tree; the box needs only the `node` binary.
 
 **Manage**
 
 ```bash
 ssh ubuntu@202.51.70.101
-sudo systemctl restart chukul        # restart the app
-journalctl -u chukul -n 50           # app logs
+sudo systemctl restart chukul chukul-api chukul-web
+journalctl -u chukul-web -n 50 -f
+curl -s localhost:8600/api/health          # is the API reading today's archive?
+curl -so /dev/null -w '%{http_code}\n' localhost:3101/admin
 ```
+
+**Rollback the frontend** (the swap keeps the last bundle):
+
+```bash
+ssh ubuntu@202.51.70.101 \
+  'rm -rf ~/chukul-web.bad && mv ~/chukul-web ~/chukul-web.bad &&
+   mv ~/chukul-web.old ~/chukul-web && sudo systemctl restart chukul-web'
+```
+
+**Editing the nginx vhost** — always back it up and validate before reloading; four other
+sites share this nginx, and `reload` is graceful where `restart` drops them all:
+
+```bash
+sudo cp /etc/nginx/sites-available/ai.tarkarajjaishi{,.bak.$(date +%F-%H%M%S)}
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+`nginx -t` prints `protocol options redefined for 0.0.0.0:443` warnings from the other
+vhosts. They are pre-existing and unrelated — look for `test is successful`.
 
 **Deploy — always does GitHub *and* the VPS together** (`deploy.py`), so the box never drifts
 ahead of the repo:
@@ -116,8 +161,23 @@ python deploy.py -m "what changed"
 ```
 
 It stages + commits + pushes to `origin`, then tars the **tracked source** (never
-`Master_data/`, so the archive and saved logins stay on the box) over SSH and restarts the
-service. `--no-git` ships only; `--no-vps` pushes only.
+`Master_data/`, so the archive and saved logins stay on the box) over SSH and restarts
+`chukul` **and** `chukul-api` — the API imports the same modules the Streamlit app does, so
+restarting only one leaves the terminal serving yesterday's Python against today's `.txt`,
+which renders perfectly and is wrong. Then it builds the frontend locally and ships that.
+
+`--no-git` ships only; `--no-vps` pushes only; `--no-web` skips the ~30 s frontend build.
+
+**The frontend bundle must contain real files, never pnpm symlinks.** pnpm's default
+`node_modules` is a symlink farm into `.pnpm`, and on Windows those links carry MSYS paths
+(`/c/Tarkaproject/...`). `next build` copies that shape straight into `.next/standalone`, so
+the bundle runs on the machine that built it and dies on the box with `Cannot find module
+'next'`. Dereferencing at ship time does **not** save you — `tar -h` cannot follow an MSYS
+path and silently *skips* what it cannot follow, which yields a bundle quietly missing
+`@swc/helpers` instead. `nodeLinker: hoisted` in `web/pnpm-workspace.yaml` is what prevents
+it (it belongs there, not in `.npmrc`: pnpm 11 ignores `node-linker` in `.npmrc` without a
+word). `deploy.py` refuses to swap a bundle containing any symlink, and `test_ops.py` guards
+both halves.
 
 Manual one-file shortcut, if ever needed:
 
@@ -129,6 +189,9 @@ tar czf - ui.py | ssh ubuntu@202.51.70.101 "cd ~/chukul_data && tar xzf - && sud
 
 ## Repo rules
 
-- **Python only** — no second language anywhere in the project.
+- **Python is the backend, TypeScript is the frontend** — and nothing else. The old
+  "Python only, no exceptions" rule is retired; see `CLAUDE.md` for the current stack and
+  `ARCHITECTURE.md` for why the split exists.
 - **`.txt` only** for storage — stdlib `open()`, no DB/CSV/JSON/xlsx as data stores.
 - `Master_data/` is regenerated by the fetch scripts and never committed.
+- `web/` computes nothing. If a number reaches the screen, Python produced it.
