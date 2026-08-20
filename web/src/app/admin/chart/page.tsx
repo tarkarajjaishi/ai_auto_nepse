@@ -8,8 +8,9 @@ import { Suspense, useMemo, useState } from "react";
 
 import { PriceChart } from "@/components/price-chart";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api, qk, type Questions, type Report, type Scorecard } from "@/lib/api";
+import { api, qk, type Heatmap, type Questions, type Report, type Scorecard } from "@/lib/api";
 import { compact, decisionTone, gradeTone, num, pct, price, TONE_CLASS } from "@/lib/format";
+import { useRail } from "@/store/rail";
 import { cn } from "@/lib/utils";
 
 /**
@@ -310,6 +311,12 @@ function BottomDrawer({
   isIndex: boolean;
 }) {
   const [tab, setTab] = useState(0);
+  const heat = useQuery({
+    queryKey: qk.heatmap,
+    queryFn: ({ signal }) => api.heatmap(signal),
+    staleTime: 60_000,
+    enabled: tab === 0,
+  });
   const flow = useQuery({
     queryKey: qk.brokerFlow(symbol, 20),
     queryFn: ({ signal }) => api.brokerFlow(symbol, 20, signal),
@@ -318,10 +325,13 @@ function BottomDrawer({
   });
 
   const f = (report?.fields ?? {}) as Record<string, unknown>;
-  const n = (k: string) => (typeof f[k] === "number" ? (f[k] as number) : null);
   const s = (k: string) => (f[k] == null ? "—" : String(f[k]));
+  const n = (k: string) => (typeof f[k] === "number" ? (f[k] as number) : null);
 
-  const tabs = isIndex ? ["Levels"] : ["Levels", "Brokers", "Read"];
+  // "Sectors", not "Levels". The Levels table repeated Entry / Stop / Target verbatim from the
+  // right panel — the same four numbers twice on one screen. Sectors are the thing the chart
+  // cannot tell you: whether this scrip is moving with its group or against it.
+  const tabs = isIndex ? ["Sectors"] : ["Sectors", "Brokers", "Read"];
 
   return (
     <div className="h-[168px] shrink-0 border-t border-border">
@@ -346,23 +356,13 @@ function BottomDrawer({
       </div>
 
       <div className="h-[132px] overflow-auto">
-        {isIndex ? (
+        {tab === 0 ? (
+          <SectorStrip q={heat} />
+        ) : isIndex ? (
           <p className="p-3 text-[12px] text-muted-foreground">
             An index has no floorsheet and no swing_pro row — there is no broker tape for a
             synthetic series, and the framework scores instruments you can actually buy.
           </p>
-        ) : tab === 0 ? (
-          <table className="w-full text-[12px]">
-            <tbody>
-              <Row k="Entry" v={price(n("entry"))} />
-              <Row k="Stop" v={price(n("stop"))} tone="down" />
-              <Row k="Target 1" v={price(n("t1"))} tone="up" />
-              <Row k="Target 2" v={price(n("t2"))} tone="up" />
-              <Row k="Target 3" v={price(n("t3"))} tone="up" />
-              <Row k="Risk / share" v={price(n("risk"))} />
-              <Row k="Risk %" v={n("risk_pct") == null ? "—" : `${n("risk_pct")!.toFixed(2)}%`} />
-            </tbody>
-          </table>
         ) : tab === 1 ? (
           flow.isPending ? (
             <div className="space-y-1.5 p-3">
@@ -707,6 +707,83 @@ function ChecksPanel({ q }: { q: UseQueryResult<Questions> }) {
               {warn && <span className="ml-1 font-mono text-[10px] uppercase text-primary">yes = bad</span>}
             </div>
           </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * The market under the chart: every sector, sized by turnover, coloured by today's move.
+ *
+ * Clicking a tile loads that sector's INDEX into the chart and opens its constituents in the
+ * rail — one click from "banks are up" to the bank index charted with every bank beside it.
+ */
+function SectorStrip({ q }: { q: UseQueryResult<Heatmap> }) {
+  const router = useRouter();
+  const setDrill = useRail((s) => s.setDrill);
+
+  if (q.isPending) {
+    return (
+      <div className="flex h-full gap-1 p-2">
+        {Array.from({ length: 9 }).map((_, i) => (
+          <Skeleton key={i} className="h-full flex-1" />
+        ))}
+      </div>
+    );
+  }
+  const sectors = q.data?.sectors ?? [];
+  if (!sectors.length) {
+    return <p className="p-3 text-xs text-muted-foreground">Sector data unavailable.</p>;
+  }
+
+  // Square-root the turnover so one heavy sector cannot swallow the strip — Hydro Power alone
+  // carries 110 of the ~280 scrips. Floored so a quiet sector stays clickable, not a sliver.
+  const weight = (t: number) => Math.max(Math.sqrt(Math.max(t, 1e4)), 1);
+
+  return (
+    <div className="flex h-full gap-1 p-2">
+      {sectors.map((sec) => {
+        const up = sec.pct >= 0;
+        // Saturate at ±3%. NEPSE's circuit is ±15%, but a sector INDEX rarely moves more than a
+        // few percent, so ramping to 15 would paint every ordinary day the same flat grey.
+        const k = Math.min(Math.abs(sec.pct) / 3, 1);
+        const alpha = (0.12 + k * 0.5).toFixed(3);
+        return (
+          <button
+            key={sec.sector}
+            disabled={!sec.index}
+            style={{
+              flexGrow: weight(sec.turnover),
+              backgroundColor: up
+                ? `rgba(63,182,139,${alpha})`
+                : `rgba(224,86,78,${alpha})`,
+            }}
+            onClick={() => {
+              if (!sec.index) return;
+              setDrill(sec.index);
+              router.push(`/admin/chart?symbol=${encodeURIComponent(sec.index)}`);
+            }}
+            title={`${sec.sector} · ${sec.count} scrip · turnover ${compact(sec.turnover)}${
+              sec.index ? ` · opens ${sec.index}` : ""
+            }${sec.official ? "" : " · turnover-weighted, no published index"}`}
+            // min-w floor: flex-grow alone let the quiet sectors collapse to unreadable slivers
+            // you could not hit. Turnover still sets the relative size above this width.
+            className="flex min-w-[76px] basis-0 flex-col justify-center overflow-hidden rounded px-2 py-1 text-left transition-[filter] hover:brightness-125 disabled:cursor-default"
+          >
+            <span className="truncate text-[11px] font-medium leading-tight">{sec.sector}</span>
+            <span
+              className={cn(
+                "font-mono text-xs font-semibold tabular-nums",
+                up ? "text-up" : "text-down",
+              )}
+            >
+              {pct(sec.pct)}
+            </span>
+            <span className="truncate text-[10px] text-muted-foreground">
+              {sec.count} · {compact(sec.turnover)}
+            </span>
+          </button>
         );
       })}
     </div>
