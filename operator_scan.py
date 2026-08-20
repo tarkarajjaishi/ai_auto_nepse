@@ -25,6 +25,7 @@ from pathlib import Path
 from collections import defaultdict, Counter
 
 from fetch_ohlc import MASTER
+from prices import bars as adjusted_bars
 
 MONTH, WEEK3, DAY3 = 20, 15, 3
 QUARTER = 60            # ~3 months, to see whether the campaign is long-running or fresh
@@ -125,15 +126,17 @@ def sector_medians(names, smap):
 
 
 def bars(sym):
-    p = MASTER / "symbols" / sym / "1D.txt"
-    if not p.exists():
+    """[(date, open, high, low, close, volume)] — corporate-action adjusted.
+
+    Read through prices.bars() rather than re-parsing 1D.txt. The 20-session `price_chg` this
+    feeds into the hard `chart_ok` gate is a close-to-close move, so a raw ex-date gap inside
+    that window reads as a crash the stock never had and vetoes it.
+    """
+    b = adjusted_bars(sym)
+    if not b:
         return []
-    out = []
-    for l in p.read_text(encoding="utf-8").splitlines()[1:]:
-        f = l.split("\t")
-        if f[7] not in ("", "None"):
-            out.append((f[0], float(f[1]), float(f[2]), float(f[3]), float(f[4]), float(f[7])))
-    return out              # date, open, high, low, close, volume
+    d, o, h, l, c, v = b
+    return list(zip(d, o, h, l, c, v))
 
 
 def chart_signal(rows, dates):

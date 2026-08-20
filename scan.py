@@ -20,6 +20,7 @@ Run it from daily_update.py after the fetches, or on its own:
 from pathlib import Path
 
 from fetch_ohlc import MASTER
+from prices import ex_dates
 from indicators import alma, pivots, structure
 
 OUT = MASTER / "scan.txt"
@@ -30,11 +31,35 @@ HEADER = ("symbol\tdate\tclose\tchange_pct\tvolume\ttrend\tstructure\tswing\tswi
 
 
 def read_bars(symbol, limit=BARS):
+    """Archive rows, newest last — corporate-action adjusted for SYMBOLS.
+
+    The prices here feed alma / pivots / structure, and a raw ex-date gap is a -50% bar that
+    never traded: it invents a swing low and a trend break out of arithmetic. Adjusted in place
+    rather than via prices.bars() because the callers read these rows POSITIONALLY (r[4] close,
+    r[2] high, r[3] low, r[0] date). Indices carry no corporate actions and are left alone.
+    """
     for kind in ("symbols", "indices"):
         path = MASTER / kind / symbol.replace("/", "-") / "1D.txt"
-        if path.exists():
-            rows = [l.split("\t") for l in path.read_text(encoding="utf-8").splitlines()[1:]][-limit:]
-            return [r for r in rows if r[4] not in ("", "None")]
+        if not path.exists():
+            continue
+        rows = [l.split("\t") for l in path.read_text(encoding="utf-8").splitlines()[1:]][-limit:]
+        rows = [r for r in rows if len(r) > 4 and r[4] not in ("", "None")]
+        if kind != "symbols" or not rows:
+            return rows
+        try:
+            dates = [r[0] for r in rows]
+            closes = [float(r[4]) for r in rows]
+            opens = [float(r[1]) for r in rows]
+        except (ValueError, IndexError):
+            return rows                       # unparseable tail: raw beats crashing the scan
+        for i, fac in reversed(ex_dates(dates, closes, opens)):
+            for j in range(i):
+                for col in (1, 2, 3, 4):      # open, high, low, close — volume is not a price
+                    try:
+                        rows[j][col] = str(float(rows[j][col]) * fac)
+                    except (ValueError, IndexError):
+                        pass
+        return rows
     return []
 
 

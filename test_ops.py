@@ -315,24 +315,86 @@ def test_money_calls_never_auto_retry():
     print("  money calls         place and cancel never auto-retry (1 POST, not 2)")
 
 
+def test_one_price_loader():
+    """Every module reads the SAME adjusted series. prices.py is "the layer every calculation
+    should read through", but five modules re-parsed 1D.txt themselves and so never saw a
+    corporate-action adjustment: trade_setup, ui.read_bars, scan, volume_spike, operator_scan.
+    While prices.py was ALSO fabricating ex-dates the two happened to differ loudly; now that it
+    is correct, a divergence would be silent — hence a behavioural check, not a source one."""
+    import operator_scan
+    import scan
+    import volume_spike
+
+    names = (prices.MASTER / "symbols.txt").read_text(encoding="utf-8").split()
+    checked = bad = 0
+    for s in names:
+        b = prices.bars(s)
+        if not b or len(b[4]) < 60:
+            continue
+        ref = round(b[4][-1], 4)
+        checked += 1
+        vs, os_, sc = volume_spike.daily(s), operator_scan.bars(s), scan.read_bars(s)
+        for got in (round(vs[-1][1], 4) if vs else None,
+                    round(os_[-1][4], 4) if os_ else None,
+                    round(float(sc[-1][4]), 4) if sc else None):
+            if got is not None and got != ref:
+                bad += 1
+    assert checked > 100, f"only {checked} symbols checked — the archive looks wrong"
+    assert bad == 0, f"{bad} module/symbol pairs disagree with prices.bars() on the last close"
+    print(f"  one price loader    {checked} symbols, every module agrees with prices.bars()")
+
+
 def test_order_ticket_is_not_on_a_timer():
-    """The NAASA page re-runs fragments every second. A money call inside one would be reachable
-    by a timer tick rather than only by a click, so no run_every fragment may contain one. Catches
-    direct containment only — a fragment calling a helper that trades would still slip through."""
-    tree = ast.parse(Path("ui.py").read_text(encoding="utf-8"))
+    """The NAASA page re-runs fragments every second. A money call reachable from one could be
+    sent by a timer tick instead of a click, so no run_every fragment may reach x_place_order or
+    x_cancel_order — directly OR through any chain of helpers in this file.
+
+    The first version of this test checked direct containment only and said so in its own
+    docstring: "a fragment calling a helper that trades would still slip through". That is the
+    likely shape of the accident, so the check is transitive now.
+    """
+    src = Path(__file__).parent / "ui.py"
+    tree = ast.parse(src.read_text(encoding="utf-8"))
     money = {"x_place_order", "x_cancel_order"}
-    timed = [n for n in ast.walk(tree)
-             if isinstance(n, ast.FunctionDef)
-             and any(isinstance(d, ast.Call) and getattr(d.func, "attr", "") == "fragment"
-                     and any(k.arg == "run_every" for k in d.keywords)
-                     for d in n.decorator_list)]
+
+    def called_names(node):
+        out = set()
+        for c in ast.walk(node):
+            if isinstance(c, ast.Call):
+                out.add(getattr(c.func, "attr", None) or getattr(c.func, "id", None))
+        return {n for n in out if n}
+
+    funcs = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+    calls = {name: called_names(node) for name, node in funcs.items()}
+
+    def reaches_money(start, seen=None):
+        """Any path from `start` to a money call, through helpers defined in ui.py."""
+        seen = seen or set()
+        for callee in calls.get(start, ()):
+            if callee in money:
+                return callee
+            if callee in funcs and callee not in seen:
+                hit = reaches_money(callee, seen | {callee})
+                if hit:
+                    return hit
+        return None
+
+    timed = [n for n in funcs.values()
+             if any(isinstance(d, ast.Call) and getattr(d.func, "attr", "") == "fragment"
+                    and any(k.arg == "run_every" for k in d.keywords)
+                    for d in n.decorator_list)]
     assert timed, "no run_every fragments found — this test no longer matches ui.py"
     for fn in timed:
-        for call in ast.walk(fn):
-            if isinstance(call, ast.Call) and getattr(call.func, "attr", "") in money:
-                raise AssertionError("%s() is on a run_every timer and calls %s()"
-                                     % (fn.name, call.func.attr))
-    print("  order ticket        outside every run_every fragment (%d checked)" % len(timed))
+        hit = reaches_money(fn.name)
+        assert not hit, f"{fn.name}() is on a run_every timer and can reach {hit}()"
+
+    # and the check must be able to fail: a synthetic timer that calls a helper that trades
+    probe = ast.parse("def _t():\n    _h()\ndef _h():\n    naasa.x_place_order(1,2,3,4,5)\n")
+    pf = {n.name: n for n in ast.walk(probe) if isinstance(n, ast.FunctionDef)}
+    funcs, calls = pf, {k: called_names(v) for k, v in pf.items()}
+    assert reaches_money("_t") == "x_place_order", \
+        "the transitive walk cannot see an indirect money call — it proves nothing"
+    print("  order ticket        no run_every fragment can reach a money call, even indirectly")
 
 
 def test_forced_relogin_is_coalesced():
@@ -368,6 +430,7 @@ def main():
     test_edge_is_read_not_transcribed()
     test_rsi_undefined_on_a_frozen_series()
     test_no_pivot_lookahead()
+    test_one_price_loader()
     test_no_nested_expanders()
     test_every_page_has_a_body()
     test_order_body_is_exactly_what_the_screen_sends()

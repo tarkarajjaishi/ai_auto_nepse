@@ -30,6 +30,7 @@ import math
 from pathlib import Path
 
 from fetch_ohlc import MASTER
+from prices import bars as adjusted_bars
 
 OUT = MASTER / "volume_spike.txt"
 FLOW = MASTER / "broker_flow"
@@ -58,15 +59,18 @@ def tail_lines(path, kb=512):
 
 
 def daily(symbol):
-    """[(date, close, volume)] oldest last, only the tail we need."""
-    path = MASTER / "symbols" / symbol / "1D.txt"
-    if not path.exists():
+    """[(date, close, volume)] oldest last, only the tail we need — corporate-action adjusted.
+
+    Read through prices.bars() rather than re-parsing 1D.txt, because this module multiplies
+    close by volume for turnover and a raw ex-date gap makes that quantity jump by the bonus
+    ratio on one bar. It was the fourth private reader of the archive; the analysis modules all
+    read the adjusted series, so this one silently disagreed with them.
+    """
+    b = adjusted_bars(symbol)
+    if not b:
         return []
-    rows = []
-    for line in path.read_text(encoding="utf-8").splitlines()[1:]:
-        f = line.split("\t")
-        if len(f) > 7 and f[4] not in ("", "None") and f[7] not in ("", "None"):
-            rows.append((f[0], float(f[4]), float(f[7])))
+    d, o, h, l, c, v = b
+    rows = list(zip(d, c, v))
     return rows[-(BASE + max(WINDOWS.values()) + 35):]
 
 

@@ -25,7 +25,7 @@ import supply_demand
 import swing_pro
 import swp
 import trade_setup
-from prices import bars as adjusted_bars
+from prices import bars as adjusted_bars, ex_dates as _ex_dates
 from indicators import alma, atr, bollinger, ema, macd, pivots, rsi, sma, structure, trade_levels
 
 MASTER = Path(__file__).parent / "Master_data"
@@ -324,6 +324,22 @@ def read_bars(path, mtime, limit):        # NB: no leading underscore — Stream
             cols[key].append(value)
     for k in ("open", "high", "low", "close", "change", "pct", "volume", "amount"):
         cols[k] = [float(v) if v not in ("", "None") else None for v in cols[k]]
+
+    # Corporate-action adjust DAILY SYMBOL bars here, so every page that already calls bars()
+    # gets the same series prices.bars() hands the analysis modules. Without it the Chart, the
+    # Scanner and the signal replay drew a -50% ex-date gap that never traded, while swing_pro
+    # and backtest had spliced it out — the same symbol, two different histories.
+    # Indices carry no corporate actions and intraday files are same-day, so both stay raw.
+    p = Path(path)
+    if p.name == "1D.txt" and p.parent.parent.name == "symbols" and cols["close"]:
+        if all(x is not None for x in cols["open"]) and all(x is not None for x in cols["close"]):
+            # Adjusting the TRUNCATED window is correct: an ex-date outside it scales nothing
+            # visible, and one inside it scales exactly the bars before it, as on the full series.
+            for i, fac in reversed(_ex_dates(cols["when"], cols["close"], cols["open"])):
+                for k in ("open", "high", "low", "close"):
+                    for j in range(i):
+                        if cols[k][j] is not None:
+                            cols[k][j] *= fac
     return cols
 
 
