@@ -64,6 +64,9 @@ export function ConnectionsPanel() {
         <p>
           <span className="font-medium text-foreground">Where the email and password go:</span>{" "}
           open{" "}
+          {/* A real <a>, not next/link: `/` on this host is the STREAMLIT app, proxied by
+              nginx to :8501. Client-routing there would look for a Next page and 404. */}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
           <a href="/" className="font-mono text-foreground underline underline-offset-2">
             ai.tarkarajjaishi.com.np/
           </a>{" "}

@@ -188,7 +188,6 @@ function ArchivePill() {
   // `null` means the archive date is unreadable, which is a louder problem than a stale one.
   const missed = data.missed_sessions;
   const archiveBehind = missed === null || missed > 1;
-  const healthy = !archiveBehind && behind.length === 0;
 
   return (
     <Tooltip>

@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import { Moon, Sun } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -18,8 +18,15 @@ import { useTheme } from "@/store/theme";
  */
 export function ThemeToggle() {
   const { theme, toggle } = useTheme();
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  // "Have we hydrated yet?" without setState-in-an-effect, which cascades a second render of the
+  // whole header. useSyncExternalStore answers false from the server snapshot and true from the
+  // client one, so React resolves it during hydration instead of after it. The store never
+  // changes, hence the no-op subscribe.
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
 
   if (!mounted) {
     return <div className="size-9" aria-hidden />;

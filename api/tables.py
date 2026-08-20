@@ -24,7 +24,10 @@ BOARDS = {
 _TEXT = {"symbol", "date", "verdict", "decision", "grade", "performer", "trend", "stage",
          "structure", "breakout", "pullback", "setup", "flags", "signal", "confirmed",
          "in_zone", "direction", "state", "side", "broker", "variant", "split", "from", "to",
-         "kind", "window", "sector", "lockin_expiry", "earn_period", "order"}
+         "kind", "window", "sector", "lockin_expiry", "earn_period", "order",
+         # scan.txt's chart badge and the date it printed. `badge_since` is a date, and a date
+         # that survives _num() only by accident -- name it here rather than rely on that.
+         "badge", "badge_since"}
 
 
 def _num(v):

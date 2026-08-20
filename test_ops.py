@@ -786,9 +786,10 @@ def test_board_writers_emit_exactly_their_header():
 
     here = Path(__file__).parent
     # writers that build a row as `"\t".join(str(x) for x in (...))`
-    for fname, hname in (("master_signal.py", "HEADER"), ("swing_master.py", "HEADER"),
-                         ("operator_scan.py", "HEADER"), ("operator_now.py", "HEADER"),
-                         ("operator_verdict.py", "HEADER")):
+    writers = (("master_signal.py", "HEADER"), ("swing_master.py", "HEADER"),
+               ("operator_scan.py", "HEADER"), ("operator_now.py", "HEADER"),
+               ("operator_verdict.py", "HEADER"), ("scan.py", "HEADER"))
+    for fname, hname in writers:
         tree = _ast.parse((here / fname).read_text(encoding="utf-8"))
         cols = header_cols(tree, hname)
         tuples = [len(n.generators[0].iter.elts) for n in _ast.walk(tree)
@@ -797,6 +798,16 @@ def test_board_writers_emit_exactly_their_header():
         assert cols in tuples, \
             f"{fname}: {hname} has {cols} columns but the writer emits {tuples} fields — " \
             "every row would be dropped and the board would render empty"
+
+    # And no writer may locate one of its own columns by a hand-counted position. scan.py read
+    # its verdict as `row.rsplit(chr(9), 1)[-1]` -- "the last field" -- so appending the badge and
+    # its trade levels made it tally risk percentages as if they were BUY/SELL. It raised instead
+    # of lying, which was luck: the new last column happened not to be a valid key.
+    for fname in ("scan.py",):
+        src = (here / fname).read_text(encoding="utf-8")
+        assert 'rsplit("	", 1)' not in src, (
+            "%s locates a column by position; resolve it out of HEADER by name instead, or the "
+            "next appended column silently moves it" % fname)
 
     # backtest builds its row from f-strings, not a tuple, so count separators across save()
     # as a whole: every field boundary is one tab and the tail splices into the head, so
@@ -810,7 +821,8 @@ def test_board_writers_emit_exactly_their_header():
     assert fields == cols, \
         f"backtest.py: OUT_HEADER has {cols} columns but save() emits {fields} fields"
 
-    print("  board writers       header width == fields written (6 boards)")
+    print("  board writers       header width == fields written (%d boards), "
+          "no positional column reads" % len(writers))
 
 
 def main():
