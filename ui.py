@@ -2887,14 +2887,15 @@ def sd_chart(symbol, show, nbars=180):
                                xanchor="left", font=dict(color=colour, size=11))
 
     fig.update_layout(
-        # r=44, not 118: the y tick labels need ~31px and nothing else renders in that gutter.
-        # Every other Plotly layout in this file uses r=0; this one was 40% dead space on a phone.
-        template="plotly_dark", height=560, margin=dict(l=8, r=44, t=34, b=8),
+        # r=8 + automargin on the y axis. A fixed gutter is guessed twice over: 118 wasted 40%
+        # of a phone screen, and 44 clips a 5-digit price (BNL trades at 14,900, whose label
+        # needs ~45px). automargin makes Plotly reserve exactly what the labels measure.
+        template="plotly_dark", height=560, margin=dict(l=8, r=8, t=34, b=8),
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         xaxis_rangeslider_visible=False, dragmode="pan",
         title=dict(text=f"{symbol} · Supply Demand", font=dict(size=12)))
     fig.update_xaxes(rangebreaks=hidden_periods(d[start:], False), showgrid=False)
-    fig.update_yaxes(side="right", gridcolor="rgba(255,255,255,.06)")
+    fig.update_yaxes(side="right", gridcolor="rgba(255,255,255,.06)", automargin=True)
     return fig, drawn
 
 
