@@ -50,8 +50,30 @@ def bars(symbol):
     return dict(sorted(rows.items()))
 
 
+def safe_rewrite(path, header, rows, label, floor=0.5):
+    """Replace a whole table — but refuse to overwrite a good archive with a failed fetch.
+
+    Every full-rewrite writer in this project has the same failure mode: it persists whatever
+    the feed happened to return, so a short or partial response silently truncates history and
+    the run still exits 0. Losing the archive is far worse than skipping a refresh, so a result
+    that has shrunk by more than `floor` is treated as a failed fetch rather than as the new
+    truth. Shared by fetch_ohlc and fetch_swp because both learned it the same way.
+
+    Returns True if written. A file that does not exist yet is always written — a first fetch
+    has nothing to protect.
+    """
+    have = max(0, len(path.read_text(encoding="utf-8").splitlines()) - 1) if path.exists() else 0
+    if have and len(rows) < have * floor:
+        print(f"  {label}: REFUSED — {len(rows)} rows would replace {have}; keeping what is on "
+              f"disk. Re-run when the feed is healthy.")
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(header + "\n" + "\n".join(rows) + "\n", encoding="utf-8")
+    return True
+
+
 def write(rows, path, header=HEADER):
-    lines = [header]
+    lines = []
     prev = None
     for date, (o, h, l, c, vol, amt) in rows.items():
         change = pct = ""
@@ -61,8 +83,10 @@ def write(rows, path, header=HEADER):
         prev = c if c is not None else prev
         lines.append("\t".join("" if v is None else str(v)
                                for v in (date, o, h, l, c, change, pct, vol, amt)))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # This rewrites a symbol's ENTIRE price history from one response. `run()` only asserts the
+    # result is non-empty, so a feed that answered with 50 bars instead of 1,600 passed that
+    # check and truncated the file — the most valuable data in the project, silently, exit 0.
+    return safe_rewrite(path, header, lines, path.parent.name)
 
 
 def run(kind):

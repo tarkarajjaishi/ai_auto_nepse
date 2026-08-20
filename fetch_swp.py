@@ -10,7 +10,7 @@ import concurrent.futures as cf
 import sys
 
 import swp
-from fetch_ohlc import MASTER
+from fetch_ohlc import MASTER, safe_rewrite
 
 CA_FILE = MASTER / "corporate_actions.txt"
 LK_FILE = MASTER / "lockin.txt"
@@ -45,13 +45,7 @@ def _rewrite(path, header, rows, label, floor=0.5):
     process return code. Losing the archive is far worse than skipping a refresh, so a result
     that has shrunk by more than half is treated as a failed session, not as the new truth.
     """
-    have = max(0, len(path.read_text(encoding="utf-8").splitlines()) - 1) if path.exists() else 0
-    if have and len(rows) < have * floor:
-        print(f"  {label:22} REFUSED — {len(rows)} rows would replace {have}; keeping the "
-              f"archive. Re-login on the sidebar (SmartWealthPro) and run again.")
-        return False
-    path.write_text(header + "\n" + "\n".join(rows) + "\n", encoding="utf-8")
-    return True
+    return safe_rewrite(path, header, rows, label, floor)
 
 
 def _latest_book_close(rows):

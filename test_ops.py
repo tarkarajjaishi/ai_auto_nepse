@@ -28,6 +28,7 @@ import time
 from pathlib import Path
 
 import backtest
+import fetch_ohlc
 import fetch_swp
 import indicators
 import master_signal
@@ -55,7 +56,20 @@ def test_rewrite():
 
         p.unlink()
         assert fetch_swp._rewrite(p, H, ["first\t1"], "probe") is True, "first run must seed"
-    print("  fetch_swp._rewrite  refuses a shrunken overwrite, allows a real one, seeds a new file")
+
+        # the same guard protects the PRICE archive, which is the more valuable case:
+        # fetch_ohlc.write rewrites a symbol's entire 1D.txt from one response, and run() only
+        # asserts the result is non-empty — so a feed answering with 50 bars instead of 1,600
+        # passed that check and truncated years of history, silently, exit 0.
+        bars = Path(d) / "1D.txt"
+        rows = [f"2020-01-{i:02d}\t1\t2\t3\t4" for i in range(1, 29)]
+        assert fetch_ohlc.safe_rewrite(bars, H, rows, "AAA") is True, "first fetch must seed"
+        assert fetch_ohlc.safe_rewrite(bars, H, rows[:27], "AAA") is True, "a real refresh lands"
+        assert fetch_ohlc.safe_rewrite(bars, H, rows[:5], "AAA") is False, "a short feed refused"
+        assert len(bars.read_text(encoding="utf-8").splitlines()) - 1 == 27, "history survives"
+        assert "safe_rewrite" in (Path(__file__).parent / "fetch_ohlc.py").read_text(
+            encoding="utf-8").split("def write(")[1], "fetch_ohlc.write bypasses the guard"
+    print("  archive rewrites    a shrunken feed cannot overwrite prices or the SWP tables")
 
 
 def test_deploy_health():
