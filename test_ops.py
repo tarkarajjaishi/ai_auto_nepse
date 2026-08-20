@@ -1,7 +1,5 @@
-"""The two pipeline safety rules that have no other coverage, checked without touching the
-network, the VPS, or Master_data.
-
-Both guard against a green run that quietly did damage:
+"""The safety rules with no other coverage, checked without touching the network, the VPS, or
+Master_data. Every one of these guards a run that goes GREEN while something is broken.
 
   fetch_swp._rewrite  — corporate_actions.txt and lockin.txt are upserts by FULL REWRITE, and
                         every per-company fetch swallows its own exception. A lapsed SWP cookie
@@ -10,9 +8,17 @@ Both guard against a green run that quietly did damage:
   deploy.vps_ship     — its only health check was `"active" in stdout` against systemd's
                         is-active, and "active" is a substring of "inactive", so a stopped
                         service reported a successful deploy.
+  ui.py               — NOTHING in this repo renders ui.py, so a Streamlit runtime error ships
+                        green and is only found by opening the page. Two static checks catch
+                        the two failures that actually happen: a nested expander (Streamlit
+                        raises and the page dies — this shipped once), and a sidebar entry whose
+                        `if page ==` body was renamed with it, which draws a BLANK page with no
+                        error because every branch simply falls through.
 
     python test_ops.py
 """
+import ast
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -54,10 +60,55 @@ def test_deploy_health():
     print("  deploy              only exact 'active' is healthy; a failed push blocks the ship")
 
 
+def _ui_src():
+    return (Path(__file__).parent / "ui.py").read_text(encoding="utf-8")
+
+
+def test_no_nested_expanders():
+    """Streamlit raises StreamlitAPIException on an expander inside an expander, killing the
+    page. One shipped, duplicated inside itself, and took the whole Supply Demand page down."""
+    tree = ast.parse(_ui_src())
+
+    def is_expander(node):
+        return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "expander")
+
+    bad, depth = [], [0]
+
+    class V(ast.NodeVisitor):
+        def visit_With(self, node):
+            n = sum(1 for it in node.items if is_expander(it.context_expr))
+            if n and depth[0]:
+                bad.append(node.lineno)
+            depth[0] += n
+            self.generic_visit(node)
+            depth[0] -= n
+
+    V().visit(tree)
+    total = sum(1 for n in ast.walk(tree) if is_expander(n))
+    assert not bad, f"nested st.expander at line(s) {bad} — that page will not render"
+    print(f"  ui expanders        {total} declared, none nested")
+
+
+def test_every_page_has_a_body():
+    """A sidebar entry renamed without its `if page == ...` body renders BLANK and raises
+    nothing — Streamlit just falls through every branch and draws an empty page."""
+    src = _ui_src()
+    pages = ast.literal_eval(re.search(r"^PAGES = (\[.*?\])$", src, re.S | re.M).group(1))
+    guards = set(re.findall(r'if page == "([^"]+)"', src))
+    assert not [p for p in pages if p not in guards], \
+        f"sidebar entries with no body: {[p for p in pages if p not in guards]}"
+    assert not [g for g in guards if g not in pages], \
+        f"page bodies unreachable from the sidebar: {sorted(g for g in guards if g not in pages)}"
+    print(f"  ui pages            {len(pages)} sidebar entries, {len(guards)} bodies, all matched")
+
+
 def main():
     print("ops safety:")
     test_rewrite()
     test_deploy_health()
+    test_no_nested_expanders()
+    test_every_page_has_a_body()
     print("ok")
     return 0
 
