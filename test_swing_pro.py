@@ -366,6 +366,13 @@ def main():
         ("[10] major resistance is still the highest, not the nearest",
          swing_pro._levels([100.0], [100.0], [100.0], 2.0,
                            [(0, 130.0), (1, 105.0)], [(0, 96.0)])["major_res"] == 130.0),
+        # Section 10 REPORTS the closest level overhead even when price is on top of it, but a
+        # level inside half an ATR must not SET T1 — otherwise the target collapses onto the
+        # close (a stock at 10.00 under a swing high of 10.01 scored a "realistic target" of 0.1%).
+        ("[10/12] a level price is already at is reported, but does not become the target",
+         (lambda v: v["near_res"] == 100.1 and v["t1"] == 112.0)(
+             swing_pro._levels([100.0], [100.0], [100.0], 2.0,
+                               [(0, 100.1), (1, 112.0)], [(0, 96.0)]))),
         # the rubric prints "/15" for volume, so 15 has to be reachable on real data
         ("[20] every rubric part can actually reach its stated cap",
          max(g["parts"]["volume"] for g in sample) == 15),

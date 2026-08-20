@@ -35,6 +35,25 @@ def _session():
     return ck
 
 
+def _rewrite(path, header, rows, label, floor=0.5):
+    """Rewrite a whole table — but refuse to replace a good archive with a failed session.
+
+    Both tables here are upserts by FULL REWRITE, and every per-company fetch swallows its own
+    exception (`except Exception: return None`). So a cookie that lapses mid-run, or SWP
+    answering 500s, produces a short list that silently overwrites months of data with a
+    header-only file — and the Cron node still shows green, because it is coloured by the
+    process return code. Losing the archive is far worse than skipping a refresh, so a result
+    that has shrunk by more than half is treated as a failed session, not as the new truth.
+    """
+    have = max(0, len(path.read_text(encoding="utf-8").splitlines()) - 1) if path.exists() else 0
+    if have and len(rows) < have * floor:
+        print(f"  {label:22} REFUSED — {len(rows)} rows would replace {have}; keeping the "
+              f"archive. Re-login on the sidebar (SmartWealthPro) and run again.")
+        return False
+    path.write_text(header + "\n" + "\n".join(rows) + "\n", encoding="utf-8")
+    return True
+
+
 def _latest_book_close(rows):
     """The company's newest dividend row that actually has a book-closure date (ISO, sortable)."""
     dated = [r for r in rows if (r.get("bookClosureDateAD") or "").strip()]
@@ -64,8 +83,10 @@ def corporate_actions(ck):
             if line:
                 rows.append(line)
     rows.sort()
-    CA_FILE.write_text(CA_HEADER + "\n" + "\n".join(rows) + "\n", encoding="utf-8")
+    if not _rewrite(CA_FILE, CA_HEADER, rows, "corporate_actions.txt"):
+        return False
     print("  corporate_actions.txt  %d companies with a book close (of %d)" % (len(rows), len(comps)))
+    return True
 
 
 def lockins(ck):
@@ -78,8 +99,10 @@ def lockins(ck):
             (r.get("lockInPeriodDateAD") or "")[:10], r.get("promoterShares", ""),
             r.get("publicShares", ""))))
     rows.sort()
-    LK_FILE.write_text(LK_HEADER + "\n" + "\n".join(rows) + "\n", encoding="utf-8")
+    if not _rewrite(LK_FILE, LK_HEADER, rows, "lockin.txt"):
+        return False
     print("  lockin.txt             %d IPO(s) still in promoter lock-in" % len(rows))
+    return True
 
 
 def refresh_float(ck):
@@ -120,11 +143,15 @@ def refresh_float(ck):
 
 def main():
     ck = _session()
-    corporate_actions(ck)
-    lockins(ck)
+    ok = corporate_actions(ck)
+    ok = lockins(ck) and ok
     refresh_float(ck)
-    print("SWP fetch ok")
+    # Exit non-zero when an archive was protected, or the Cron node goes green on a run that
+    # fetched nothing — the node is coloured by the return code alone.
+    print("SWP fetch ok" if ok
+          else "SWP fetch INCOMPLETE — an archive was protected from a failed session, see above")
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

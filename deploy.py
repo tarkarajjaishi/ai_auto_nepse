@@ -61,8 +61,9 @@ def vps_ship():
     state = ship.stdout.strip()
     print(f"  {len(files)} file(s) shipped · service {state or ship.stderr.strip()}")
     # Exact match. `systemd is-active` answers with one of active / inactive / failed /
-    # activating / deactivating, and a substring test called three of those a healthy deploy —
-    # "active" is in "inactive". This is the only end-to-end health check the deploy has.
+    # activating / deactivating, and the substring test this replaces read "inactive" as a
+    # healthy deploy — a stopped unit reported success. This is the only end-to-end health
+    # check the deploy has.
     return state == "active"
 
 

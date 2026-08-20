@@ -488,7 +488,13 @@ def _levels(c, h, l, a, highs, lows):
     # likewise never awarded. With no floor, resistance sitting close overhead genuinely fails
     # the gate, which is what Section 10 ("avoid buying directly under major resistance") and
     # Section 12 ("reject if the realistic reward is too small") actually ask for.
-    t1 = min(near_res if near_res else horizon, close + 5 * risk, horizon)
+    # ...but a level price is ALREADY at is not a target. Section 10's "near resistance" is
+    # reported as the closest level overhead, whatever it is; the level that SETS T1 has to be
+    # far enough away to be worth travelling to, or T1 collapses onto the close — C30MF closed
+    # at 10.00 against a swing high of 10.01 and got a "realistic target" 0.1% away, rr 0.04.
+    # Half an ATR is the same tolerance _breakout_detail uses to decide a level was tagged.
+    target_res = min((v for _, v in rh if v > close + 0.5 * atr_now), default=None)
+    t1 = min(target_res if target_res else horizon, close + 5 * risk, horizon)
     # T2 and T3 need the SAME two ceilings as T1. Bounding T2 by ATR alone leaked exactly the
     # way the note above warns: against a very tight swing-low stop, `close + 20*ATR` reached
     # 308R, and the report still labelled it "3R".
