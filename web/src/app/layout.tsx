@@ -1,13 +1,22 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { IBM_Plex_Mono, Instrument_Sans } from "next/font/google";
 
 import { Providers } from "@/components/providers";
 import { NO_FLASH_SCRIPT } from "@/store/theme";
 
 import "./globals.css";
 
-const sans = Geist({ variable: "--font-sans", subsets: ["latin"] });
-const mono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
+// The Ledgermark terminal's own two faces, read from its stylesheet:
+//   --font-sans: "Instrument Sans"   --font-mono: "IBM Plex Mono"
+// Self-hosted by next/font rather than linked from Google, because a webfont fetched at paint
+// time is a flash of fallback on every cold load — and on a page that is mostly numbers, the
+// reflow when a proportional fallback swaps for a tabular face is very visible.
+const sans = Instrument_Sans({ variable: "--font-sans", subsets: ["latin"] });
+const mono = IBM_Plex_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+});
 
 export const metadata: Metadata = {
   title: { default: "Chukul Terminal", template: "%s · Chukul" },
@@ -16,8 +25,8 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: dark)", color: "#12151c" },
-    { media: "(prefers-color-scheme: light)", color: "#fafafa" },
+    { media: "(prefers-color-scheme: dark)", color: "#0e1419" },
+    { media: "(prefers-color-scheme: light)", color: "#f4f6f9" },
   ],
 };
 

@@ -53,89 +53,102 @@
 }
 
 /* ── Terminal palette ───────────────────────────────────────────────────────────────────────
-   DARK IS THE DEFAULT and the fallback (see NO_FLASH_SCRIPT). Light is a second design, not an
-   inversion: on white the same coral would glare and the greens would vanish, so both themes
-   set their own lightness and chroma.
+   Matched to the Ledgermark terminal, whose six semantic colours were read off its own
+   stylesheet (build/assets/app-*.css) rather than eyedropped from a screenshot — so these are
+   the exact values, not an approximation:
 
-   Everything carries a slight blue cast (hue 250-265) rather than pure neutral grey. Pure
-   #000/#111 next to saturated red and green reads as cheap; a cool ground makes both sit down.
+       ink  panel  rule   brass   up      down          <- their names
+       bg   card   border accent  gain    loss          <- what they do
 
-   --up / --down / --flat are SEMANTIC and the only place market direction is coloured. Never
-   hardcode a green in a component: NEPSE is red-down/green-up, but that is a token decision, and
-   an accessibility pass or an inverted-market preference has to be changeable in one place. */
+   dark   #0e1419 #161e26 #26313c #c39a4e #3fb68b #e0564e   text #e8ebed  muted #8a97a3
+   light  #f4f6f9 #ffffff #e3e7ed #a8813a #12946a #cf4436   text #16202b  muted #5f6b77
+
+   DARK IS THE DEFAULT and the fallback (see NO_FLASH_SCRIPT) — theirs works the same way, an
+   `html.theme-light` class over a dark :root, which is why light is a second design rather than
+   an inversion. Note their green and red both DARKEN on light: the same #3fb68b that reads
+   correctly on #0e1419 is invisible on white.
+
+   Brass replaces the coral that was here. It is the accent on every active tab, focus ring and
+   primary control — a warm metal against a cold blue-black ground, which is the whole character
+   of this theme.
+
+   --up / --down / --flat stay SEMANTIC and remain the only place market direction is coloured.
+   Never hardcode a green in a component. */
 :root {
-  --background: oklch(0.985 0.002 260);
-  --foreground: oklch(0.22 0.012 260);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.22 0.012 260);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.22 0.012 260);
-  --primary: oklch(0.6 0.17 26);
-  --primary-foreground: oklch(0.99 0.005 60);
-  --secondary: oklch(0.955 0.004 260);
-  --secondary-foreground: oklch(0.3 0.014 260);
-  --muted: oklch(0.955 0.004 260);
-  --muted-foreground: oklch(0.52 0.014 260);
-  --accent: oklch(0.94 0.008 260);
-  --accent-foreground: oklch(0.26 0.014 260);
-  --destructive: oklch(0.58 0.21 27);
-  --border: oklch(0.9 0.006 260);
-  --input: oklch(0.9 0.006 260);
-  --ring: oklch(0.6 0.17 26 / 45%);
-  --up: oklch(0.55 0.15 152);
-  --down: oklch(0.57 0.21 27);
-  --flat: oklch(0.6 0.012 260);
-  --chart-1: oklch(0.6 0.17 26);
-  --chart-2: oklch(0.55 0.15 152);
-  --chart-3: oklch(0.58 0.13 245);
-  --chart-4: oklch(0.68 0.15 75);
-  --chart-5: oklch(0.55 0.15 300);
+  --background: #f4f6f9;
+  --foreground: #16202b;
+  --card: #ffffff;
+  --card-foreground: #16202b;
+  --popover: #ffffff;
+  --popover-foreground: #16202b;
+  --primary: #a8813a;
+  --primary-foreground: #ffffff;
+  --secondary: #eaeef3;
+  --secondary-foreground: #16202b;
+  --muted: #eaeef3;
+  --muted-foreground: #5f6b77;
+  --accent: #e7ecf2;
+  --accent-foreground: #16202b;
+  --destructive: #cf4436;
+  --border: #e3e7ed;
+  --input: #e3e7ed;
+  --ring: #a8813a80;
+  --up: #12946a;
+  --down: #cf4436;
+  --flat: #5f6b77;
+  --brass-deep: #856327;
+  --chart-1: #a8813a;
+  --chart-2: #12946a;
+  --chart-3: #3f72b6;
+  --chart-4: #b6853f;
+  --chart-5: #7d5fb6;
   --radius: 0.5rem;
-  --sidebar: oklch(0.97 0.003 260);
-  --sidebar-foreground: oklch(0.3 0.012 260);
-  --sidebar-primary: oklch(0.6 0.17 26);
-  --sidebar-primary-foreground: oklch(0.99 0.005 60);
-  --sidebar-accent: oklch(0.93 0.008 260);
-  --sidebar-accent-foreground: oklch(0.24 0.014 260);
-  --sidebar-border: oklch(0.9 0.006 260);
-  --sidebar-ring: oklch(0.6 0.17 26 / 45%);
+  --sidebar: #eef1f5;
+  --sidebar-foreground: #16202b;
+  --sidebar-primary: #a8813a;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e0e5ec;
+  --sidebar-accent-foreground: #16202b;
+  --sidebar-border: #e3e7ed;
+  --sidebar-ring: #a8813a80;
 }
 
 .dark {
-  --background: oklch(0.165 0.012 262);
-  --foreground: oklch(0.95 0.006 260);
-  --card: oklch(0.203 0.013 262);
-  --card-foreground: oklch(0.95 0.006 260);
-  --popover: oklch(0.223 0.014 262);
-  --popover-foreground: oklch(0.95 0.006 260);
-  --primary: oklch(0.7 0.16 26);
-  --primary-foreground: oklch(0.17 0.012 262);
-  --secondary: oklch(0.258 0.014 262);
-  --secondary-foreground: oklch(0.93 0.006 260);
-  --muted: oklch(0.248 0.013 262);
-  --muted-foreground: oklch(0.68 0.014 260);
-  --accent: oklch(0.285 0.016 262);
-  --accent-foreground: oklch(0.96 0.006 260);
-  --destructive: oklch(0.66 0.2 25);
-  --border: oklch(1 0 0 / 9%);
-  --input: oklch(1 0 0 / 13%);
-  --ring: oklch(0.7 0.16 26 / 50%);
-  --up: oklch(0.73 0.17 150);
-  --down: oklch(0.66 0.2 25);
-  --flat: oklch(0.62 0.014 260);
-  --chart-1: oklch(0.7 0.16 26);
-  --chart-2: oklch(0.73 0.17 150);
-  --chart-3: oklch(0.68 0.14 240);
-  --chart-4: oklch(0.79 0.15 80);
-  --chart-5: oklch(0.68 0.16 305);
-  --sidebar: oklch(0.185 0.012 262);
-  --sidebar-foreground: oklch(0.82 0.01 260);
-  --sidebar-primary: oklch(0.7 0.16 26);
-  --sidebar-primary-foreground: oklch(0.17 0.012 262);
-  --sidebar-accent: oklch(0.265 0.015 262);
-  --sidebar-accent-foreground: oklch(0.97 0.006 260);
-  --sidebar-border: oklch(1 0 0 / 8%);
-  --sidebar-ring: oklch(0.7 0.16 26 / 50%);
+  --background: #0e1419;
+  --foreground: #e8ebed;
+  --card: #161e26;
+  --card-foreground: #e8ebed;
+  --popover: #1a232c;
+  --popover-foreground: #e8ebed;
+  --primary: #c39a4e;
+  --primary-foreground: #0e1419;
+  --secondary: #1e2832;
+  --secondary-foreground: #e8ebed;
+  --muted: #1b242e;
+  --muted-foreground: #8a97a3;
+  --accent: #1f2a35;
+  --accent-foreground: #f4f6f9;
+  --destructive: #e0564e;
+  --border: #26313c;
+  --input: #26313c;
+  --ring: #c39a4e80;
+  --up: #3fb68b;
+  --down: #e0564e;
+  --flat: #8a97a3;
+  --brass-deep: #856327;
+  --chart-1: #c39a4e;
+  --chart-2: #3fb68b;
+  --chart-3: #5b8fd6;
+  --chart-4: #d6a95b;
+  --chart-5: #9b7ad6;
+  --sidebar: #0e1419;
+  --sidebar-foreground: #b9c2cb;
+  --sidebar-primary: #c39a4e;
+  --sidebar-primary-foreground: #0e1419;
+  --sidebar-accent: #1f2a35;
+  --sidebar-accent-foreground: #f4f6f9;
+  --sidebar-border: #26313c;
+  --sidebar-ring: #c39a4e80;
 }
 
 @layer base {
@@ -147,5 +160,36 @@
   }
   html {
     @apply font-sans;
+  }
+
+  /* Tabular figures everywhere a price can change.
+     A proportional font re-flows the row on every tick because "1" is narrower than "8", so a
+     live column jitters sideways while you are trying to read it. */
+  .tabular-nums,
+  table {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* A terminal is mostly list, and the default Windows scrollbar is a light-grey slab that cuts a
+   bright stripe down the side of a dark panel. Theirs is a thin translucent rail; so is this. */
+@layer utilities {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--muted-foreground);
   }
 }
