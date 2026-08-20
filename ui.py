@@ -361,7 +361,7 @@ def with_live_bar(cols, symbol):
     try:
         feed = naasa_feed()
         with feed["lock"]:
-            quote = dict(feed["snap"].get(symbol, {}))
+            quote = dict(feed["snap"].get(live_1d.feed_name(symbol), {}))
     except Exception:
         return cols
     day = live_1d.today()

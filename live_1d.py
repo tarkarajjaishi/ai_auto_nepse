@@ -29,6 +29,32 @@ COLUMNS = 9
 
 _written = {}          # name -> the row last flushed, so an unchanged instrument costs nothing
 
+# The socket abbreviates several index names differently from the archive directories. Subscribe
+# under the wrong one and the feed never answers — no error, no frame, exactly like an index that
+# has not moved. That silently cost the eight biggest sector indices their live bar while the six
+# whose names happen to match worked fine, so the mismatch looked like quiet sectors.
+FEED_ALIAS = {
+    "BANKINGIND": "BANKSUBIND",
+    "FINANCEIND": "FININD",
+    "HYDROPOWIND": "HYDPOWIND",
+    "LIFEINSUIND": "LIFINSIND",
+    "MANUFACTUREIND": "MANPROCIND",
+    "MICROFININD": "MICRFININD",
+    "NONLIFEIND": "NONLIFIND",
+    "TRADINGIND": "TRADIND",
+}
+_ARCHIVE_OF = {v: k for k, v in FEED_ALIAS.items()}
+
+
+def feed_name(name):
+    """The key this instrument ticks under on the socket."""
+    return FEED_ALIAS.get(name, name)
+
+
+def archive_name(name):
+    """Inverse of feed_name — the archive directory for an instrument as the feed names it."""
+    return _ARCHIVE_OF.get(name, name)
+
 
 def _num(x):
     """A feed value as a float, or None when it is blank/absent/unparseable."""
@@ -114,9 +140,10 @@ def _index_names(_cache=[]):
 
 
 def names():
-    """Every instrument worth subscribing to: the archive's own symbol and index lists."""
+    """Every instrument worth subscribing to, named the way the FEED names them — this list goes
+    straight into the subscribe frame, so archive names would silently fetch nothing."""
     syms = MASTER.joinpath("symbols.txt").read_text(encoding="utf-8").split()
-    return syms + sorted(_index_names())
+    return [feed_name(n) for n in syms + sorted(_index_names())]
 
 
 def flush(snapshot, day=None):
@@ -129,6 +156,7 @@ def flush(snapshot, day=None):
     day = day or today()
     written = 0
     for name, quote in list(snapshot.items()):
+        name = archive_name(name)      # the snapshot is keyed the way the FEED names things
         line = row(quote, day)
         if line is None or _written.get(name) == line:
             continue
@@ -177,6 +205,20 @@ def demo():
         assert p.read_text(encoding="utf-8").splitlines()[1].startswith("2026-08-18"), "kept history"
         # a file we have never fetched is not seeded from one live bar
         assert upsert(Path(d) / "nope" / "1D.txt", "2026-08-20", "x") is False
+    # the archive<->feed name bridge: a wrong name here is a silently missing index
+    assert feed_name("MICROFININD") == "MICRFININD"
+    assert archive_name("MICRFININD") == "MICROFININD"
+    assert feed_name("NEPSE") == "NEPSE" and archive_name("NEPSE") == "NEPSE"
+    for arch, fed in FEED_ALIAS.items():
+        assert archive_name(fed) == arch, (arch, fed)
+        assert feed_name(arch) == fed, (arch, fed)
+    import naasa
+    known = set(naasa.INDEX_SYMBOLS)
+    for arch, fed in FEED_ALIAS.items():
+        assert fed in known, "%s is not a name the feed publishes" % fed
+    for arch in _index_names():
+        assert feed_name(arch) in known, \
+            "%s has no feed name — it would subscribe to nothing and never get a bar" % arch
     print("live_1d demo ok")
 
 
