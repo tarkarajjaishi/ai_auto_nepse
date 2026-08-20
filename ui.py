@@ -2536,6 +2536,8 @@ if page == "NAASA":
     # `symbol` is always None here (this page is outside PER_SYMBOL), so seed from ?sym=
     _nsym = st.query_params.get("sym") or "NABIL"
     sym = st.text_input("Scrip", value=_nsym, key="naasa_sym").strip().upper() or "NABIL"
+    if st.query_params.get("sym") != sym:      # mirror it, same as ?page= and the per-symbol bar
+        st.query_params["sym"] = sym           # without this a refresh re-seeds from a stale ?sym=
     # Live feed is always on (NAASA WSS) — no toggle, NO cache. Show the socket snapshot only, the
     # instant it arrives. No public/REST fallback here: this panel is live-or-nothing on purpose.
     feed = naasa_feed()
