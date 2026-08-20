@@ -452,6 +452,28 @@ def operator_scan():
     return read_operator_scan(str(path), path.stat().st_mtime)
 
 
+def warn_if_behind_archive(session, what, button):
+    """Say so when a board's .txt was computed BEFORE the bars now on disk.
+
+    Every board here reads a pre-computed table, so its numbers are only as fresh as the last
+    time its script ran. That is fine until the archive moves past it, and then the page shows
+    yesterday's analysis with today's confidence: swing_pro.txt was built at 07:36 holding 299
+    rows dated 2026-08-19, while 339 of 364 symbols already had an 08-20 bar. The sidebar's
+    freshness line knew; this page did not, and quietly presented the stale read as current.
+
+    Returns True when a warning was shown, so a caller can adjust what it says next.
+    """
+    newest = archive_state().get("Daily bars", ("", 0, 0))[0]
+    if not (newest and session) or session >= newest:
+        return False
+    st.warning(
+        f"These {what} were computed on **{session}**, but the daily archive already reaches "
+        f"**{newest}**. Every number below is from the earlier session — press **{button}** to "
+        f"recompute. (Before the 15:00 NPT close the newest bar is a PARTIAL session, so "
+        f"rebuilding mid-day scores an unfinished candle.)")
+    return True
+
+
 def swing_pro_board():
     """Rows of Master_data/swing_pro.txt, or [] when swing_pro.py has not run."""
     path = MASTER / "swing_pro.txt"
@@ -3522,6 +3544,7 @@ if page == "Swing Trader Pro":
         session = max((r["date"] for r in rows), default="")
         st.caption(f"Session **{session}** · {len(rows)} symbols scored · "
                    f"{counts['Actionable']} pass every gate · showing {len(block)}.")
+        warn_if_behind_archive(session, "scores", "Rebuild scores")
 
         if not block:
             st.info("Nothing in this bucket today. An empty **Actionable** list is a normal "
@@ -3659,6 +3682,9 @@ if page == "Supply Demand":
             f"**Signals are as of the last traded candle, {session}** — this is the read for "
             f"tomorrow's open, not a historical mark. {len(rows)} symbols scanned · {fired} "
             f"touched a zone · **{held} actually closed inside one** · showing {len(block)}.")
+        # this board makes the same "as of the last traded candle" claim, and it is only true
+        # while the file is as new as the archive
+        warn_if_behind_archive(session, "zones", "Rebuild board")
 
         if not block:
             st.info("Nothing in this bucket today.")
