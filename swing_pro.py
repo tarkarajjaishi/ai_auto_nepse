@@ -278,6 +278,50 @@ def _breakout_detail(c, o, h, l, v, vsma, a, res):
                 follow_through=sum(1 for i in range(-3, 0) if c[i] > res))
 
 
+def _retest_detail(c, h, l, v, vsma, a, res, look=30):
+    """Section 8 — "retest behaviour": what price actually DID on its way back to the level.
+
+    Every other §8 bullet has a number behind it; this one had only the six-state label, so the
+    board could say "Breakout Retest" without ever saying whether the retest was any good. The
+    spec's preferred sequence is Consolidation -> Breakout -> Volume Confirmation -> Retest ->
+    Continuation, and §17.B wants "a controlled retest that HOLDS", so three things must be
+    measurable: did price come back, how deep did it cut, and on what volume.
+
+    The spec does not define "holds", so the definitions are stated here rather than implied:
+      breakout bar  the most recent CROSSING inside `look` — closed above res, previous close
+                    at or below it. The crossing, not merely any close above, or an old
+                    breakout that has long since resolved would anchor the measurement.
+      retest        a later bar whose LOW came within tol of res, tol being the same
+                    max(0.5 ATR, 0.5%) this module already uses for "tagged the level".
+      held          no close since the breakout finished below res - tol. A wick through the
+                    level is a retest; a CLOSE through it is a failed one.
+      depth         deepest low since the breakout, in ATR below res. Negative means price
+                    pulled back but never actually reached the level.
+      dry           volume on that deepest bar against its 20-day average. §5 asks for a
+                    pullback on FALLING volume, so under 1.0 is the healthy shape here.
+
+    All None when there is no breakout in the window or price has not come back yet — "no
+    retest" is a different statement from "a bad retest" and must not read as one.
+    """
+    blank = dict(retest_depth=None, retest_held=None, retest_vol=None, retest_bars=None)
+    if not res or not a:
+        return blank
+    n = len(c)
+    bo = next((i for i in range(n - 1, max(1, n - look) - 1, -1)
+               if c[i] > res and c[i - 1] <= res), None)
+    if bo is None or bo >= n - 1:
+        return blank
+    tol = max(a * 0.5, res * 0.005)
+    after = list(range(bo + 1, n))
+    deep, di = min((l[i], i) for i in after)
+    if deep > res + tol:                       # pulled back, but never reached the level
+        return blank
+    return dict(retest_depth=(res - deep) / a,
+                retest_held=not any(c[i] < res - tol for i in after),
+                retest_vol=(v[di] / vsma[di]) if vsma and vsma[di] else None,
+                retest_bars=n - 1 - bo)
+
+
 def _repeated_failures(c, h, res, look=120):
     """Section 16 — how many times has THIS level actually rejected price recently?
 
@@ -805,6 +849,7 @@ def analyse(symbol, funds=None, calendar=None):
         has_fund=bool(fund), roe=_num(fund, "roe_ttm"), pe=_num(fund, "pe_ttm"),
         bvps=_num(fund, "bvps"), float_pct=_num(fund, "float_pct"),
         **_breakout_detail(c, o, h, l, v, vsma, atr_now, res_level),
+        **_retest_detail(c, h, l, v, vsma, atr_now, res_level),
         **{k: lev[k] for k in ("entry", "stop", "risk", "t1", "t2", "t3", "stop_far",
                                "near_res", "major_res", "near_support", "major_support")},
     )
@@ -1124,6 +1169,14 @@ def report(f):
          f"                       level {_n(f['prev_breakout'])}, {f['res_tests']} prior tests, "
          f"{f['consol_days']}d base, candle {_n(f['bo_candle'], 2)} ATR closing "
          f"{_n(f['close_pos'], 0, '%')} up its range, {f['follow_through']}/3 follow-through",
+         f"                       retest: "
+         + ("none — price has not come back to the level since the breakout"
+            if f["retest_depth"] is None else
+            f"{'HELD' if f['retest_held'] else 'FAILED — closed back under the level'}, "
+            f"cut {f['retest_depth']:.2f} ATR below it {f['retest_bars']}d after the breakout"
+            + ("" if f["retest_vol"] is None else
+               f", on {f['retest_vol']:.2f}x volume"
+               f" ({'dry, as a healthy retest should be' if f['retest_vol'] < 1.0 else 'heavy — sellers are still there'})")),
          f"Smart-Money Evidence:  " + ", ".join(x for x in (
              f["demand_zone"], "liquidity sweep" if f["sweep"] else None,
              "support reclaim" if f["reclaim"] else None,
