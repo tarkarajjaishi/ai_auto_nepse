@@ -1,27 +1,23 @@
 import type { Metadata, Viewport } from "next";
-import { IBM_Plex_Mono, Poppins } from "next/font/google";
+import { IBM_Plex_Mono, Instrument_Sans } from "next/font/google";
 
 import { Providers } from "@/components/providers";
 import { NO_FLASH_SCRIPT } from "@/store/theme";
 
 import "./globals.css";
 
-// Poppins is the default face everywhere — the same family and weights the reference loads
-// (Poppins:wght@400;500;600).
+// Instrument Sans, read off the reference terminal's own computed style — its --font-sans is
+// "Instrument Sans", not the Poppins its marketing and login pages preload. Matching the app
+// meant matching the app's face, not the brochure's.
 //
-// IBM Plex Mono stays for the numeric role, and that is not a half-measure. Poppins is a
-// geometric sans with proportional figures: "1" is far narrower than "8", so a price column set
-// in it re-flows sideways every time a digit changes, and decimal points in a stacked column do
-// not line up. Prices, levels and volumes are what this screen exists to compare down a column,
-// so they keep a monospaced face. Everything that is prose, a label or a control is Poppins.
+// IBM Plex Mono stays for the numeric role, and that is not a half-measure: a proportional face
+// makes "1" far narrower than "8", so a price column set in one re-flows sideways every time a
+// digit changes and stacked decimal points do not line up. The reference does the same — its
+// CHANGE/BID/ASK values are IBM Plex Mono while its labels are not.
 //
-// Both are self-hosted by next/font rather than linked from Google: a webfont fetched at paint
-// time is a flash of fallback on every cold load.
-const sans = Poppins({
-  variable: "--font-sans",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-});
+// Both self-hosted by next/font rather than linked from Google: a webfont fetched at paint time
+// is a flash of fallback on every cold load.
+const sans = Instrument_Sans({ variable: "--font-sans", subsets: ["latin"] });
 const mono = IBM_Plex_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],

@@ -77,21 +77,39 @@ def route(path, query):
         from prices import bars as adjusted
         from . import market
         n = int(query.get("limit", ["500"])[0])
+        # ?ema=20,50,200 — moving averages computed HERE, by indicators.ema, on the same closes
+        # the chart draws. The frontend must not compute an indicator: a second implementation of
+        # a seeded EMA is a second answer, and the one on screen would be the untested one.
+        want_ema = [int(x) for x in query.get("ema", [""])[0].split(",") if x.strip().isdigit()]
+        want_ema = sorted({p for p in want_ema if 2 <= p <= 400})[:4]
+
+        def with_ema(payload, closes):
+            if want_ema:
+                from indicators import ema
+                payload["ema"] = {str(p): ema(closes, p)[-len(payload["bars"]):]
+                                  for p in want_ema}
+            return payload
+
         b = adjusted(arg.upper())
         if b:
             d, o, h, l, c, v = b
             s = slice(-n, None) if n > 0 else slice(None)
-            return 200, {"symbol": arg.upper(), "kind": "stock", "adjusted": True,
-                         "bars": [{"date": a, "open": b_, "high": c_, "low": d_, "close": e_,
-                                   "volume": f_}
-                                  for a, b_, c_, d_, e_, f_ in
-                                  zip(d[s], o[s], h[s], l[s], c[s], v[s])]}
+            return 200, with_ema(
+                {"symbol": arg.upper(), "kind": "stock", "adjusted": True,
+                 "bars": [{"date": a, "open": b_, "high": c_, "low": d_, "close": e_,
+                           "volume": f_}
+                          for a, b_, c_, d_, e_, f_ in
+                          zip(d[s], o[s], h[s], l[s], c[s], v[s])]},
+                c)
         # Stocks first, then indices. An index carries `adjusted: false` and means it — see
         # market.index_bars for why running one through the adjuster would be wrong, not just
         # unnecessary.
         rows = market.index_bars(arg, n)
         if rows:
-            return 200, {"symbol": arg.upper(), "kind": "index", "adjusted": False, "bars": rows}
+            full = market.index_bars(arg, 0) or rows
+            return 200, with_ema(
+                {"symbol": arg.upper(), "kind": "index", "adjusted": False, "bars": rows},
+                [r["close"] for r in full])
         return 404, {"error": f"no bars for {arg!r}"}
 
     if head == "floorsheet" and arg:

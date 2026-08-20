@@ -1,9 +1,11 @@
 "use client";
 
 import {
+  AreaSeries,
   CandlestickSeries,
   ColorType,
   HistogramSeries,
+  LineSeries,
   createChart,
   type IChartApi,
   type UTCTimestamp,
@@ -31,6 +33,8 @@ export function PriceChart({
   height = 420,
   fill = false,
   visibleBars = 120,
+  ema,
+  mode = "candles",
 }: {
   bars: Bar[];
   height?: number;
@@ -46,6 +50,10 @@ export function PriceChart({
    * refetch — panning back must always reveal the rest without a round trip.
    */
   visibleBars?: number;
+  /** period -> series, straight from the API. Drawn as-is; never computed here. */
+  ema?: Record<string, (number | null)[]>;
+  /** candles, or a filled line for reading long spans */
+  mode?: "candles" | "line";
 }) {
   const box = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
@@ -94,14 +102,56 @@ export function PriceChart({
     const up = read("--up", dark ? "#3fb68b" : "#12946a");
     const down = read("--down", dark ? "#e0564e" : "#cf4436");
 
-    const candles = c.addSeries(CandlestickSeries, {
-      upColor: up,
-      downColor: down,
-      borderUpColor: up,
-      borderDownColor: down,
-      wickUpColor: up,
-      wickDownColor: down,
-    });
+    if (mode === "candles") {
+      const candles = c.addSeries(CandlestickSeries, {
+        upColor: up,
+        downColor: down,
+        borderUpColor: up,
+        borderDownColor: down,
+        wickUpColor: up,
+        wickDownColor: down,
+      });
+      candles.setData(
+        bars.map((b) => ({
+          time: toTime(b.date),
+          open: b.open,
+          high: b.high,
+          low: b.low,
+          close: b.close,
+        })),
+      );
+    } else {
+      const brass = read("--primary", "#c39a4e");
+      const area = c.addSeries(AreaSeries, {
+        lineColor: brass,
+        lineWidth: 2,
+        topColor: `${brass}44`,
+        bottomColor: `${brass}00`,
+      });
+      area.setData(bars.map((b) => ({ time: toTime(b.date), value: b.close })));
+    }
+
+    // EMA overlays, drawn exactly as the API sent them. Nulls during the warm-up are dropped
+    // rather than zero-filled — a 200 EMA that starts at 0 draws a line from the floor.
+    const EMA_COLOR: Record<string, string> = {
+      "20": read("--chart-3", "#5b8fd6"),
+      "50": read("--primary", "#c39a4e"),
+      "200": read("--chart-5", "#9b7ad6"),
+    };
+    for (const [period, series] of Object.entries(ema ?? {})) {
+      const line = c.addSeries(LineSeries, {
+        color: EMA_COLOR[period] ?? read("--muted-foreground", "#8a97a3"),
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: false,
+      });
+      line.setData(
+        series
+          .map((v, i) => (v == null ? null : { time: toTime(bars[i]!.date), value: v }))
+          .filter((p): p is { time: UTCTimestamp; value: number } => p !== null),
+      );
+    }
     // Volume in its own pane (v5's third argument), not overlaid on the price scale. Separate
     // panes mean neither series can rescale the other and each axis only ever shows values its
     // own data actually takes.
@@ -111,15 +161,6 @@ export function PriceChart({
       scaleMargins: { top: 0.15, bottom: 0 },
     });
 
-    candles.setData(
-      bars.map((b) => ({
-        time: toTime(b.date),
-        open: b.open,
-        high: b.high,
-        low: b.low,
-        close: b.close,
-      })),
-    );
     volume.setData(
       bars.map((b) => ({
         time: toTime(b.date),
@@ -162,7 +203,7 @@ export function PriceChart({
       c.remove();
       chart.current = null;
     };
-  }, [bars, height, theme, fill, visibleBars]);
+  }, [bars, height, theme, fill, visibleBars, ema, mode]);
 
   // In fill mode the box must be a real flex child with min-h-0, or it reports its content
   // height (the canvas it is trying to size) and the two feed each other.

@@ -107,7 +107,18 @@ export type Bar = {
  * corporate-action adjusted; an index's are raw and always will be, because an index has no
  * corporate actions and "adjusting" one could only invent a factor out of a large ordinary move.
  */
-export type Bars = { symbol: string; kind: "stock" | "index"; adjusted: boolean; bars: Bar[] };
+export type Bars = {
+  symbol: string;
+  kind: "stock" | "index";
+  adjusted: boolean;
+  bars: Bar[];
+  /**
+   * period -> one value per bar, `null` during the warm-up. Computed by `indicators.ema` on the
+   * server. Nothing here recomputes it: a second implementation of a seeded EMA is a second
+   * answer, and the one on screen would be the untested one.
+   */
+  ema?: Record<string, (number | null)[]>;
+};
 
 export type Scorecard = {
   symbol: string;
@@ -241,8 +252,12 @@ export const api = {
   board: (name: BoardName, signal?: AbortSignal) => get<Board>(`/api/board/${name}`, signal),
   symbols: (signal?: AbortSignal) =>
     get<{ symbols: string[]; indices: string[] }>("/api/symbols", signal),
-  bars: (symbol: string, limit = 500, signal?: AbortSignal) =>
-    get<Bars>(`/api/bars/${encodeURIComponent(symbol)}?limit=${limit}`, signal),
+  bars: (symbol: string, limit = 500, signal?: AbortSignal, ema?: number[]) =>
+    get<Bars>(
+      `/api/bars/${encodeURIComponent(symbol)}?limit=${limit}` +
+        (ema?.length ? `&ema=${ema.join(",")}` : ""),
+      signal,
+    ),
   report: (symbol: string, signal?: AbortSignal) =>
     get<Report>(`/api/report/${encodeURIComponent(symbol)}`, signal),
   scorecard: (symbol: string, signal?: AbortSignal) =>
@@ -274,7 +289,8 @@ export const qk = {
   boards: ["boards"] as const,
   board: (n: BoardName) => ["board", n] as const,
   symbols: ["symbols"] as const,
-  bars: (s: string, limit: number) => ["bars", s, limit] as const,
+  bars: (s: string, limit: number, ema?: number[]) =>
+    ["bars", s, limit, (ema ?? []).join(",")] as const,
   report: (s: string) => ["report", s] as const,
   scorecard: (s: string) => ["scorecard", s] as const,
   questions: (s: string) => ["questions", s] as const,

@@ -1,14 +1,14 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { motion } from "motion/react";
-import { CircleAlert } from "lucide-react";
+import { Activity, CandlestickChart, CircleAlert, TrendingUp } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
 
 import { PriceChart } from "@/components/price-chart";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api, qk, type Report } from "@/lib/api";
+import { api, qk, type Questions, type Report, type Scorecard } from "@/lib/api";
 import { compact, decisionTone, gradeTone, num, pct, price, TONE_CLASS } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -61,11 +61,19 @@ function ChartInner() {
     setDraft(symbol);
   }
 
+  const [mode, setMode] = useState<"candles" | "line">("candles");
+  const [showEma, setShowEma] = useState(false);
+  // The three the framework itself uses — swing_pro reads e20/e50/e200 and nothing else.
+  const emaPeriods = useMemo(() => (showEma ? [20, 50, 200] : undefined), [showEma]);
+
   const symbols = useQuery({ queryKey: qk.symbols, queryFn: ({ signal }) => api.symbols(signal) });
   // limit 0 = the entire 1D.txt, always. The range buttons below change only what is framed.
   const bars = useQuery({
-    queryKey: qk.bars(symbol, 0),
-    queryFn: ({ signal }) => api.bars(symbol, 0, signal),
+    queryKey: qk.bars(symbol, 0, emaPeriods),
+    queryFn: ({ signal }) => api.bars(symbol, 0, signal, emaPeriods),
+    // Toggling indicators refetches, and dropping to a spinner mid-read is worse than a beat of
+    // stale candles. Keep the previous series on screen while the new one arrives.
+    placeholderData: (prev) => prev,
   });
   const report = useQuery({
     queryKey: qk.report(symbol),
@@ -148,6 +156,43 @@ function ChartInner() {
               {r.label}
             </button>
           ))}
+
+          <span className="mx-1.5 h-4 w-px bg-border" />
+
+          <ToolButton
+            active={mode === "candles"}
+            onClick={() => setMode("candles")}
+            title="Candles"
+          >
+            <CandlestickChart className="size-3.5" />
+          </ToolButton>
+          <ToolButton active={mode === "line"} onClick={() => setMode("line")} title="Line">
+            <TrendingUp className="size-3.5" />
+          </ToolButton>
+
+          <span className="mx-1.5 h-4 w-px bg-border" />
+
+          <button
+            onClick={() => setShowEma((v) => !v)}
+            className={cn(
+              "flex items-center gap-1.5 rounded px-2 py-1 text-xs transition-colors",
+              showEma
+                ? "bg-primary/15 text-primary"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Activity className="size-3.5" />
+            Indicators
+            {bars.isFetching && showEma && <span className="text-[10px]">…</span>}
+          </button>
+          {showEma && (
+            <span className="ml-1 flex items-center gap-2 font-mono text-[10px]">
+              <span className="text-chart-3">EMA20</span>
+              <span className="text-primary">EMA50</span>
+              <span className="text-chart-5">EMA200</span>
+            </span>
+          )}
+
           <span className="ml-auto font-mono text-[11px] text-muted-foreground">
             {bars.data
               ? `${bars.data.bars.length.toLocaleString()} bars loaded · ${
@@ -172,7 +217,13 @@ function ChartInner() {
           ) : bars.isPending ? (
             <Skeleton className="m-2 min-h-0 flex-1" />
           ) : (
-            <PriceChart bars={bars.data?.bars ?? []} fill visibleBars={RANGES[range].bars} />
+            <PriceChart
+              bars={bars.data?.bars ?? []}
+              fill
+              visibleBars={RANGES[range].bars}
+              ema={bars.data?.ema}
+              mode={mode}
+            />
           )}
         </div>
 
@@ -186,6 +237,31 @@ function ChartInner() {
         isIndex={isIndex}
       />
     </div>
+  );
+}
+
+function ToolButton({
+  active,
+  onClick,
+  title,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className={cn(
+        "grid size-7 place-items-center rounded transition-colors",
+        active ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -376,8 +452,24 @@ function TradePlan({
   loading: boolean;
   isIndex: boolean;
 }) {
+  const [view, setView] = useState<"Plan" | "Score" | "Checks">("Plan");
+  // Fetched only when their tab is opened — the scorecard and the fifteen questions are two more
+  // full analyses, and paying for them to render a panel nobody switched to is waste.
+  const card = useQuery({
+    queryKey: qk.scorecard(symbol),
+    queryFn: ({ signal }) => api.scorecard(symbol, signal),
+    enabled: !isIndex && view === "Score",
+    retry: false,
+  });
+  const checks = useQuery({
+    queryKey: qk.questions(symbol),
+    queryFn: ({ signal }) => api.questions(symbol, signal),
+    enabled: !isIndex && view === "Checks",
+    retry: false,
+  });
   const f = (report?.fields ?? {}) as Record<string, unknown>;
   const n = (k: string) => (typeof f[k] === "number" ? (f[k] as number) : null);
+  const s = (k: string) => (f[k] == null ? "—" : String(f[k]));
   const decision = String(f.decision ?? "—");
   const grade = String(f.grade ?? "—");
   const score = n("score");
@@ -398,12 +490,32 @@ function TradePlan({
 
   return (
     <aside className="hidden w-[312px] shrink-0 flex-col overflow-y-auto border-l border-border bg-background xl:flex">
-      <div className="border-b border-border px-4 py-2.5">
-        <div className="flex items-baseline justify-between gap-2">
-          <span className="text-[13px] font-semibold tracking-tight">Trade plan</span>
-          <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-            read only
-          </span>
+      {/* Their order-ticket header is a three-way segmented control (Market / Limit / Stop) in a
+          bordered track. Same control, same metrics — the three things you can actually ask of a
+          scrip here instead of three order types that do not exist. */}
+      <div className="border-b border-border p-3">
+        <div className="flex rounded-md border border-border p-0.5">
+          {(["Plan", "Score", "Checks"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setView(t)}
+              className={cn(
+                "relative flex-1 rounded-[5px] px-3 py-1.5 text-sm transition-colors",
+                view === t
+                  ? "font-semibold text-primary"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {view === t && (
+                <motion.span
+                  layoutId="plan-seg"
+                  transition={{ type: "spring", stiffness: 500, damping: 40 }}
+                  className="absolute inset-0 -z-10 rounded-[5px] bg-primary/15"
+                />
+              )}
+              {t}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -418,6 +530,10 @@ function TradePlan({
           No swing_pro row for {symbol}. The 200 EMA needs about 210 sessions and is never
           fabricated, so a young listing has no plan rather than a guessed one.
         </p>
+      ) : view === "Score" ? (
+        <ScorePanel q={card} />
+      ) : view === "Checks" ? (
+        <ChecksPanel q={checks} />
       ) : (
         <div className="p-4">
           <div
@@ -444,7 +560,7 @@ function TradePlan({
             </div>
           </div>
 
-          <div className="mt-3 space-y-px overflow-hidden rounded-md border border-border">
+          <div className="mt-3 space-y-1 rounded-md border border-border bg-background/50 p-3 text-xs">
             <PlanRow k="Entry" v={price(n("entry"))} />
             <PlanRow k="Stop" v={price(n("stop"))} tone="down" />
             <PlanRow k="Target 1" v={price(n("t1"))} tone="up" />
@@ -480,12 +596,13 @@ function TradePlan({
 }
 
 function PlanRow({ k, v, tone }: { k: string; v: string; tone?: "up" | "down" }) {
+  // `flex justify-between`, 12px, muted label against a mono value — their summary-row spec.
   return (
-    <div className="flex items-baseline justify-between gap-2 bg-background px-3 py-1.5">
-      <span className="text-[12px] text-muted-foreground">{k}</span>
+    <div className="flex items-baseline justify-between gap-2">
+      <span className="text-muted-foreground">{k}</span>
       <span
         className={cn(
-          "font-mono text-[12.5px] tabular-nums",
+          "font-mono tabular-nums",
           tone === "up" && "text-up",
           tone === "down" && "text-down",
         )}
@@ -507,5 +624,91 @@ export default function ChartPage() {
     >
       <ChartInner />
     </Suspense>
+  );
+}
+
+/** Section 20 — the ten scored parts, as bars. */
+function ScorePanel({ q }: { q: UseQueryResult<Scorecard> }) {
+  if (q.isPending) {
+    return (
+      <div className="space-y-2 p-4">
+        {Array.from({ length: 10 }).map((_, i) => (
+          <Skeleton key={i} className="h-6" />
+        ))}
+      </div>
+    );
+  }
+  if (!q.data) {
+    return <p className="p-4 text-xs text-muted-foreground">No scorecard for this symbol.</p>;
+  }
+  return (
+    <div className="space-y-2.5 p-4">
+      {q.data.parts.map((p, i) => (
+        <div key={p.name} className="space-y-1">
+          <div className="flex items-baseline justify-between gap-2 text-xs">
+            <span className="truncate text-muted-foreground">{p.name}</span>
+            <span className="shrink-0 font-mono tabular-nums">
+              {p.got}
+              <span className="text-muted-foreground">/{p.max}</span>
+            </span>
+          </div>
+          <div className="h-1 overflow-hidden rounded-full bg-muted">
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${(p.got / p.max) * 100}%` }}
+              transition={{ delay: i * 0.03, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+              className={cn(
+                "h-full rounded-full",
+                p.got / p.max >= 0.75
+                  ? "bg-up"
+                  : p.got / p.max >= 0.4
+                    ? "bg-primary"
+                    : "bg-muted-foreground/50",
+              )}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Section 21 — the fifteen questions. Q9 and its siblings invert: YES is the warning. */
+function ChecksPanel({ q }: { q: UseQueryResult<Questions> }) {
+  if (q.isPending) {
+    return (
+      <div className="space-y-2 p-4">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <Skeleton key={i} className="h-5" />
+        ))}
+      </div>
+    );
+  }
+  if (!q.data) {
+    return <p className="p-4 text-xs text-muted-foreground">No checks for this symbol.</p>;
+  }
+  return (
+    <div className="divide-y divide-border/60">
+      {q.data.answers.map((a) => {
+        const warn = q.data!.warning_questions.includes(a.n);
+        const bad = warn && a.answer === true;
+        const good = typeof a.answer === "boolean" && (warn ? !a.answer : a.answer);
+        return (
+          <div key={a.n} className="flex items-start gap-2 px-4 py-2 text-xs">
+            <span
+              className={cn(
+                "mt-0.5 size-1.5 shrink-0 rounded-full",
+                bad ? "bg-primary" : good ? "bg-up" : "bg-muted-foreground/50",
+              )}
+            />
+            <div className="min-w-0 leading-snug">
+              <span className="text-muted-foreground">{a.question}</span>
+              {a.kind === "text" && <div className="mt-0.5">{String(a.answer)}</div>}
+              {warn && <span className="ml-1 font-mono text-[10px] uppercase text-primary">yes = bad</span>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
