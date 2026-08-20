@@ -181,14 +181,10 @@ st.markdown("""
   .stMain .block-container { display: flex !important; flex-direction: column !important;
       height: 100dvh !important; max-height: 100dvh !important; overflow: hidden !important;
       padding-bottom: .3rem !important; }
-  .st-key-mainchart { height: calc(100dvh - 620px) !important; min-height: 210px !important;
-      flex: 0 0 auto !important; overflow: hidden !important; }
+  .st-key-mainchart { height: 366px !important; flex: 0 0 auto !important;
+      overflow: hidden !important; }          /* mirrors HM_H in ui.py — keep the two in step */
   .st-key-mainchart [data-testid="stVerticalBlock"],
-  .st-key-mainchart [data-testid="stElementContainer"],
-  .st-key-mainchart .stPlotlyChart,
-  .st-key-mainchart .js-plotly-plot,
-  .st-key-mainchart .plot-container,
-  .st-key-mainchart .svg-container { height: 100% !important; width: 100% !important; }
+  .st-key-mainchart [data-testid="stElementContainer"] { min-height: 0 !important; }
   /* whatever the map leaves goes to the table, and only the TABLE scrolls if a screen is short */
   .stMain .block-container > div:last-child { flex: 1 1 auto !important; min-height: 0 !important;
       overflow-y: auto !important; }
@@ -894,7 +890,7 @@ def render_index_heatmap(rows):
         text=labels, textinfo="text",
         textfont=dict(size=15, color=[_hm_ink(c) for c in changes]),
         textposition="middle center", hovertemplate="%{label}<extra></extra>", tiling=dict(pad=3)))
-    fig.update_layout(margin=dict(t=0, l=0, r=0, b=0), uirevision="idx-heatmap", autosize=True,
+    fig.update_layout(margin=dict(t=0, l=0, r=0, b=0), uirevision="idx-heatmap", height=HM_H,
                       transition=dict(duration=350, easing="cubic-in-out"),
                       paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
     # key= keeps ONE component across reruns: Plotly then animates tiles to their new
@@ -972,6 +968,11 @@ def stock_heatmap_rows():
     return out
 
 
+# The map's height in px. Set on the FIGURE (so Plotly renders exactly this) and mirrored by the
+# .st-key-mainchart rule below. Every attempt to derive it — flex:1 1 0, height:100%, dvh units,
+# autosize — failed in a different way, because Plotly sizes itself at init from whatever the box
+# reports and never re-lays-out when CSS changes it afterwards. One explicit number cannot drift.
+HM_H = 360
 _HM_BUCKETS = [("≤ -2%", "#8b1a1a"), ("-1%", "#c0392b"), ("-0%", "#e0736a"), ("0%", "#5b6472"),
                ("+0%", "#5bbf7a"), ("+1%", "#27ae60"), ("≥ +2%", "#1c8b45")]
 
@@ -1082,7 +1083,7 @@ def render_stock_heatmap(rows):
                                       + [_hm_ink(sec_chg[s]) for s in sectors]
                                       + [_hm_ink(r["chg"]) for r in rows])),
         textposition="middle center"))
-    fig.update_layout(margin=dict(t=0, l=0, r=0, b=0), uirevision="stock-heatmap", autosize=True,
+    fig.update_layout(margin=dict(t=0, l=0, r=0, b=0), uirevision="stock-heatmap", height=HM_H,
                       transition=dict(duration=350, easing="cubic-in-out"),
                       paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
     # key= keeps ONE component across reruns: Plotly then animates tiles to their new
