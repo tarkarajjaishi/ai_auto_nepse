@@ -363,7 +363,14 @@ def market_quote(cookie, symbol, exchange="NEPSE"):
 # Needs `websocket-client`.
 
 X_APP = "https://x.naasasecurities.com.np"
-FEED_URL = "wss://x.naasasecurities.com.np:8006/WebSocket/Connect"
+# The rebuilt app feeds from **serverx**, not x. Read out of its own bundle:
+#   wss://serverx.naasasecurities.com.np:8006/WebSocket/Connect
+#       ?UserId=<clientCode>&Password=<sessionNo>&protocol=WSS&ClientIP=&Source=1
+# Note ClientIP is now EMPTY — their builder literally concatenates "&ClientIP="+"&Source=".
+# The old app looked it up from /IP/IP.aspx and the feed rejected a wrong value by going
+# silent; that page is a 404 now and the parameter is simply blank, so there is nothing to
+# look up and nothing to get wrong.
+FEED_URL = "wss://serverx.naasasecurities.com.np:8006/WebSocket/Connect"
 X_AUTH = ("https://auth.naasasecurities.com.np/realms/naasa/protocol/openid-connect/auth"
           "?client_id=blaze&scope=openid%20profile&response_type=code"
           "&redirect_uri=https://x.naasasecurities.com.np/login")
@@ -582,7 +589,7 @@ def _x_login(email, password, force=False):
 
 
 
-def _client_ip(op):
+def _client_ip(op):          # DEAD: /IP/IP.aspx went with the old app, and ClientIP is now blank
     """The public IP the feed expects in the handshake, from the same place the order screen takes
     it (`myip` <- /IP/IP.aspx). Hand the socket any other IP and NAASA completes the handshake and
     then never sends a single frame — a connected, silent feed that reads as live."""
@@ -938,7 +945,7 @@ def stream_ticks(email, password, symbols, on_tick, stop=None, depth=()):
     if fresh:
         _x_sess["session"] = fresh
     ws = websocket.create_connection(
-        feed_ws_url(s["user_id"], _x_sess["session"], _client_ip(s["op"])), timeout=FEED_POLL,
+        feed_ws_url(s["user_id"], _x_sess["session"], ""), timeout=FEED_POLL,
         sslopt={"cert_reqs": ssl.CERT_NONE})
     try:
         ws.send(subscribe_frame(symbols, depth))
