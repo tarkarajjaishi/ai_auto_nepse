@@ -57,6 +57,26 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
 
 export type Health = { ok: boolean; archive_session: string | null; symbols: number };
 
+/** One saved broker login. Never carries the password, cookie or session token — only status. */
+export type Connection = {
+  /** a login is saved on the SERVER (not in this browser) */
+  configured: boolean;
+  session_saved: boolean;
+  /** how old the cached session file is, in seconds */
+  session_age_s: number | null;
+  /** whether the broker was actually called; without a probe `ok` is null, meaning "not tested" */
+  probed: boolean;
+  ok: boolean | null;
+  detail: string;
+};
+
+export type AuthStatus = {
+  naasa: Connection;
+  swp: Connection;
+  /** always false — this surface cannot sign you in, and says so rather than offering a dead form */
+  sign_in_here: boolean;
+};
+
 export type BoardName =
   | "swing_pro"
   | "supply_demand"
@@ -286,6 +306,9 @@ export const api = {
   orderbook: (signal?: AbortSignal) =>
     get<{ configured: boolean; rows: Order[]; count: number }>("/api/account/orderbook", signal),
   collateral: (signal?: AbortSignal) => get<Collateral>("/api/account/collateral", signal),
+  /** Status of the saved broker logins. `probe` actually calls the broker — slow, so opt-in. */
+  auth: (probe = false, signal?: AbortSignal) =>
+    get<AuthStatus>(`/api/auth${probe ? "?probe=1" : ""}`, signal),
 };
 
 /* ── query keys ─────────────────────────────────────────────────────────────────────────── */
@@ -308,4 +331,5 @@ export const qk = {
   holdings: ["holdings"] as const,
   orderbook: ["orderbook"] as const,
   collateral: ["collateral"] as const,
+  auth: (probe: boolean) => ["auth", probe] as const,
 };

@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { CircleAlert, Eye, KeyRound, PlugZap } from "lucide-react";
 
+import { ConnectionsPanel } from "@/components/connections-panel";
 import { StatTile } from "@/components/stat-tile";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, qk, ApiError, type Holding, type Order } from "@/lib/api";
@@ -54,6 +55,10 @@ export default function AccountPage() {
           polling {POLL / 1000}s
         </span>
       </div>
+
+      {/* Status of BOTH saved logins, above the account panels — when the numbers below are
+          empty this is the screen that says whether that means "flat" or "the login is gone". */}
+      <ConnectionsPanel />
 
       {upstreamGone ? (
         <div className="flex max-w-3xl items-start gap-3 rounded-lg border border-primary/40 bg-primary/10 p-4 text-[13px]">

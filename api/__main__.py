@@ -143,6 +143,14 @@ def route(path, query):
         from . import market
         return 200, market.indices()
 
+    if head == "auth":
+        # Status of the two saved broker logins. Read-only by construction — see api/auth.py for
+        # why there is no sign-in route here. ?probe=1 actually calls the broker; without it this
+        # reports what is on disk, because a NAASA probe is a full OAuth login and would make
+        # every page load wait on it.
+        from . import auth
+        return 200, auth.status(probe=query.get("probe", ["0"])[0] not in ("0", "", "false"))
+
     if head == "account":
         from . import account
         if not account.configured():
