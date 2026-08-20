@@ -24,6 +24,11 @@ export type BoardPageProps = {
   emptyMessage?: string;
   /** extra chrome between the blurb and the table (stat tiles, a chart) */
   children?: React.ReactNode;
+  /**
+   * Query parameters for boards whose numbers depend on something the reader chooses. The server
+   * recomputes from the same Python the script runs; this is still a GET and still a read.
+   */
+  params?: Record<string, string | number>;
 };
 
 /**
@@ -43,9 +48,16 @@ export function BoardPage({
   onRowClick,
   emptyMessage,
   children,
+  params,
 }: BoardPageProps) {
   const [active, setActive] = useState(0);
-  const q = useQuery({ queryKey: qk.board(board), queryFn: ({ signal }) => api.board(board, signal) });
+  const q = useQuery({
+    queryKey: qk.board(board, params),
+    queryFn: ({ signal }) => api.board(board, signal, params),
+    // Re-sizing changes every quantity on screen; dropping to a spinner between books reads as
+    // the sheet emptying out. Keep the previous numbers until the new ones land.
+    placeholderData: (prev) => prev,
+  });
 
   if (q.isError) {
     return (

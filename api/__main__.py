@@ -65,6 +65,44 @@ def _int(query, key, default):
         return None
 
 
+def _float(query, key, default):
+    """One query parameter as a float, or None when it is not a number."""
+    raw = query.get(key, [str(default)])[0]
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _resize(board, capital, risk_pct):
+    """Re-size every row of the swing_master board for a different book.
+
+    Position sizing is a pure function of the book, the risk budget and the row's own entry and
+    stop, so this is a RECOMPUTATION OF A READ rather than a mutation -- the file on disk is not
+    touched and no write verb exists. It calls swing_master.size() itself rather than reproducing
+    the arithmetic: the cap "never more stock than the cash buys" is the part that is easy to get
+    wrong, and it once sized a position 4.4x geared against the book.
+
+    `qty`, `risk_rs` and `cost_rs` are restated; every other column is the analysis, which does
+    not depend on how much money you have.
+    """
+    import swing_master
+
+    budget = capital * risk_pct / 100
+    rows = []
+    for r in board["rows"]:
+        entry, stop = r.get("entry"), r.get("stop")
+        if not isinstance(entry, (int, float)) or not isinstance(stop, (int, float)):
+            rows.append(r)
+            continue
+        per_share = entry - stop
+        qty = swing_master.size(capital, budget, entry, stop)
+        rows.append({**r, "qty": qty,
+                     "risk_rs": round(qty * per_share) if per_share > 0 else 0,
+                     "cost_rs": round(qty * entry)})
+    return {**board, "rows": rows, "sized_for": {"capital": capital, "risk_pct": risk_pct}}
+
+
 def route(path, query):
     """(status, payload). Raising is fine — the handler turns it into a 500 with the message."""
     parts = [p for p in path.strip("/").split("/") if p]
@@ -101,7 +139,19 @@ def route(path, query):
 
     if head == "board" and arg:
         t = tables.read(arg)
-        return (200, t) if t else (404, {"error": f"no board {arg!r}"})
+        if not t:
+            return 404, {"error": f"no board {arg!r}"}
+        if arg == "swing_master" and ("capital" in query or "risk" in query):
+            capital = _float(query, "capital", 100_000.0)
+            risk = _float(query, "risk", 1.0)
+            if capital is None or risk is None:
+                return 400, {"error": "capital and risk must be numbers"}
+            if not 10_000 <= capital <= 100_000_000:
+                return 400, {"error": "capital must be between 10,000 and 100,000,000"}
+            if not 0.25 <= risk <= 5:
+                return 400, {"error": "risk must be between 0.25 and 5 percent"}
+            t = _resize(t, capital, risk)
+        return 200, t
 
     if head == "symbols":
         from . import market

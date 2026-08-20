@@ -110,7 +110,12 @@ export type Board = {
    */
   session_unknown?: boolean;
   missing: boolean;
+  /** present only when the server re-sized this board for a book you chose */
+  sized_for?: SizedFor;
 };
+
+/** Echoed by the server when a board was recomputed for reader-supplied inputs. */
+export type SizedFor = { capital: number; risk_pct: number };
 
 export type BoardsIndex = {
   archive_session: string | null;
@@ -292,7 +297,18 @@ export type Collateral = { configured: boolean; fields: Record<string, number | 
 export const api = {
   health: (signal?: AbortSignal) => get<Health>("/api/health", signal),
   boards: (signal?: AbortSignal) => get<BoardsIndex>("/api/boards", signal),
-  board: (name: BoardName, signal?: AbortSignal) => get<Board>(`/api/board/${name}`, signal),
+  /**
+   * One board. `params` is only meaningful for boards whose numbers depend on something
+   * the reader chooses — today that is swing_master, where position size is a function of
+   * your book. The server recomputes with the SAME function the script uses; nothing is
+   * written, and the API stays GET-only.
+   */
+  board: (name: BoardName, signal?: AbortSignal, params?: Record<string, string | number>) => {
+    const q = params ? `?${new URLSearchParams(
+      Object.entries(params).map(([k, v]) => [k, String(v)]),
+    )}` : "";
+    return get<Board>(`/api/board/${name}${q}`, signal);
+  },
   symbols: (signal?: AbortSignal) =>
     get<{ symbols: string[]; indices: string[] }>("/api/symbols", signal),
   bars: (symbol: string, limit = 500, signal?: AbortSignal, ema?: number[]) =>
@@ -333,7 +349,8 @@ export const api = {
 export const qk = {
   health: ["health"] as const,
   boards: ["boards"] as const,
-  board: (n: BoardName) => ["board", n] as const,
+  board: (n: BoardName, params?: Record<string, string | number>) =>
+    ["board", n, params ?? null] as const,
   symbols: ["symbols"] as const,
   bars: (s: string, limit: number, ema?: number[]) =>
     ["bars", s, limit, (ema ?? []).join(",")] as const,
