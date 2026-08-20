@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, LineChart, Search } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useDeferredValue, useMemo, useState } from "react";
+import { Suspense, useDeferredValue, useMemo, useState } from "react";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, qk, type HeatSymbol } from "@/lib/api";
@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils";
 const SYMBOL_PARAM: Record<string, string> = {
   "/admin/chart": "symbol",
   "/admin/floorsheet": "symbol",
+  "/admin/broker-flow": "symbol",
 };
 
 /**
@@ -37,11 +38,35 @@ const SYMBOL_PARAM: Record<string, string> = {
  * — Portfolio, Tools and Wallet are full-width. A permanent rail beside a backtest table or the
  * pipeline page is 180px of decoration that pushes the actual content sideways.
  */
-const SYMBOL_PAGES = ["/admin/chart", "/admin/floorsheet", "/admin/swing-pro"];
+const SYMBOL_PAGES = [
+  "/admin/chart",
+  "/admin/floorsheet",
+  "/admin/broker-flow",
+  "/admin/swing-pro",
+];
 
 type Row = HeatSymbol & { sector: string };
 
+/**
+ * The rail exists on four routes; the other thirteen render nothing at all.
+ *
+ * That decision is made here, from `usePathname` alone, BEFORE anything touches
+ * `useSearchParams`. usePathname does not force a client bailout, so the routes without a
+ * rail never mount the suspended body and never paint its fallback. Previously the layout
+ * suspended the whole rail, so all seventeen admin routes painted a 224px placeholder and
+ * thirteen of them then collapsed it — a layout shift on every one of those pages.
+ */
 export function InstrumentRail() {
+  const pathname = usePathname();
+  if (!SYMBOL_PAGES.some((p) => pathname.startsWith(p))) return null;
+  return (
+    <Suspense fallback={<div className="hidden w-56 shrink-0 border-r border-border bg-sidebar lg:block" />}>
+      <RailInner />
+    </Suspense>
+  );
+}
+
+function RailInner() {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();

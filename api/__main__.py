@@ -18,6 +18,7 @@ Routes (all GET, all JSON):
     /api/heatmap                      every equity under its sector, from the archive
     /api/indices                      the last bar of every index
     /api/account/holdings|orderbook|collateral      NAASA, read-only
+    /api/auth?probe=1                 whether the saved NAASA / SWP logins still work
 
 GET only, and that is load-bearing rather than incidental: `do_POST` does not exist, so no
 route can mutate anything even by accident. The account routes reach a live broker session but

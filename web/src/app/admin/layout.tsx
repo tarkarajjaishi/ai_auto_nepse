@@ -1,5 +1,3 @@
-import { Suspense } from "react";
-
 import { InstrumentRail } from "@/components/instrument-rail";
 import { TopNav } from "@/components/top-nav";
 
@@ -13,11 +11,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     <div className="flex h-dvh flex-col overflow-hidden">
       <TopNav />
       <div className="flex min-h-0 flex-1">
-        {/* useSearchParams inside the rail makes it a client boundary that must be suspended,
-            or every page under this layout is forced out of static rendering. */}
-        <Suspense fallback={<div className="hidden w-56 shrink-0 border-r border-border bg-sidebar lg:block" />}>
-          <InstrumentRail />
-        </Suspense>
+        {/* The rail suspends its OWN body now. Suspending it from here painted the 224px
+            fallback on all seventeen admin routes, including the thirteen with no rail, which
+            then collapsed it. The rail decides from usePathname first and renders nothing. */}
+        <InstrumentRail />
         <main className="min-h-0 min-w-0 flex-1 overflow-y-auto">{children}</main>
       </div>
     </div>

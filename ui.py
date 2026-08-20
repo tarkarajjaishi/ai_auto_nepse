@@ -568,7 +568,8 @@ def live_price(sym):
     """
     try:
         with naasa_feed()["lock"]:
-            sk = dict(naasa_feed()["snap"].get(sym, {}))
+            # the snapshot is keyed the way the FEED names things, and eight sector indices are abbreviated differently there
+            sk = dict(naasa_feed()["snap"].get(live_1d.feed_name(sym), {}))
     except Exception:
         sk = {}
     if sk.get("LTP"):
@@ -633,8 +634,16 @@ def naasa_feed():
 
     def loop():
         while True:
-            if not (state["want"] and market_hours.feed_on()):
-                state["status"] = "off"; time.sleep(0.4); continue
+            # The Trading days pills claim to govern the live feed, so they must actually do it:
+            # without is_trading_day here the socket ran on a closed day while the caption said
+            # it would not, which is the class of false claim this app keeps having to fix.
+            if not (state["want"] and market_hours.feed_on()
+                    and market_hours.is_trading_day(datetime.now(NPT))):
+                # "no login saved" is a more useful answer than "off"; the next pass through this
+                # guard must not overwrite it with the generic one.
+                if state["status"] != "no login saved":
+                    state["status"] = "off"
+                time.sleep(0.4); continue
             em, pw = naasa.load_credentials()
             if not (em and pw):
                 state["status"] = "no login saved"; state["want"] = False; continue
@@ -643,7 +652,8 @@ def naasa_feed():
                 state["status"] = "connecting"; state["err"] = ""
                 naasa.stream_ticks(em, pw, list(subs), on_tick, depth=list(depth),
                                    stop=lambda: (not state["want"]) or state["subs"] != subs
-                                   or state["depth"] != depth or not market_hours.feed_on())
+                                   or state["depth"] != depth or not market_hours.feed_on()
+                                   or not market_hours.is_trading_day(datetime.now(NPT)))
             except Exception as e:
                 state["err"] = str(e)[:110]; state["status"] = "reconnecting"; time.sleep(4)
 
@@ -738,6 +748,28 @@ def acct_call(kind):
     return data
 
 
+def acct_health():
+    """(last error, HH:MM:SS of the last good refresh) from the account poller.
+
+    The poller deliberately keeps the last good rows on screen when a refresh fails — blanking a
+    holdings table because one call timed out would be worse. But a caption that still reads
+    "live · polled 3s" while refreshes have been failing for an hour is the same lie in a new
+    place, so the panels ask for this and say so.
+    """
+    acct = acct_state()
+    with acct["lock"]:
+        return acct["err"], acct["at"]
+
+
+def acct_caption(what):
+    """One caption for all three account panels: live, or plainly not."""
+    err, at = acct_health()
+    if err:
+        return (f"⚠ {what} — showing the last good data from {at or 'an earlier refresh'}; "
+                f"refreshing is failing: {err[:100]}")
+    return f"🔴 {what} · polled {ACCT_POLL}s · read-only."
+
+
 def _broker_reply(resp):
     """(ErrorCode, Message) out of a NAASA order reply, which answers in either casing. Returns
     code None when the shape is unrecognised — for a money call that is "unknown", NOT "failed",
@@ -751,7 +783,8 @@ def _broker_reply(resp):
 def render_socket_depth(symbol, feed):
     """Live quote + best bid/ask for `symbol` straight off NAASA's socket snapshot (sub-second)."""
     with feed["lock"]:
-        q = dict(feed["snap"].get(symbol, {}))
+        # the snapshot is keyed the way the FEED names things, and eight sector indices are abbreviated differently there
+        q = dict(feed["snap"].get(live_1d.feed_name(symbol), {}))
     status, scol = market_status()
     def n(x):
         try: return f"{float(x):,.2f}"
@@ -773,7 +806,10 @@ def render_socket_depth(symbol, feed):
         f"({chp:+.2f}%) · feed {feed['status']}</span></div>", unsafe_allow_html=True)
     if not q:
         err = feed["err"]
-        evicted = feed["status"] in ("reconnecting", "off") or "time" in err.lower()
+        # "off" means the feed was switched off or the market is closed — never eviction.
+        # Offering browser-tab advice for it sent signed-out users hunting a problem they
+        # do not have.
+        evicted = feed["status"] == "reconnecting" or "time" in err.lower()
         st.warning(
             f"No live ticks yet — feed status: **{feed['status']}**"
             + (f" · {err}" if err else "")
@@ -2055,7 +2091,8 @@ if page in PER_SYMBOL and symbol:
             except (TypeError, ValueError):
                 return "–"
         with naasa_feed()["lock"]:
-            sk = dict(naasa_feed()["snap"].get(sym, {}))
+            # the snapshot is keyed the way the FEED names things, and eight sector indices are abbreviated differently there
+            sk = dict(naasa_feed()["snap"].get(live_1d.feed_name(sym), {}))
         if sk.get("LTP"):                                   # live off the socket
             a, b, c, d, e = st.columns(5)
             a.metric("LTP", n(sk.get("LTP")))
@@ -2842,7 +2879,11 @@ if page == "NAASA":
                     else:
                         st.error(f"Broker REJECTED the order (code {code}) — {msg}")
                 except Exception as e:
-                    st.error(f"Order was NOT sent — {e}")
+                    # Do NOT say "not sent". The connection can fail AFTER the exchange has accepted
+                    # the order, and the one thing worse than a failed order is a duplicate one placed
+                    # because the screen said the first had not gone.
+                    st.error(f"Could not confirm this order — {e}. It may or may not have reached "
+                             "the exchange: check the order book below before retrying.")
             if g2.button("Discard", width="stretch"):
                 st.session_state.pop("order_draft", None)
                 st.rerun()
@@ -2870,7 +2911,8 @@ if page == "NAASA":
                     else:
                         st.error(f"Cancellation rejected (code {code}) — {msg}")
                 except Exception as e:
-                    st.error(f"Cancellation was NOT sent — {e}")
+                    st.error(f"Could not confirm the cancellation — {e}. Check the order "
+                             "book below: it may have gone through.")
 
             # Per-row actions. Modify loads the order into the ticket above rather than opening a
             # second form: one place to check qty/price before anything is sent.
@@ -2903,7 +2945,8 @@ if page == "NAASA":
                         else:
                             st.error(f"Cancellation rejected (code {code}) — {msg}")
                     except Exception as e:
-                        st.error(f"Cancellation was NOT sent — {e}")
+                        st.error(f"Could not confirm the cancellation — {e}. Check the order "
+                                 "book below: it may have gone through.")
 
     st.markdown("<div class='section'>Order Book</div>", unsafe_allow_html=True)
     if not (em and pw):
@@ -2928,10 +2971,10 @@ if page == "NAASA":
                     # filled trade reads as an order still working in the market.
                     n_open = sum(1 for r in rows if naasa.order_is_working(r))
                     done = len(rows) - n_open
-                    st.caption(f"🔴 {n_open} working order(s)"
-                               + (f" · {done} completed today" if done else "")
-                               + f" · live from NAASA (MarketOrder/OrderBook) · polled "
-                                 f"{ACCT_POLL}s · read-only.")
+                    st.caption(acct_caption(
+                        f"{n_open} working order(s)"
+                        + (f" · {done} completed today" if done else "")
+                        + " · live from NAASA (MarketOrder/OrderBook)"))
                 else:
                     st.info("No open orders in your NAASA order book right now.")
             except Exception as e:
@@ -2957,8 +3000,8 @@ if page == "NAASA":
                         "LastTradedPrice": "LTP", "ClosePrice": "Prev close",
                         "ValueAsOfLTP": "Market value", "DayGainLoss": "Day P/L"})
                     st.dataframe(view, width="stretch", hide_index=True)
-                    st.caption(f"🔴 {len(hold)} holding(s) · live from NAASA "
-                               f"(TradeBook/HoldingDataReport) · polled {ACCT_POLL}s · read-only.")
+                    st.caption(acct_caption(
+                        f"{len(hold)} holding(s) · live from NAASA (TradeBook/HoldingDataReport)"))
                 else:
                     st.info("No holdings in your NAASA account.")
             except Exception as e:
@@ -2984,7 +3027,7 @@ if page == "NAASA":
                 d2.metric("Trades today", _num(f.get("TradeCount")))
                 d3.metric("Traded qty", _num(f.get("TotalTradedQty")))
                 d4.metric("Traded value", _money(f.get("TotalTradedValue")))
-                st.caption(f"🔴 Live from NAASA (Home/DashboardDetails) · polled {ACCT_POLL}s · read-only.")
+                st.caption(acct_caption("Live from NAASA (Home/DashboardDetails)"))
             except Exception as e:
                 st.caption(f"⚠ Could not load collateral — {str(e)[:120]}")
         _collateral_panel()

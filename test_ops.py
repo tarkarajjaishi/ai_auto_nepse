@@ -518,10 +518,18 @@ def test_order_ticket_is_not_on_a_timer():
                     return hit
         return None
 
-    timed = [n for n in funcs.values()
-             if any(isinstance(d, ast.Call) and getattr(d.func, "attr", "") == "fragment"
-                    and any(k.arg == "run_every" for k in d.keywords)
-                    for d in n.decorator_list)]
+    def is_timed(call):
+        return (isinstance(call, ast.Call) and getattr(call.func, "attr", "") == "fragment"
+                and any(k.arg == "run_every" for k in call.keywords))
+
+    # A fragment can be declared two ways and BOTH must be covered. `_draw_chart` is wrapped
+    # functionally — `st.fragment(run_every=...)(fn)()` — so a guard that reads decorator_list
+    # only had it invisible, which is one timed fragment silently outside the check.
+    wrapped = {a.id for n in ast.walk(tree) if isinstance(n, ast.Call) and is_timed(n.func)
+               for a in n.args if isinstance(a, ast.Name)}
+    timed = [n for n in ast.walk(tree)
+             if isinstance(n, ast.FunctionDef)
+             and (any(is_timed(d) for d in n.decorator_list) or n.name in wrapped)]
     assert timed, "no run_every fragments found — this test no longer matches ui.py"
     for fn in timed:
         hit = reaches_money(fn.name)
@@ -534,7 +542,6 @@ def test_order_ticket_is_not_on_a_timer():
     assert reaches_money("_t") == "x_place_order", \
         "the transitive walk cannot see an indirect money call — it proves nothing"
     print("  order ticket        no run_every fragment can reach a money call, even indirectly")
-
 
 def test_api_can_never_place_an_order():
     """The web API reaches a live broker session. No path through it may reach a money call.
