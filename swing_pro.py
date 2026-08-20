@@ -451,7 +451,7 @@ def _confirmed(o, c):
     return c[-1] > o[-1] or c[-1] > c[-2]
 
 
-def _pullback(o, c, l, v, vsma, e20, e50, lows):
+def _pullback(o, c, l, v, vsma, e20, e50, lows, accum="Neutral"):
     """Section 9 — is the dip an opportunity or the start of the exit.
 
     'Bullish daily confirmation appears' is a REQUIREMENT of the healthy case, not decoration.
@@ -471,7 +471,12 @@ def _pullback(o, c, l, v, vsma, e20, e50, lows):
         return "NO PULLBACK"
     if close < e50 and broke_low:
         return "TREND BREAKDOWN"
-    if broke_low or (vx > 1.5 and c[-1] < c[-2]):        # heavy selling / lower low
+    # Section 9's dangerous list is: heavy selling volume, breaks major support, creates a lower
+    # low, loses EMA structure, STRONG DISTRIBUTION CANDLES. The last one was never wired in —
+    # _pullback could not see accum at all — so five symbols were called BUY ZONE or HEALTHY
+    # PULLBACK while volume was arriving on their down days, which is the definition of the
+    # dangerous case, not the healthy one.
+    if broke_low or (vx > 1.5 and c[-1] < c[-2]) or accum == "Distribution":
         return "DANGEROUS"
     # `weakening is not False` — None means too few down candles to judge, which must not veto.
     # This has to sit INSIDE the healthy branches: as a separate pre-check it was dead code,
@@ -566,7 +571,12 @@ def _false_signals(f):
         flags.append("resistance-overhead")
     if f["rsi_div"]:
         flags.append("bearish-divergence")
-    if f["pullback"] in ("DANGEROUS", "TREND BREAKDOWN"):
+    # Section 16's seventh trap is "Is distribution visible?", which is a volume question —
+    # accum answers it. This used to fire on the PULLBACK STATE instead, so it was measuring a
+    # different §16 item (there isn't one for "dangerous pullback"; that is already a hard gate
+    # in _decision). The two populations barely overlapped: of 307 symbols, 55 were in genuine
+    # distribution and carried no flag, while 72 carried the flag without being in distribution.
+    if f["accum"] == "Distribution":
         flags.append("distribution")
     if f["rr"] < MIN_RR:
         flags.append("poor-rr")
@@ -751,7 +761,8 @@ def analyse(symbol, funds=None, calendar=None):
     macd_div, macd_bull_div = _divergence(mline, h, l, highs, lows)
 
     bo, res_level = _breakout(c, h, v, vsma, highs)
-    pb = _pullback(o, c, l, v, vsma, _at(e20), _at(e50), lows)
+    accum = _accum_dist(o, c, v)
+    pb = _pullback(o, c, l, v, vsma, _at(e20), _at(e50), lows, accum)
     struct_lbl, last_event, hh, hl, lh, ll = _structure(c, ph, pl, highs, lows)
     ext_atr = (c[-1] - _at(e20)) / atr_now if _at(e20) is not None else None
     room = (lev["near_res"] - lev["entry"]) if lev["near_res"] else None
@@ -784,7 +795,7 @@ def analyse(symbol, funds=None, calendar=None):
         macd_above_zero=(_at(mline) or 0) > 0, macd_cross=_macd_cross(mline, msig),
         crossovers=_crossovers(e20, e50, e200),
         separation=_separation(c[-1], _at(e20), _at(e50), _at(e200)),
-        accum=_accum_dist(o, c, v), adv_decl=_advances_declines(c),
+        accum=accum, adv_decl=_advances_declines(c),
         mom_accel=_momentum_accel(c),                 # section 4, its own bullet
         e20_respect=_ema_respected(l, c, e20), e50_respect=_ema_respected(l, c, e50),
         off_20d_high=((max(c[-20:]) - c[-1]) / max(c[-20:]) * 100) if len(c) >= 20 else None,

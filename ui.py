@@ -184,6 +184,8 @@ st.markdown("""
   .st-key-mainchart [data-testid="stElementContainer"]:has(.stPlotlyChart),
   .st-key-mainchart .stPlotlyChart,
   .st-key-mainchart .js-plotly-plot { flex: 1 1 0 !important; min-height: 0 !important; }
+  /* a repaint that still slips through fades rather than snapping to black */
+  .st-key-mainchart .stPlotlyChart { background: #0f1115; transition: opacity .2s ease; }
 
   /* Value-change flash. A permanent square is noise on 15 rows; an animation fires only on the
      render where the number actually moved, then fades. The whole table is re-rendered each
@@ -886,9 +888,13 @@ def render_index_heatmap(rows):
         text=labels, textinfo="text",
         textfont=dict(size=15, color=[_hm_ink(c) for c in changes]),
         textposition="middle center", hovertemplate="%{label}<extra></extra>", tiling=dict(pad=3)))
-    fig.update_layout(margin=dict(t=0, l=0, r=0, b=0),
+    fig.update_layout(margin=dict(t=0, l=0, r=0, b=0), uirevision="idx-heatmap",
+                      transition=dict(duration=350, easing="cubic-in-out"),
                       paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-    st.plotly_chart(fig, height="stretch", config={"displayModeBar": False})
+    # key= keeps ONE component across reruns: Plotly then animates tiles to their new
+    # sizes and colours instead of the container going black while a fresh chart mounts.
+    st.plotly_chart(fig, height="stretch", key="hm_index",
+                    config={"displayModeBar": False})
 
 
 # --- NEPSE stock heatmap (sector-grouped, like nepsetrading) -----------------------------------
@@ -1070,9 +1076,13 @@ def render_stock_heatmap(rows):
                                       + [_hm_ink(sec_chg[s]) for s in sectors]
                                       + [_hm_ink(r["chg"]) for r in rows])),
         textposition="middle center"))
-    fig.update_layout(margin=dict(t=0, l=0, r=0, b=0),
+    fig.update_layout(margin=dict(t=0, l=0, r=0, b=0), uirevision="stock-heatmap",
+                      transition=dict(duration=350, easing="cubic-in-out"),
                       paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-    st.plotly_chart(fig, height="stretch", config={"displayModeBar": False})
+    # key= keeps ONE component across reruns: Plotly then animates tiles to their new
+    # sizes and colours instead of the container going black while a fresh chart mounts.
+    st.plotly_chart(fig, height="stretch", key="hm_stock",
+                    config={"displayModeBar": False})
 
 
 def _first_table(payload):
