@@ -26,7 +26,17 @@ function toTime(date: string): UTCTimestamp {
   return (Date.parse(`${date}T00:00:00Z`) / 1000) as UTCTimestamp;
 }
 
-export function PriceChart({ bars, height = 420 }: { bars: Bar[]; height?: number }) {
+export function PriceChart({
+  bars,
+  height = 420,
+  fill = false,
+}: {
+  bars: Bar[];
+  height?: number;
+  /** take the parent's height instead of a fixed one — for the terminal layout, where the
+   *  chart owns whatever is left between the toolbar and the bottom panel */
+  fill?: boolean;
+}) {
   const box = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
   const theme = useTheme((s) => s.theme);
@@ -38,7 +48,7 @@ export function PriceChart({ bars, height = 420 }: { bars: Bar[]; height?: numbe
     const read = (v: string, fallback: string) => css.getPropertyValue(v).trim() || fallback;
 
     const c = createChart(box.current, {
-      height,
+      height: fill ? Math.max(160, box.current.clientHeight) : height,
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
         textColor: read("--muted-foreground", dark ? "#9aa4b2" : "#5b6472"),
@@ -56,8 +66,10 @@ export function PriceChart({ bars, height = 420 }: { bars: Bar[]; height?: numbe
     });
     chart.current = c;
 
-    const up = dark ? "#3fd07f" : "#1a9e5c";
-    const down = dark ? "#f8776a" : "#d3402f";
+    // The theme's own --up/--down, so candles cannot drift away from every other green and red
+    // on the page. Read from the computed style rather than duplicated here for the same reason.
+    const up = read("--up", dark ? "#3fb68b" : "#12946a");
+    const down = read("--down", dark ? "#e0564e" : "#cf4436");
 
     const candles = c.addSeries(CandlestickSeries, {
       upColor: up,
@@ -95,7 +107,10 @@ export function PriceChart({ bars, height = 420 }: { bars: Bar[]; height?: numbe
     // The library measures once at creation. Without this, any layout change after mount — the
     // sidebar collapsing, a window resize — leaves the canvas at its old width.
     const ro = new ResizeObserver(([e]) => {
-      c.applyOptions({ width: Math.floor(e.contentRect.width) });
+      c.applyOptions({
+        width: Math.floor(e.contentRect.width),
+        ...(fill ? { height: Math.max(160, Math.floor(e.contentRect.height)) } : {}),
+      });
     });
     ro.observe(box.current);
 
@@ -104,7 +119,15 @@ export function PriceChart({ bars, height = 420 }: { bars: Bar[]; height?: numbe
       c.remove();
       chart.current = null;
     };
-  }, [bars, height, theme]);
+  }, [bars, height, theme, fill]);
 
-  return <div ref={box} className="w-full" style={{ height }} />;
+  // In fill mode the box must be a real flex child with min-h-0, or it reports its content
+  // height (the canvas it is trying to size) and the two feed each other.
+  return (
+    <div
+      ref={box}
+      className={fill ? "min-h-0 w-full flex-1" : "w-full"}
+      style={fill ? undefined : { height }}
+    />
+  );
 }

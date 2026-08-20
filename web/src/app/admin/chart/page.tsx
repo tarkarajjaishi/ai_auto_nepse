@@ -1,35 +1,64 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { motion } from "motion/react";
 import { CircleAlert } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
 
 import { PriceChart } from "@/components/price-chart";
-import { StatTile } from "@/components/stat-tile";
-import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api, qk } from "@/lib/api";
-import { pct, price } from "@/lib/format";
+import { api, qk, type Report } from "@/lib/api";
+import { compact, decisionTone, gradeTone, num, pct, price, TONE_CLASS } from "@/lib/format";
+import { cn } from "@/lib/utils";
+
+/**
+ * The terminal screen, laid out the way a trading terminal is: instrument strip across the top,
+ * chart taking everything it can, a tabbed drawer under it, and a context panel down the right.
+ *
+ * The right panel is where the reference puts its order ticket. This one cannot have an order
+ * ticket — NEPSE orders go through NAASA, whose app was replaced and whose login no longer
+ * works — so the same slot holds the trade PLAN instead: the levels, the R-multiples and the
+ * risk that swing_pro already computed. Same information density, same position, and every
+ * number in it came from Python rather than being recomputed here.
+ */
+
+const RANGES = [
+  { label: "3M", bars: 63 },
+  { label: "6M", bars: 126 },
+  { label: "1Y", bars: 252 },
+  { label: "2Y", bars: 504 },
+  { label: "5Y", bars: 1260 },
+  { label: "MAX", bars: 0 },
+];
 
 function ChartInner() {
   const params = useSearchParams();
   const router = useRouter();
   const symbol = (params.get("symbol") ?? "NABIL").toUpperCase();
   const [draft, setDraft] = useState(symbol);
+  const [range, setRange] = useState(2);
 
+  const limit = RANGES[range].bars;
   const symbols = useQuery({ queryKey: qk.symbols, queryFn: ({ signal }) => api.symbols(signal) });
   const bars = useQuery({
-    queryKey: qk.bars(symbol, 500),
-    queryFn: ({ signal }) => api.bars(symbol, 500, signal),
+    queryKey: qk.bars(symbol, limit),
+    queryFn: ({ signal }) => api.bars(symbol, limit, signal),
+  });
+  const report = useQuery({
+    queryKey: qk.report(symbol),
+    queryFn: ({ signal }) => api.report(symbol, signal),
+    // An index has no swing_pro row and never will; asking again on every render just fills the
+    // console with 404s.
+    enabled: bars.data?.kind !== "index",
+    retry: false,
   });
 
   const last = bars.data?.bars.at(-1);
   const prev = bars.data?.bars.at(-2);
-  const change = last && prev ? ((last.close / prev.close - 1) * 100) : null;
+  const change = last && prev ? (last.close / prev.close - 1) * 100 : null;
+  const isIndex = bars.data?.kind === "index";
 
-  // Indices are navigable here too, so they have to pass the guard that stops a typo navigating
-  // to a 404. Without this the rail can link to NEPSE and the input refuses to.
   const known = useMemo(
     () => new Set([...(symbols.data?.symbols ?? []), ...(symbols.data?.indices ?? [])]),
     [symbols.data],
@@ -41,94 +70,416 @@ function ChartInner() {
   }
 
   return (
-    <div className="space-y-4 p-4 md:p-6">
-      <div className="flex flex-wrap items-center gap-3">
-        <Input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && go(draft)}
-          onBlur={() => go(draft)}
-          list="symbols"
-          className="h-8 w-40 font-mono text-[13px] uppercase"
-          placeholder="Symbol"
-        />
-        <datalist id="symbols">
-          {[...(symbols.data?.indices ?? []), ...(symbols.data?.symbols ?? [])].map((s) => (
-            <option key={s} value={s} />
+    <div className="flex h-full min-h-0">
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* ── instrument strip ──────────────────────────────────────────────────────────── */}
+        <div className="flex shrink-0 flex-wrap items-center gap-x-5 gap-y-2 border-b border-border px-4 py-2.5">
+          <div className="flex items-center gap-2">
+            <input
+              value={draft}
+              onChange={(e) => setDraft(e.target.value.toUpperCase())}
+              onKeyDown={(e) => e.key === "Enter" && go(draft)}
+              onBlur={() => go(draft)}
+              list="symbols"
+              className="h-7 w-28 rounded-md border border-transparent bg-transparent px-1 font-mono text-[17px] font-semibold tracking-tight outline-none hover:border-border focus:border-primary/60"
+            />
+            <datalist id="symbols">
+              {[...(symbols.data?.indices ?? []), ...(symbols.data?.symbols ?? [])].map((s) => (
+                <option key={s} value={s} />
+              ))}
+            </datalist>
+            {isIndex && (
+              <span className="rounded bg-primary/15 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-primary">
+                index
+              </span>
+            )}
+          </div>
+
+          <Field label="Change" value={pct(change)} tone={change == null ? undefined : change >= 0 ? "up" : "down"} loading={bars.isPending} />
+          <Field label="Open" value={price(last?.open)} loading={bars.isPending} />
+          <Field label="High" value={price(last?.high)} loading={bars.isPending} />
+          <Field label="Low" value={price(last?.low)} loading={bars.isPending} />
+          <Field label="Close" value={price(last?.close)} loading={bars.isPending} />
+          <Field label="Volume" value={compact(last?.volume)} loading={bars.isPending} />
+          <Field label="Session" value={last?.date ?? "—"} loading={bars.isPending} />
+        </div>
+
+        {/* ── toolbar ───────────────────────────────────────────────────────────────────── */}
+        <div className="flex shrink-0 items-center gap-1 border-b border-border px-3 py-1.5">
+          {RANGES.map((r, i) => (
+            <button
+              key={r.label}
+              onClick={() => setRange(i)}
+              className={cn(
+                "relative rounded px-2 py-0.5 font-mono text-[11px] transition-colors",
+                i === range ? "text-primary" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {i === range && (
+                <motion.span
+                  layoutId="chart-range"
+                  transition={{ type: "spring", stiffness: 500, damping: 40 }}
+                  className="absolute inset-0 -z-10 rounded bg-accent"
+                />
+              )}
+              {r.label}
+            </button>
           ))}
-        </datalist>
-        {bars.data && (
-          <span className="font-mono text-[11px] text-muted-foreground">
-            {bars.data.bars.length} bars ·{" "}
-            {bars.data.kind === "index" ? (
-              <span className="text-primary">index · unadjusted</span>
+          <span className="ml-auto font-mono text-[11px] text-muted-foreground">
+            {bars.data ? `${bars.data.bars.length} bars · ` : ""}
+            {isIndex ? (
+              <span className="text-primary">unadjusted</span>
             ) : (
               "corporate-action adjusted"
             )}
           </span>
-        )}
+        </div>
+
+        {/* ── chart ─────────────────────────────────────────────────────────────────────── */}
+        <div className="flex min-h-0 flex-1 flex-col px-1 py-1">
+          {bars.isError ? (
+            <div className="m-3 flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-[13px]">
+              <CircleAlert className="mt-0.5 size-4 shrink-0 text-destructive" />
+              <div className="text-muted-foreground">{(bars.error as Error).message}</div>
+            </div>
+          ) : bars.isPending ? (
+            <Skeleton className="m-2 min-h-0 flex-1" />
+          ) : (
+            <PriceChart bars={bars.data?.bars ?? []} fill />
+          )}
+        </div>
+
+        <BottomDrawer symbol={symbol} report={report.data} isIndex={isIndex} />
       </div>
 
-      {bars.isError ? (
-        <div className="flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-[13px]">
-          <CircleAlert className="mt-0.5 size-4 shrink-0 text-destructive" />
-          <div className="text-muted-foreground">{(bars.error as Error).message}</div>
-        </div>
+      <TradePlan
+        symbol={symbol}
+        report={report.data}
+        loading={report.isPending && !isIndex}
+        isIndex={isIndex}
+      />
+    </div>
+  );
+}
+
+function Field({
+  label,
+  value,
+  tone,
+  loading,
+}: {
+  label: string;
+  value: string;
+  tone?: "up" | "down";
+  loading?: boolean;
+}) {
+  return (
+    <div className="leading-tight">
+      <div className="font-mono text-[9.5px] uppercase tracking-widest text-muted-foreground">
+        {label}
+      </div>
+      {loading ? (
+        <Skeleton className="mt-0.5 h-3.5 w-14" />
       ) : (
-        <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-            <StatTile index={0} label="Last" value={price(last?.close)} loading={bars.isPending} />
-            <StatTile
-              index={1}
-              label="Change"
-              value={pct(change)}
-              tone={change == null ? "default" : change >= 0 ? "up" : "down"}
-              loading={bars.isPending}
-            />
-            <StatTile index={2} label="High" value={price(last?.high)} loading={bars.isPending} />
-            <StatTile index={3} label="Low" value={price(last?.low)} loading={bars.isPending} />
-            <StatTile
-              index={4}
-              label="Session"
-              value={<span className="text-base">{last?.date ?? "—"}</span>}
-              loading={bars.isPending}
-            />
-          </div>
+        <div
+          className={cn(
+            "font-mono text-[12.5px] tabular-nums",
+            tone === "up" && "text-up",
+            tone === "down" && "text-down",
+          )}
+        >
+          {value}
+        </div>
+      )}
+    </div>
+  );
+}
 
-          <div className="rounded-lg border border-border bg-card p-2">
-            {bars.isPending ? (
-              <Skeleton className="h-[420px] w-full" />
-            ) : (
-              <PriceChart bars={bars.data?.bars ?? []} />
+/** The drawer under the chart — the reference's Open / Closed / Orders strip. */
+function BottomDrawer({
+  symbol,
+  report,
+  isIndex,
+}: {
+  symbol: string;
+  report?: Report;
+  isIndex: boolean;
+}) {
+  const [tab, setTab] = useState(0);
+  const flow = useQuery({
+    queryKey: qk.brokerFlow(symbol, 20),
+    queryFn: ({ signal }) => api.brokerFlow(symbol, 20, signal),
+    enabled: !isIndex && tab === 1,
+    retry: false,
+  });
+
+  const f = (report?.fields ?? {}) as Record<string, unknown>;
+  const n = (k: string) => (typeof f[k] === "number" ? (f[k] as number) : null);
+  const s = (k: string) => (f[k] == null ? "—" : String(f[k]));
+
+  const tabs = isIndex ? ["Levels"] : ["Levels", "Brokers", "Read"];
+
+  return (
+    <div className="h-[168px] shrink-0 border-t border-border">
+      <div className="flex items-center gap-1 border-b border-border px-3 py-1.5">
+        {tabs.map((t, i) => (
+          <button
+            key={t}
+            onClick={() => setTab(i)}
+            className={cn(
+              "relative rounded px-2 py-0.5 text-[12px] transition-colors",
+              i === tab ? "text-foreground" : "text-muted-foreground hover:text-foreground",
             )}
-          </div>
-        </>
-      )}
+          >
+            {i === tab && (
+              <motion.span
+                layoutId="drawer-tab"
+                transition={{ type: "spring", stiffness: 500, damping: 40 }}
+                className="absolute inset-0 -z-10 rounded bg-accent"
+              />
+            )}
+            {t}
+          </button>
+        ))}
+        <span className="ml-auto font-mono text-[11px] text-muted-foreground">{symbol}</span>
+      </div>
 
-      {bars.data?.kind === "index" && (
-        <p className="max-w-4xl text-[13px] leading-relaxed text-muted-foreground">
-          An index is shown <strong>unadjusted, and always will be</strong>. It has no corporate
-          actions — it is a continuous series by construction — so running one through the
-          adjuster could not correct anything, only invent a split factor out of an ordinary large
-          move. Volume on an index is the constituent total the exchange publishes, not a traded
-          quantity.
+      <div className="h-[132px] overflow-auto">
+        {isIndex ? (
+          <p className="p-3 text-[12px] text-muted-foreground">
+            An index has no floorsheet and no swing_pro row — there is no broker tape for a
+            synthetic series, and the framework scores instruments you can actually buy.
+          </p>
+        ) : tab === 0 ? (
+          <table className="w-full text-[12px]">
+            <tbody>
+              <Row k="Entry" v={price(n("entry"))} />
+              <Row k="Stop" v={price(n("stop"))} tone="down" />
+              <Row k="Target 1" v={price(n("t1"))} tone="up" />
+              <Row k="Target 2" v={price(n("t2"))} tone="up" />
+              <Row k="Target 3" v={price(n("t3"))} tone="up" />
+              <Row k="Risk / share" v={price(n("risk"))} />
+              <Row k="Risk %" v={n("risk_pct") == null ? "—" : `${n("risk_pct")!.toFixed(2)}%`} />
+            </tbody>
+          </table>
+        ) : tab === 1 ? (
+          flow.isPending ? (
+            <div className="space-y-1.5 p-3">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-4" />
+              ))}
+            </div>
+          ) : (
+            <table className="w-full text-[12px]">
+              <thead>
+                <tr className="border-b border-border text-muted-foreground">
+                  <th className="px-3 py-1 text-left font-medium">Broker</th>
+                  <th className="px-3 py-1 text-right font-medium">Net</th>
+                  <th className="px-3 py-1 text-right font-medium">Bought</th>
+                  <th className="px-3 py-1 text-right font-medium">Sold</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...(flow.data?.accumulating ?? []).slice(0, 4), ...(flow.data?.distributing ?? []).slice(0, 4)].map(
+                  (b) => (
+                    <tr key={b.broker} className="border-b border-border/40">
+                      <td className="px-3 py-1 font-mono">{b.broker}</td>
+                      <td className={cn("px-3 py-1 text-right font-mono tabular-nums", b.net >= 0 ? "text-up" : "text-down")}>
+                        {num(b.net, 0)}
+                      </td>
+                      <td className="px-3 py-1 text-right font-mono tabular-nums text-muted-foreground">
+                        {num(b.bought, 0)}
+                      </td>
+                      <td className="px-3 py-1 text-right font-mono tabular-nums text-muted-foreground">
+                        {num(b.sold, 0)}
+                      </td>
+                    </tr>
+                  ),
+                )}
+              </tbody>
+            </table>
+          )
+        ) : (
+          <table className="w-full text-[12px]">
+            <tbody>
+              <Row k="Trend" v={s("trend")} />
+              <Row k="Stage" v={s("stage")} />
+              <Row k="Structure" v={s("structure")} />
+              <Row k="Setup" v={s("setup")} />
+              <Row k="Volume" v={s("vol_label")} />
+              <Row k="RSI" v={n("rsi") == null ? "—" : n("rsi")!.toFixed(1)} />
+              <Row k="ATR" v={price(n("atr"))} />
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Row({ k, v, tone }: { k: string; v: string; tone?: "up" | "down" }) {
+  return (
+    <tr className="border-b border-border/40">
+      <td className="px-3 py-1 text-muted-foreground">{k}</td>
+      <td
+        className={cn(
+          "px-3 py-1 text-right font-mono tabular-nums",
+          tone === "up" && "text-up",
+          tone === "down" && "text-down",
+        )}
+      >
+        {v}
+      </td>
+    </tr>
+  );
+}
+
+/**
+ * The reference's order ticket slot, holding the trade plan instead.
+ *
+ * Deliberately has no Buy or Sell control and never will from this screen. The numbers are
+ * swing_pro's, unmodified — this panel formats them and does not decide anything.
+ */
+function TradePlan({
+  symbol,
+  report,
+  loading,
+  isIndex,
+}: {
+  symbol: string;
+  report?: Report;
+  loading: boolean;
+  isIndex: boolean;
+}) {
+  const f = (report?.fields ?? {}) as Record<string, unknown>;
+  const n = (k: string) => (typeof f[k] === "number" ? (f[k] as number) : null);
+  const decision = String(f.decision ?? "—");
+  const grade = String(f.grade ?? "—");
+  const score = n("score");
+  const rr = n("rr");
+
+  if (isIndex) {
+    return (
+      <aside className="hidden w-[300px] shrink-0 flex-col border-l border-border bg-card p-4 xl:flex">
+        <div className="text-[13px] font-semibold tracking-tight">{symbol}</div>
+        <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
+          Indices are not scored. The 22-section framework rates instruments you can buy, size and
+          stop — an index has no float, no broker tape and no invalidation level, so a grade for
+          one would be a number with nothing behind it.
         </p>
-      )}
+      </aside>
+    );
+  }
 
-      <p className="max-w-4xl text-[13px] leading-relaxed text-muted-foreground">
-        Prices are <strong>corporate-action adjusted on read</strong> — a bonus or rights ex-date
-        prints a gap that never traded, and leaving it in invents a swing low out of arithmetic.
-        The detector identifies one by <em>where</em> the fall sits (already in the open, and it
-        stays) rather than by how large it is, because NEPSE&apos;s circuit is ±15% and an ordinary
-        limit-down is not a corporate action.
-      </p>
+  return (
+    <aside className="hidden w-[300px] shrink-0 flex-col overflow-y-auto border-l border-border bg-card xl:flex">
+      <div className="border-b border-border px-4 py-2.5">
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-[13px] font-semibold tracking-tight">Trade plan</span>
+          <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            read only
+          </span>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="space-y-2 p-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Skeleton key={i} className="h-6" />
+          ))}
+        </div>
+      ) : !report ? (
+        <p className="p-4 text-[12px] text-muted-foreground">
+          No swing_pro row for {symbol}. The 200 EMA needs about 210 sessions and is never
+          fabricated, so a young listing has no plan rather than a guessed one.
+        </p>
+      ) : (
+        <div className="p-4">
+          <div
+            className={cn(
+              "rounded-md border px-3 py-2 text-center",
+              decisionTone(decision) === "up"
+                ? "border-up/40 bg-up/10"
+                : decisionTone(decision) === "down"
+                  ? "border-down/40 bg-down/10"
+                  : "border-border bg-muted/40",
+            )}
+          >
+            <div
+              className={cn(
+                "text-[15px] font-semibold tracking-tight",
+                TONE_CLASS[decisionTone(decision)],
+              )}
+            >
+              {decision}
+            </div>
+            <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">
+              <span className={TONE_CLASS[gradeTone(grade)]}>{grade}</span>
+              {score != null && ` · ${score}/100`}
+            </div>
+          </div>
+
+          <div className="mt-3 space-y-px overflow-hidden rounded-md border border-border">
+            <PlanRow k="Entry" v={price(n("entry"))} />
+            <PlanRow k="Stop" v={price(n("stop"))} tone="down" />
+            <PlanRow k="Target 1" v={price(n("t1"))} tone="up" />
+            <PlanRow k="Target 2" v={price(n("t2"))} tone="up" />
+            <PlanRow
+              k="R : R"
+              v={rr == null ? "—" : rr.toFixed(2)}
+              tone={rr == null ? undefined : rr >= 2 ? "up" : "down"}
+            />
+            <PlanRow
+              k="Risk"
+              v={n("risk_pct") == null ? "—" : `${n("risk_pct")!.toFixed(2)}%`}
+            />
+            <PlanRow k="ATR" v={price(n("atr"))} />
+            <PlanRow k="Volume" v={n("vol_x") == null ? "—" : `${n("vol_x")!.toFixed(2)}x`} />
+          </div>
+
+          {rr != null && rr < 2 && (
+            <p className="mt-3 rounded-md border border-primary/40 bg-primary/10 p-2.5 text-[11.5px] leading-snug text-muted-foreground">
+              Reward-to-risk is {rr.toFixed(2)} — below the 1:2 the framework requires. The levels
+              are shown because they are what the rules produced, not because the trade qualifies.
+            </p>
+          )}
+
+          <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
+            No order can be placed from this terminal. Every figure here was computed by Python
+            from the daily archive; this panel formats them and decides nothing.
+          </p>
+        </div>
+      )}
+    </aside>
+  );
+}
+
+function PlanRow({ k, v, tone }: { k: string; v: string; tone?: "up" | "down" }) {
+  return (
+    <div className="flex items-baseline justify-between gap-2 bg-background px-3 py-1.5">
+      <span className="text-[12px] text-muted-foreground">{k}</span>
+      <span
+        className={cn(
+          "font-mono text-[12.5px] tabular-nums",
+          tone === "up" && "text-up",
+          tone === "down" && "text-down",
+        )}
+      >
+        {v}
+      </span>
     </div>
   );
 }
 
 export default function ChartPage() {
   return (
-    <Suspense fallback={<div className="p-6"><Skeleton className="h-[520px] w-full" /></div>}>
+    <Suspense
+      fallback={
+        <div className="p-6">
+          <Skeleton className="h-[520px] w-full" />
+        </div>
+      }
+    >
       <ChartInner />
     </Suspense>
   );

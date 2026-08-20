@@ -1,17 +1,27 @@
 import type { Metadata, Viewport } from "next";
-import { IBM_Plex_Mono, Instrument_Sans } from "next/font/google";
+import { IBM_Plex_Mono, Poppins } from "next/font/google";
 
 import { Providers } from "@/components/providers";
 import { NO_FLASH_SCRIPT } from "@/store/theme";
 
 import "./globals.css";
 
-// The Ledgermark terminal's own two faces, read from its stylesheet:
-//   --font-sans: "Instrument Sans"   --font-mono: "IBM Plex Mono"
-// Self-hosted by next/font rather than linked from Google, because a webfont fetched at paint
-// time is a flash of fallback on every cold load — and on a page that is mostly numbers, the
-// reflow when a proportional fallback swaps for a tabular face is very visible.
-const sans = Instrument_Sans({ variable: "--font-sans", subsets: ["latin"] });
+// Poppins is the default face everywhere — the same family and weights the reference loads
+// (Poppins:wght@400;500;600).
+//
+// IBM Plex Mono stays for the numeric role, and that is not a half-measure. Poppins is a
+// geometric sans with proportional figures: "1" is far narrower than "8", so a price column set
+// in it re-flows sideways every time a digit changes, and decimal points in a stacked column do
+// not line up. Prices, levels and volumes are what this screen exists to compare down a column,
+// so they keep a monospaced face. Everything that is prose, a label or a control is Poppins.
+//
+// Both are self-hosted by next/font rather than linked from Google: a webfont fetched at paint
+// time is a flash of fallback on every cold load.
+const sans = Poppins({
+  variable: "--font-sans",
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+});
 const mono = IBM_Plex_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
