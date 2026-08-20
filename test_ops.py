@@ -322,6 +322,24 @@ def test_order_body_is_exactly_what_the_screen_sends():
         pass
     else:
         raise AssertionError("a row with no BrokerTranID must not produce a cancel")
+
+    # The order book returns TODAY's orders, filled ones included. Offering to cancel a trade
+    # that already executed is the bug this guards: it shipped once, on the money screen.
+    filled = {"Scrip": "SAHAS", "B/S": "B", "RemainingQty": "0", "Price": "701.80",
+              "BrokerTranID": "9263601", "OrderStatus": "TRADED", "Exchange": "NEPSE"}
+    assert naasa.order_is_working(filled) is False, "a TRADED order is not working"
+    try:
+        naasa.cancel_body(filled)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a filled order must not produce a cancel request")
+    for done in ("CANCELLED", "CANCELED", "REJECTED", "EXPIRED", "COMPLETED"):
+        assert naasa.order_is_working(dict(filled, OrderStatus=done)) is False, done
+    # still working: part-filled, and a status we have never seen before
+    assert naasa.order_is_working(dict(filled, OrderStatus="OPEN", RemainingQty="4")) is True
+    assert naasa.order_is_working({"OrderStatus": "SOMETHING NEW"}) is True, \
+        "an unknown status must stay cancellable — the broker decides, not us"
     print("  naasa.order_body    full payload pinned; qty/side/price rules enforced")
 
 

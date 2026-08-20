@@ -758,6 +758,30 @@ def order_body(scrip, side, quantity, price, terms="DAY", term_validity="", exch
     return body
 
 
+# Substrings, not exact matches: the status vocabulary is only partly known (REJECTED is the one
+# the app's own JS tests for) and NAASA writes both CANCELLED and CANCELED in different places.
+_FINISHED = ("TRADED", "COMPLETE", "CANCEL", "REJECT", "EXPIR")
+
+
+def order_is_working(row):
+    """Is this order still live in the market — i.e. can it still be cancelled?
+
+    `MarketOrder/OrderBook` is really the PendingOrder report and returns TODAY's orders,
+    completed ones included, so "everything in the book is open" is simply wrong. Two signals,
+    because either alone has a hole: RemainingQty is the semantic truth (a filled order has
+    nothing left to pull) but is blank on some rows, while the status vocabulary is incomplete.
+    An UNRECOGNISED status counts as working — hiding a cancellable order is worse than offering
+    one the broker will refuse, and the broker gets the final say either way.
+    """
+    status = str(row.get("OrderStatus") or "").upper()
+    if any(done in status for done in _FINISHED):
+        return False
+    try:
+        return float(row.get("RemainingQty")) > 0
+    except (TypeError, ValueError):
+        return True              # no usable quantity; the status did not say finished
+
+
 def cancel_body(row):
     """Payload to cancel ONE open order, built from its order-book row. The screen rebuilds the
     whole order object and adds OrderId/TranId (both = BrokerTranID); note TradingAccount is BLANK
@@ -765,6 +789,9 @@ def cancel_body(row):
     tran = row.get("BrokerTranID") or row.get("LatestOrderID")
     if not tran:
         raise ValueError("order row carries no BrokerTranID — nothing to cancel")
+    if not order_is_working(row):
+        raise ValueError("order %s is %s — there is nothing left to cancel"
+                         % (tran, row.get("OrderStatus") or "already finished"))
     side = str(row.get("B/S") or row.get("BuySellIndicator") or row.get("BuySellType") or "").upper()
     if not side.startswith(("B", "S")):
         raise ValueError("order row has no readable buy/sell side: %r" % (side,))

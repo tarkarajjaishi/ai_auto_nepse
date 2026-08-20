@@ -632,17 +632,50 @@ HM_POLL = 10     # sector heatmap — a batched quote for ~282 scrips, the heavi
 # snapshot instead is free and stays at 1s.
 
 
-@st.cache_data(ttl=ACCT_POLL, show_spinner=False)
+@st.cache_resource(show_spinner=False)
+def acct_state():
+    """Background poller for the NAASA account reports — order book, holdings, collateral.
+
+    These used to be fetched inside the panels' own fragments. A fragment runs on the SESSION's
+    script thread and Streamlit serialises those runs, so one slow report call stalled every
+    other fragment in the session — including the 1s live ladder. That is why the page went
+    still until the tab was refreshed: the socket kept streaming into memory the whole time,
+    nothing was left to draw it. The network now lives on its own thread and the panels read
+    memory, so a slow or failing report can no longer freeze anything on screen.
+    """
+    state = {"orders": [], "holdings": [], "collateral": {}, "err": "", "at": "",
+             "lock": threading.Lock()}
+
+    def loop():
+        while True:
+            em, pw = naasa.load_credentials()
+            if em and pw:
+                try:
+                    fresh = (naasa.x_orderbook(em, pw), naasa.x_holdings(em, pw),
+                             naasa.x_collateral(em, pw))
+                    with state["lock"]:
+                        state["orders"], state["holdings"], state["collateral"] = fresh
+                        state["err"] = ""
+                        state["at"] = datetime.now(NPT).strftime("%H:%M:%S")
+                except Exception as e:
+                    state["err"] = str(e)[:140]   # keep the last good data on screen beside it
+            time.sleep(ACCT_POLL)
+
+    threading.Thread(target=loop, daemon=True).start()
+    return state
+
+
 def acct_call(kind):
-    """One NAASA account report, cached for ACCT_POLL seconds — the same clock the panels poll
-    on, so a redraw never costs an extra call. One constant, because the cache and the fragments
-    drifting apart is how you get a refetch on every redraw (or a poll that shows stale data)."""
-    em, pw = naasa.load_credentials()
-    if kind == "orders":
-        return naasa.x_orderbook(em, pw)
-    if kind == "holdings":
-        return naasa.x_holdings(em, pw)
-    return naasa.x_collateral(em, pw)
+    """The latest account report from the poller. A pure memory read — never touches the network,
+    because this runs inside the render path."""
+    acct = acct_state()
+    with acct["lock"]:
+        data = {"orders": list(acct["orders"]), "holdings": list(acct["holdings"])}.get(
+            kind, dict(acct["collateral"]))
+        err = acct["err"]
+    if err and not data:
+        raise RuntimeError(err)      # nothing to show AND a live error — say so, do not show []
+    return data
 
 
 def _broker_reply(resp):
@@ -2676,7 +2709,8 @@ if page == "NAASA":
         # Being able to place without being able to pull is a trap, so cancel lives right here.
         try:
             open_rows = [r for r in acct_call("orders")
-                         if isinstance(r, dict) and (r.get("BrokerTranID") or r.get("LatestOrderID"))]
+                         if isinstance(r, dict) and (r.get("BrokerTranID") or r.get("LatestOrderID"))
+                         and naasa.order_is_working(r)]        # a filled order cannot be cancelled
         except Exception:
             open_rows = []
         if open_rows:
@@ -2716,8 +2750,14 @@ if page == "NAASA":
                                          for name, srcs in wanted
                                          if any(s in df.columns for s in srcs)})
                     st.dataframe(view, use_container_width=True, hide_index=True, height=240)
-                    st.caption(f"🔴 {len(rows)} open order(s) · live from NAASA "
-                               f"(MarketOrder/OrderBook) · polled {ACCT_POLL}s · read-only.")
+                    # The book is today's orders, not just the live ones — count them apart, or a
+                    # filled trade reads as an order still working in the market.
+                    n_open = sum(1 for r in rows if naasa.order_is_working(r))
+                    done = len(rows) - n_open
+                    st.caption(f"🔴 {n_open} working order(s)"
+                               + (f" · {done} completed today" if done else "")
+                               + f" · live from NAASA (MarketOrder/OrderBook) · polled "
+                                 f"{ACCT_POLL}s · read-only.")
                 else:
                     st.info("No open orders in your NAASA order book right now.")
             except Exception as e:
