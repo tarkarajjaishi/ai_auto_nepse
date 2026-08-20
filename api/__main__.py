@@ -35,6 +35,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from fetch_ohlc import MASTER
 
+import market_hours
 from . import tables
 
 # The Next dev server's origin, for CORS. Only ever used in DEVELOPMENT — in production nginx
@@ -50,6 +51,20 @@ def _universe():
     return p.read_text(encoding="utf-8").split() if p.exists() else []
 
 
+def _int(query, key, default):
+    """One query parameter as an int, or None when the caller sent something that is not one.
+
+    `int(query["limit"][0])` raises straight out of route() and the handler renders the raw
+    Python message as a 500 body — a client error reported as a server fault, with our internals
+    in it. Every numeric parameter goes through here.
+    """
+    raw = query.get(key, [str(default)])[0]
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 def route(path, query):
     """(status, payload). Raising is fine — the handler turns it into a 500 with the message."""
     parts = [p for p in path.strip("/").split("/") if p]
@@ -60,7 +75,9 @@ def route(path, query):
     arg = unquote(parts[1]) if len(parts) > 1 else None
 
     if head == "health":
-        return 200, {"ok": True, "archive_session": tables.newest_bar(),
+        newest = tables.newest_bar()
+        return 200, {"ok": True, "archive_session": newest,
+                     "missed_sessions": market_hours.missed_sessions(newest),
                      "symbols": len(_universe())}
 
     if head == "boards":
@@ -74,7 +91,13 @@ def route(path, query):
                          "stale": t["stale"],
                          "session_unknown": t.get("session_unknown", False),
                          "missing": t.get("missing", False)}
-        return 200, {"archive_session": tables.newest_bar(), "boards": out}
+        newest = tables.newest_bar()
+        # How many SESSIONS the archive itself is behind, which comparing the boards to each
+        # other can never see: a whole-pipeline stall freezes every store in lockstep, they all
+        # still agree, and the screen goes green over week-old prices. None means "cannot tell".
+        return 200, {"archive_session": newest,
+                     "missed_sessions": market_hours.missed_sessions(newest),
+                     "boards": out}
 
     if head == "board" and arg:
         t = tables.read(arg)
@@ -87,7 +110,9 @@ def route(path, query):
     if head == "bars" and arg:
         from prices import bars as adjusted
         from . import market
-        n = int(query.get("limit", ["500"])[0])
+        n = _int(query, "limit", 500)
+        if n is None:
+            return 400, {"error": "limit must be a whole number"}
         # ?ema=20,50,200 — moving averages computed HERE, by indicators.ema, on the same closes
         # the chart draws. The frontend must not compute an indicator: a second implementation of
         # a seeded EMA is a second answer, and the one on screen would be the untested one.
@@ -138,8 +163,16 @@ def route(path, query):
 
     if head == "brokerflow" and arg:
         from . import market
-        n = max(1, min(500, int(query.get("n", ["20"])[0])))
-        return 200, market.broker_flow(arg, n)
+        n = _int(query, "n", 20)
+        if n is None:
+            return 400, {"error": "n must be a whole number"}
+        # An unknown symbol used to come back 200 with empty lists, and this was the ONLY
+        # symbol-scoped route that did. A typo or a delisted ticker then rendered as "no broker
+        # has touched this stock" -- a real, quiet fact about a real company -- instead of "no
+        # such company". 404 like floorsheet and bars already do.
+        if arg.upper() not in _universe():
+            return 404, {"error": f"no such symbol {arg.upper()!r}"}
+        return 200, market.broker_flow(arg, max(1, min(500, n)))
 
     if head == "heatmap":
         from . import market

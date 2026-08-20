@@ -174,6 +174,22 @@ function ArchivePill() {
     .filter(([, b]) => b.stale || b.session_unknown)
     .map(([n]) => n);
 
+  // TWO independent questions, and only asking the first is how this pill lied.
+  //
+  //   behind  - are the boards older than the archive?   (boards vs archive)
+  //   missed  - is the ARCHIVE older than the market?    (archive vs the trading calendar)
+  //
+  // A whole-pipeline stall freezes every store in lockstep: no board is older than the archive,
+  // `behind` is empty, and the pill went green with "Every board matches the archive" over
+  // week-old prices. That sentence is the one ui.py:1770 was rewritten to kill.
+  //
+  // One missed session is normal — today's 15:15 NPT job may simply not have run yet. Two is a
+  // stall. Same threshold as the Streamlit caption, so the two surfaces cannot disagree.
+  // `null` means the archive date is unreadable, which is a louder problem than a stale one.
+  const missed = data.missed_sessions;
+  const archiveBehind = missed === null || missed > 1;
+  const healthy = !archiveBehind && behind.length === 0;
+
   return (
     <Tooltip>
       <TooltipTrigger
@@ -185,7 +201,12 @@ function ArchivePill() {
         <span className="font-mono text-[11px] text-foreground">
           {data.archive_session ?? "none"}
         </span>
-        {behind.length ? (
+        {archiveBehind ? (
+          <span className="flex items-center gap-1 rounded bg-down/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide text-down">
+            <CircleAlert className="size-3" />
+            {missed === null ? "age unknown" : `${missed} sessions behind`}
+          </span>
+        ) : behind.length ? (
           <span className="flex items-center gap-1 rounded bg-primary/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide text-primary">
             <CircleAlert className="size-3" />
             {behind.length} behind
@@ -198,9 +219,13 @@ function ArchivePill() {
         )}
       </TooltipTrigger>
       <TooltipContent side="bottom" className="max-w-xs">
-        {behind.length
-          ? `Archive is at ${data.archive_session}. These boards were computed earlier and need a rebuild: ${behind.join(", ")}.`
-          : `Every board matches the archive at ${data.archive_session}.`}
+        {archiveBehind
+          ? missed === null
+            ? `The archive reports no readable session date, so nothing on screen can be dated. Check that the daily fetch ran.`
+            : `The ARCHIVE itself is ${missed} trading sessions behind — newest bar ${data.archive_session}. Every number on every screen is at least that old, however current the boards look against it.`
+          : behind.length
+            ? `Archive is at ${data.archive_session}. These boards were computed earlier and need a rebuild: ${behind.join(", ")}.`
+            : `Archive is current at ${data.archive_session}, and every board matches it.`}
       </TooltipContent>
     </Tooltip>
   );

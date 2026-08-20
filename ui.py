@@ -1768,24 +1768,11 @@ page = st.sidebar.radio("Menu", PAGES, index=PAGES.index(_qp_page) if _qp_page i
 _state = archive_state(file_stamp(MASTER / "scan.txt"))
 _session = max((v[0][:10] for v in _state.values() if v[0]), default="")
 _stale = [k for k, (stamp, _b, _t) in _state.items() if stamp and stamp[:10] != _session]
-def _missed_sessions(newest):
-    """NEPSE trades Sun-Thu, so calendar age lies: Thursday data read on Sunday is 3 days old and
-    perfectly current, while Tuesday data read on Thursday has missed a real session. Count the
-    trading days that have passed since `newest` instead. Holidays only ever inflate this, which
-    is why 1 missed session is still treated as fine — today's 15:15 job may simply not have run."""
-    try:
-        d = date_cls.fromisoformat(newest)
-    except ValueError:
-        return None
-    today, n = datetime.now(NPT).date(), 0
-    while d < today:
-        d += timedelta(days=1)
-        if market_hours.is_trading_day(d):    # only days the market actually opens count
-            n += 1
-    return n
 
 
-_missed = _missed_sessions(_session) if len(_session) == 10 else None
+# The trading-session rule lives in market_hours, so this caption and the Next.js header
+# pill cannot drift apart on what "behind" means.
+_missed = market_hours.missed_sessions(_session) if len(_session) == 10 else None
 if _session:
     _ok = _missed is not None and _missed <= 1 and not _stale
     st.sidebar.caption(

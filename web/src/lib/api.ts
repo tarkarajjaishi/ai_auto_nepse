@@ -55,7 +55,8 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
 
 /* ── shapes ─────────────────────────────────────────────────────────────────────────────── */
 
-export type Health = { ok: boolean; archive_session: string | null; symbols: number };
+export type Health = { ok: boolean; archive_session: string | null;
+  missed_sessions: number | null; symbols: number };
 
 /** One saved broker login. Never carries the password, cookie or session token — only status. */
 export type Connection = {
@@ -113,6 +114,15 @@ export type Board = {
 
 export type BoardsIndex = {
   archive_session: string | null;
+  /**
+   * Trading sessions the ARCHIVE itself is behind, from market_hours.missed_sessions.
+   *
+   * The other half of the freshness verdict, and the half that survives a stall. `stale` only
+   * compares boards to each other and to the archive; when the whole pipeline stops, every store
+   * freezes together, they all still agree, and the screen goes green over week-old prices.
+   * `null` means the archive date is unreadable — "cannot tell", never "nothing missing".
+   */
+  missed_sessions: number | null;
   boards: Record<
     BoardName,
     {

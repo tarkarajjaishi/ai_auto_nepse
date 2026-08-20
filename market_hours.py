@@ -9,6 +9,7 @@ Kept deliberately dumb: two settings in one small .txt file, re-read on every ca
 ~40-byte read, the callers are 1s fragments, and a cached copy would mean a toggle silently not
 taking effect until something invalidated it — which is exactly the failure this replaces.
 """
+from datetime import date as _date, datetime, timedelta, timezone
 from pathlib import Path
 
 MASTER = Path(__file__).parent / "Master_data"
@@ -27,6 +28,9 @@ PATH = MASTER / "market_hours.txt"
 # Getting this wrong is not cosmetic: a real trading day marked closed stops the crons and the
 # archiver, and a non-trading day marked open lets a stale snapshot be written as a real session.
 DEFAULT_OPEN = (0, 1, 2, 3, 4)
+# Nepal has no DST, so a fixed offset is the whole story. The VPS runs UTC and is a day
+# out for ~6h daily, which is why every date question here resolves in NPT.
+NPT = timezone(timedelta(hours=5, minutes=45))
 # Display order, Sunday first, as the pills read left to right.
 WEEK = ((6, "Sun"), (0, "Mon"), (1, "Tue"), (2, "Wed"), (3, "Thu"), (4, "Fri"), (5, "Sat"))
 
@@ -75,6 +79,35 @@ def toggle_day(day):
 def is_trading_day(when):
     """Is `when` (a date or datetime) a day the market trades at all?"""
     return when.weekday() in open_days()
+
+
+def missed_sessions(newest, today=None):
+    """How many trading sessions have passed since `newest` (an ISO date string).
+
+    Calendar age lies about a market: data from Friday read on Monday is three days old and
+    perfectly current, while Tuesday data read on Thursday has missed a real session. Only days
+    the market actually opens count, so this walks the calendar through `is_trading_day` rather
+    than subtracting dates.
+
+    Returns None when `newest` is missing or unparseable — "I cannot tell" is a different answer
+    from "nothing is missing", and collapsing the two is how a stalled pipeline reads as fresh.
+
+    This is the second half of the freshness verdict, and the half that works. Comparing the
+    boards to EACH OTHER cannot see a whole-pipeline stall: every store freezes in lockstep, they
+    all still agree, and the screen goes green over week-old prices. Only the calendar notices.
+    """
+    try:
+        d = _date.fromisoformat(str(newest))
+    except (TypeError, ValueError):
+        return None
+    if today is None:
+        today = datetime.now(NPT).date()
+    n = 0
+    while d < today:
+        d += timedelta(days=1)
+        if is_trading_day(d):
+            n += 1
+    return n
 
 
 def feed_on():
@@ -130,6 +163,20 @@ def demo():
             set_open_days([])
             assert open_days() == frozenset()
             assert is_trading_day(date(2026, 8, 20)) is False
+
+            # missed_sessions counts SESSIONS, not days off the calendar
+            set_open_days(DEFAULT_OPEN)
+            fri, mon = date(2026, 8, 21), date(2026, 8, 24)
+            assert missed_sessions("2026-08-21", today=fri) == 0, "same day has missed nothing"
+            assert missed_sessions("2026-08-21", today=mon) == 1,                 "Fri -> Mon is 3 calendar days but only ONE session"
+            assert missed_sessions("2026-08-18", today=fri) == 3, missed_sessions("2026-08-18", today=fri)
+            # unknown must stay unknown -- None, never 0, or a stalled pipeline reads as fresh
+            for bad in (None, "", "not-a-date", "2026-13-99"):
+                assert missed_sessions(bad, today=fri) is None, bad
+            # a market that never opens can never miss a session
+            set_open_days([])
+            assert missed_sessions("2026-08-18", today=fri) == 0
+            set_open_days(DEFAULT_OPEN)
 
             # garbage in the file falls back rather than raising into the page
             PATH.write_text("open_days\tnonsense,,9,-1\nfeed\t\n", encoding="utf-8")

@@ -443,6 +443,49 @@ def test_order_body_is_exactly_what_the_screen_sends():
     print("  naasa.order_body    full payload pinned; qty/side/price rules enforced")
 
 
+def test_freshness_is_never_reported_from_one_half():
+    """A screen may not answer "is this current?" from only one of the two halves.
+
+    There are two independent questions and each has produced a false green on its own:
+
+      stale           - is the BOARD older than the archive?
+      session_unknown - can we even tell?          (undated boards ticked green "current")
+      missed_sessions - is the ARCHIVE older than the market?  (a whole-pipeline stall freezes
+                        every store in lockstep, so they all still agree and the pill said
+                        "Every board matches the archive" over week-old prices)
+
+    Both bugs shipped. Both were one consumer forgetting one term, which is a thing careful
+    reading does not reliably catch — so it is pinned here instead.
+    """
+    web = Path("web/src")
+    consumers = sorted(f for f in web.rglob("*.tsx")
+                       if ".stale" in f.read_text(encoding="utf-8"))
+    assert consumers, "no consumer reads .stale any more - has the field been renamed?"
+    for f in consumers:
+        src = f.read_text(encoding="utf-8")
+        assert "session_unknown" in src, (
+            "%s branches on `stale` but never mentions `session_unknown`, so an undated board "
+            "takes the fresh branch and is reported as current." % f.as_posix())
+
+    # the calendar half has to reach the client at all
+    api_src = Path("api/__main__.py").read_text(encoding="utf-8")
+    assert "missed_sessions" in api_src, "the /api/boards payload no longer carries missed_sessions"
+    assert "market_hours.missed_sessions" in api_src,         "missed_sessions must come from market_hours, not a second copy of the rule"
+    nav = (web / "components/top-nav.tsx").read_text(encoding="utf-8")
+    assert "missed_sessions" in nav,         "the header pill is on every route and must state the ARCHIVE's own age"
+
+    # and there must be exactly ONE implementation of the trading-session count
+    # this file names the rule in its own assertions, so exclude it or the guard flags itself
+    impls = [f for f in Path(".").glob("*.py")
+             if f.name != "test_ops.py"
+             and ("def missed_sessions" in f.read_text(encoding="utf-8")
+                  or "def _missed_sessions" in f.read_text(encoding="utf-8"))]
+    assert [f.name for f in impls] == ["market_hours.py"],         "the session-age rule must live only in market_hours.py, found: %s" % [f.name for f in impls]
+
+    print("  freshness           both halves reach every consumer (%d screens, 1 rule)"
+          % len(consumers))
+
+
 def test_money_calls_never_auto_retry():
     """x_report retries once on a stale session. A transport error can fire AFTER the exchange has
     accepted an order, so retrying a place would DUPLICATE it. Both money paths must opt out —
@@ -786,6 +829,7 @@ def main():
     test_no_nested_expanders()
     test_every_page_has_a_body()
     test_order_body_is_exactly_what_the_screen_sends()
+    test_freshness_is_never_reported_from_one_half()
     test_money_calls_never_auto_retry()
     test_order_ticket_is_not_on_a_timer()
     test_board_writers_emit_exactly_their_header()
