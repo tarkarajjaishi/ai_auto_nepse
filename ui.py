@@ -428,7 +428,7 @@ def get_trade_setup(symbol):
     return _read_trade_setup(str(p), p.stat().st_mtime, symbol)
 
 
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=1, show_spinner=False)
 def live_snapshot(symbol):
     """NAASA's public quote for one symbol (no login), cached 15s so redraws don't refetch."""
     try:
@@ -469,7 +469,7 @@ def live_vs_plan(sym, entry, stop, target, key):
     except Exception:
         pass
 
-    @st.fragment(run_every=3)
+    @st.fragment(run_every=1)
     def _strip():
         q = live_price(sym)
         if not q:
@@ -754,7 +754,7 @@ def render_live_depth(symbol):
     st.caption(f"Exact live feed from NAASA (GetMDepth + GetSpecifiedQuote) · as of {depth.get('time','—')}.")
 
 
-@st.cache_data(ttl=2, show_spinner=False)
+@st.cache_data(ttl=1, show_spinner=False)
 def indices_snapshot():
     """NEPSE index quotes from NAASA (batched SpecifiedQuote) — works live AND while closed.
     Cached 8s so the sidebar + heatmap page share one fetch. [] when signed out / unreachable."""
@@ -774,6 +774,37 @@ def _idx_change(r):
         return ((lp - cl) / cl * 100 if cl else 0.0), lp, cl
     except (TypeError, ValueError):
         return 0.0, None, None
+
+
+@st.cache_resource(show_spinner=False)
+def _tick_memory():
+    """{ticker: last LTP drawn}. Survives reruns, so each 1s poll can mark which rows moved."""
+    return {}
+
+
+def tick_mark(key, value, pad="4px 10px"):
+    """A square that flags this cell as UP / DOWN / unchanged since the previous draw.
+
+    Colour alone would be invisible to a colourblind eye and in a screenshot, so the square
+    carries an arrow too. Grey means the value did not move on this poll — that is information,
+    not absence of it: on a thin scrip it is how you tell 'quiet' from 'stalled feed'.
+    """
+    mem = _tick_memory()
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return ""
+    prev = mem.get(key)
+    mem[key] = v
+    if prev is None or v == prev:
+        return ("<span title='unchanged since last poll' style='display:inline-block;width:9px;"
+                "height:9px;border-radius:2px;background:#3a4150;margin-right:6px'></span>")
+    up = v > prev
+    col, arrow = ("#3fb950", "▲") if up else ("#f85149", "▼")
+    return (f"<span title='{'up' if up else 'down'} from {prev:,.2f} on the last poll' "
+            f"style='display:inline-block;width:9px;height:9px;border-radius:2px;"
+            f"background:{col};margin-right:6px'></span>"
+            f"<span style='color:{col};font-size:.8em'>{arrow}</span> ")
 
 
 def render_index_table(rows, compact=False):
@@ -798,7 +829,8 @@ def render_index_table(rows, compact=False):
         body.append(
             f"<tr style='text-align:right;border-top:1px solid #20262f'>"
             f"<td style='text-align:left;padding:{pad};color:{col};font-weight:600'>{r.get('ticker')}</td>"
-            f"<td style='padding:{pad}'>{n(r.get('LTP'))}</td><td style='padding:{pad}'>{n(r.get('High'))}</td>"
+            f"<td style='padding:{pad}'>{tick_mark('idx:' + str(r.get('ticker')), r.get('LTP'))}"
+            f"{n(r.get('LTP'))}</td><td style='padding:{pad}'>{n(r.get('High'))}</td>"
             f"<td style='padding:{pad}'>{n(r.get('Low'))}</td><td style='padding:{pad}'>{n(r.get('Open'))}</td>"
             f"<td style='padding:{pad}'>{n(r.get('Close'))}</td>"
             f"<td style='padding:{pad};color:{col};font-weight:600'>{chg:+.2f}%</td></tr>")
@@ -872,7 +904,7 @@ def _sector_map():
     return rows or c["rows"]
 
 
-@st.cache_data(ttl=6, show_spinner=False)
+@st.cache_data(ttl=1, show_spinner=False)
 def stock_heatmap_rows():
     """Every equity + its sector + live quote, for the sector-grouped heatmap. Batched quotes
     (works while closed). [{stock, sector, ltp, chg, turnover}], only rows with a price."""
@@ -1743,7 +1775,7 @@ with st.sidebar.expander("💼  SmartWealthPro", expanded=False):
 # No toggle — always show a live price strip on the per-symbol pages. Prefer the NAASA socket
 # feed (sub-second) when it's holding this symbol; otherwise the public REST quote.
 if page in PER_SYMBOL and symbol:
-    @st.fragment(run_every=3)
+    @st.fragment(run_every=1)
     def live_quote(sym=symbol):
         def n(x):
             try:
@@ -2857,18 +2889,24 @@ if page == "Heatmap":
 
     # Full-fit: the heatmap fills whatever height is left after the index table below it, so the
     # controls + heatmap + table exactly fill the screen — no gap, no scroll (flex chain does it).
-    @st.fragment(run_every=2 if live else None)
-    def _heatmap_live():
-        with st.container(key="mainchart", height="stretch"):
+    # The fragment goes INSIDE the container, not around it. Wrapping st.container(height=
+    # "stretch") in a fragment inserts a DOM level that breaks the `.st-key-mainchart{flex:1 1 0}`
+    # chain, and the container resolves to 0px — the treemap renders into the DOM and is invisible.
+    with st.container(key="mainchart", height="stretch"):
+        @st.fragment(run_every=1 if live else None)
+        def _hm_chart():
             if view == "Stocks by sector":
                 render_stock_heatmap(stock_heatmap_rows())
             else:
                 render_index_heatmap(indices_snapshot())
+        _hm_chart()
+
+    @st.fragment(run_every=1 if live else None)
+    def _hm_table():
         render_index_table(indices_snapshot())
         if live:
-            st.caption(f"🔴 polling every 2s · quotes cached {6 if view == 'Stocks by sector' else 2}s "
-                       f"· last draw {datetime.now(NPT):%H:%M:%S} NPT")
-    _heatmap_live()
+            st.caption(f"🔴 polling every 1s · last draw {datetime.now(NPT):%H:%M:%S} NPT")
+    _hm_table()
 
 
 # ---------------------------------------------------------------- cron
@@ -3338,7 +3376,7 @@ if page == "Cron":
 
     # Live banner — shows whichever is running now: an auto-fired scheduled job, a manual run, or
     # the older systemd service. Polls every few seconds and clears itself when idle.
-    @st.fragment(run_every=4)
+    @st.fragment(run_every=1)
     def _bg_running():
         job = sched_state["running"]
         if job:                                   # pipeline running (job key, or transient "start")
@@ -3415,7 +3453,7 @@ if page == "Cron":
                 "done": "#1c8b45", "failed": "#8b1a1a"}
         _ICO = {"idle": "⚪", "pending": "🕓", "running": "⏳", "done": "✅", "failed": "❌"}
 
-        @st.fragment(run_every=2)
+        @st.fragment(run_every=1)
         def _flow():
             running = sched_state["running"]
             html = ["<div class='cron-arrow'>↓</div>"]
@@ -3449,7 +3487,7 @@ if page == "Cron":
         st.caption("Re-fetches the WHOLE archive (years of bars / floorsheet). Run once for a new "
                    "symbol or to repair gaps — the daily pipeline above keeps things current.")
 
-        @st.fragment(run_every=2)
+        @st.fragment(run_every=1)
         def _hist():
             for job, cfg in HIST_JOBS.items():
                 stt = sched_state["hist_status"].get(job, "idle")
