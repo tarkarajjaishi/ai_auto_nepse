@@ -411,6 +411,17 @@ def main():
          and any(g["e20_respect"] is not None for g in sample)),
         ("[14] bid/ask and depth are declared unavailable rather than silently dropped",
          swing_pro.EXEC_UNAVAILABLE in text),
+        # §16's seventh trap asks "is distribution visible?", a volume question. It used to fire
+        # on the pullback state — a different item, and there is no §16 entry for that — so of
+        # 307 symbols 55 were distributing with no flag and 72 were flagged without distributing.
+        ("[16] the distribution trap measures distribution, not the pullback state",
+         all(("distribution" in g["flags"]) == (g["accum"] == "Distribution") for g in sample)),
+        # §9 lists "strong distribution candles" among the DANGEROUS traits, alongside heavy
+        # selling and a lower low. _pullback could not see accum at all, so five symbols were
+        # called BUY ZONE or HEALTHY PULLBACK while volume arrived on their down days.
+        ("[9] a pullback on distribution is never called healthy",
+         not [g for g in sample if g["accum"] == "Distribution"
+              and g["pullback"] in ("BUY ZONE", "HEALTHY PULLBACK")]),
     ]
     ok6 = sum(1 for _, good in gates if good)
     print(f"PASS 6  mandatory gates actually gate ....... {ok6}/{len(gates)}")
