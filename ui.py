@@ -2585,7 +2585,7 @@ if page == "NAASA":
             st.warning(f"**{draft['BuySellType'].upper()} {d_qty:,} × {draft['Scrip']}** — {kind}, "
                        f"{draft['OrderTerms']}. Order value: {worth}.\n\n"
                        "Sending this places a **real order on NEPSE** through your NAASA account.")
-            ltp = live_price(draft["Scrip"])
+            ltp = (live_price(draft["Scrip"]) or {}).get("ltp")   # live_price returns a dict
             if ltp and not is_mkt and abs(d_px - ltp) / ltp > 0.05:
                 st.info(f"Heads up: your limit is {abs(d_px - ltp) / ltp * 100:.1f}% away from the "
                         f"last traded price of Rs {ltp:,.2f}.")
