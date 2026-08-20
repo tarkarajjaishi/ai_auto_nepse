@@ -27,6 +27,42 @@ export function compact(v: unknown): string {
   return Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(v);
 }
 
+/* ── heatmap colour ─────────────────────────────────────────────────────────────────────── */
+
+/**
+ * The tile colour for a percent move, on the ramp every market heatmap uses: pale at a small
+ * move, deep and saturated at a large one, grey at flat.
+ *
+ * Deliberately NOT the terminal's --up/--down. Those are two fixed colours for text, where the
+ * number beside them carries the magnitude. A treemap has no number to lean on at a glance — the
+ * shade IS the magnitude — so it needs a ramp, and a single green would make +0.1% and +5% look
+ * identical.
+ *
+ * `sat` is where the ramp reaches full depth. 3% for sector indices, which rarely move further;
+ * ~5% for individual scrips, which routinely do. Passing NEPSE's ±15% circuit would render an
+ * ordinary session as thirteen shades of grey.
+ */
+const GREEN: [string, string] = ["#4ade80", "#166534"]; // pale → deep
+const RED: [string, string] = ["#f87171", "#7f1d1d"];
+const FLAT = "#6b7280";
+
+function lerpHex(a: string, b: string, t: number): string {
+  const p = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const [ar, ag, ab] = p(a);
+  const [br, bg, bb] = p(b);
+  const m = (x: number, y: number) => Math.round(x + (y - x) * t);
+  return `rgb(${m(ar, br)},${m(ag, bg)},${m(ab, bb)})`;
+}
+
+export function heatColour(pctChange: number | null | undefined, sat = 3): string {
+  if (typeof pctChange !== "number" || !Number.isFinite(pctChange)) return FLAT;
+  // A scrip that did not move is grey, not faint green. 0.00% is its own state.
+  if (Math.abs(pctChange) < 0.05) return FLAT;
+  const t = Math.min(Math.abs(pctChange) / sat, 1);
+  const [pale, deep] = pctChange > 0 ? GREEN : RED;
+  return lerpHex(pale, deep, t);
+}
+
 export type Tone = "up" | "down" | "flat" | "warn" | "none";
 
 /**

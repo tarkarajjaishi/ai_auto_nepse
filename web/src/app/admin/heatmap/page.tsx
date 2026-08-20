@@ -1,34 +1,18 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import ReactECharts from "echarts-for-react";
 import { motion } from "motion/react";
 import { AlertTriangle, CircleAlert } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { SectorTreemap } from "@/components/sector-treemap";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useTheme } from "@/store/theme";
 import { api, qk, type HeatSector } from "@/lib/api";
 import { compact, num, pct, price } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-/**
- * Red↔green by percent move, saturating at ±4%.
- *
- * NEPSE's circuit is ±15%, so scaling the ramp to the full band would render an ordinary
- * session as thirteen shades of grey — almost every day's moves live inside ±4%.
- */
-function heatColour(p: number | null): string {
-  const v = Math.max(-1, Math.min(1, (p ?? 0) / 4));
-  if (Math.abs(v) < 0.02) return "#6b7280";
-  const [r, g, b] = v > 0 ? [18, 184, 134] : [255, 107, 91];
-  const a = 0.25 + Math.abs(v) * 0.6;
-  return `rgba(${r},${g},${b},${a.toFixed(3)})`;
-}
-
 export default function HeatmapPage() {
   const [drill, setDrill] = useState<string | null>(null);
-  const theme = useTheme((s) => s.theme);
   const hm = useQuery({ queryKey: qk.heatmap, queryFn: ({ signal }) => api.heatmap(signal) });
   const idx = useQuery({ queryKey: qk.indices, queryFn: ({ signal }) => api.indices(signal) });
 
@@ -38,62 +22,26 @@ export default function HeatmapPage() {
     [sectors, drill],
   );
 
-  const option = useMemo(() => {
-    const ink = theme === "dark" ? "#e6edf3" : "#0d1117";
-    const data = open
-      ? open.symbols.map((s) => ({
-          name: s.symbol,
-          // Square-root the tile area so one huge scrip cannot swallow the sector. Floor it so
-          // a barely-traded listing is still clickable rather than a one-pixel sliver.
-          value: Math.sqrt(Math.max(s.turnover, 1e4)),
-          itemStyle: { color: heatColour(s.pct) },
-          label: { formatter: `${s.symbol}\n${pct(s.pct)}` },
-        }))
-      : sectors.map((s) => ({
-          name: s.sector,
-          value: Math.sqrt(Math.max(s.turnover, 1e4)),
-          itemStyle: { color: heatColour(s.pct) },
-          label: { formatter: `${s.sector}\n${pct(s.pct)}` },
-        }));
-
-    return {
-      backgroundColor: "transparent",
-      tooltip: {
-        formatter: (p: { name: string }) => {
-          const s = open?.symbols.find((x) => x.symbol === p.name);
-          if (s) {
-            return `<b>${s.symbol}</b><br/>${price(s.close)} &nbsp; ${pct(s.pct)}<br/>turnover ${compact(s.turnover)}`;
-          }
-          const sec = sectors.find((x) => x.sector === p.name);
-          if (!sec) return p.name;
-          return `<b>${sec.sector}</b><br/>${pct(sec.pct)} ${
-            sec.official ? "(published index)" : "(turnover-weighted)"
-          }<br/>${sec.count} scrip · turnover ${compact(sec.turnover)}`;
-        },
-      },
-      series: [
-        {
-          type: "treemap",
-          data,
-          roam: false,
-          nodeClick: false,
-          breadcrumb: { show: false },
-          animationDuration: 420,
-          width: "100%",
-          height: "100%",
-          top: 0,
-          left: 0,
-          label: {
-            color: ink,
-            fontSize: 11,
-            lineHeight: 14,
-            overflow: "truncate",
-          },
-          itemStyle: { borderColor: theme === "dark" ? "#0d1117" : "#ffffff", borderWidth: 2, gapWidth: 2 },
-        },
-      ],
-    };
-  }, [sectors, open, theme]);
+  // One shared treemap for both heatmaps — see components/sector-treemap.tsx. The option used
+  // to be duplicated here and in the chart drawer, and the two drifted until this copy rendered
+  // no labels at all.
+  const items = useMemo(
+    () =>
+      open
+        ? open.symbols.map((sym) => ({
+            name: sym.symbol,
+            pct: sym.pct,
+            turnover: sym.turnover,
+            note: `close ${price(sym.close)}`,
+          }))
+        : sectors.map((sec) => ({
+            name: sec.sector,
+            pct: sec.pct,
+            turnover: sec.turnover,
+            note: `${sec.count} scrip · ${sec.official ? "published index" : "turnover-weighted"}`,
+          })),
+    [open, sectors],
+  );
 
   return (
     <div className="space-y-4 p-4 md:p-6">
@@ -149,15 +97,12 @@ export default function HeatmapPage() {
         {hm.isPending ? (
           <Skeleton className="h-[460px] w-full" />
         ) : (
-          <ReactECharts
-            option={option}
-            style={{ height: 460 }}
-            opts={{ renderer: "canvas" }}
-            notMerge
-            onEvents={{
-              click: (e: { name: string }) => {
-                if (!open && sectors.some((s) => s.sector === e.name)) setDrill(e.name);
-              },
+          <SectorTreemap
+            items={items}
+            height={460}
+            sat={open ? 5 : 3}
+            onSelect={(name) => {
+              if (!open && sectors.some((x) => x.sector === name)) setDrill(name);
             }}
           />
         )}

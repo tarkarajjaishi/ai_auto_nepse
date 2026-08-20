@@ -1,18 +1,26 @@
 "use client";
 
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
-import ReactECharts from "echarts-for-react";
 import { motion } from "motion/react";
 import { Activity, CandlestickChart, CircleAlert, TrendingUp } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
 
 import { PriceChart } from "@/components/price-chart";
+import { SectorTreemap } from "@/components/sector-treemap";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, qk, type Heatmap, type Questions, type Report, type Scorecard } from "@/lib/api";
-import { compact, decisionTone, gradeTone, num, pct, price, TONE_CLASS } from "@/lib/format";
+import {
+  compact,
+  decisionTone,
+  gradeTone,
+  heatColour,
+  num,
+  pct,
+  price,
+  TONE_CLASS,
+} from "@/lib/format";
 import { useRail } from "@/store/rail";
-import { useTheme } from "@/store/theme";
 import { cn } from "@/lib/utils";
 
 /**
@@ -233,7 +241,7 @@ function ChartInner() {
           )}
         </div>
 
-        <BottomDrawer symbol={symbol} report={report.data} isIndex={isIndex} />
+        <BottomDrawer />
       </div>
 
       <TradePlan
@@ -305,148 +313,24 @@ function Field({
   );
 }
 
-/** The drawer under the chart — the reference's Open / Closed / Orders strip. */
-function BottomDrawer({
-  symbol,
-  report,
-  isIndex,
-}: {
-  symbol: string;
-  report?: Report;
-  isIndex: boolean;
-}) {
-  const [tab, setTab] = useState(0);
+/**
+ * The market under the chart. No tab bar: the drawer is the sector heatmap and nothing else.
+ *
+ * It used to carry Sectors / Brokers / Read, and the other two both duplicated a whole page —
+ * broker accumulation is the Floorsheet screen, and the trend/stage/structure read is the
+ * swing_pro report and the right panel's Checks tab. Two tabs of duplication were costing the
+ * heatmap a 38px band and a third of its height.
+ */
+function BottomDrawer() {
   const heat = useQuery({
     queryKey: qk.heatmap,
     queryFn: ({ signal }) => api.heatmap(signal),
     staleTime: 60_000,
-    enabled: tab === 0,
   });
-  const flow = useQuery({
-    queryKey: qk.brokerFlow(symbol, 20),
-    queryFn: ({ signal }) => api.brokerFlow(symbol, 20, signal),
-    enabled: !isIndex && tab === 1,
-    retry: false,
-  });
-
-  const f = (report?.fields ?? {}) as Record<string, unknown>;
-  const s = (k: string) => (f[k] == null ? "—" : String(f[k]));
-  const n = (k: string) => (typeof f[k] === "number" ? (f[k] as number) : null);
-
-  // "Sectors", not "Levels". The Levels table repeated Entry / Stop / Target verbatim from the
-  // right panel — the same four numbers twice on one screen. Sectors are the thing the chart
-  // cannot tell you: whether this scrip is moving with its group or against it.
-  const tabs = isIndex ? ["Sectors"] : ["Sectors", "Brokers", "Read"];
-
   return (
-    // Flex column with the body on flex-1, not a hardcoded 132px: the tab bar is conditional
-    // now, so the content has to take whatever is actually left rather than a number that only
-    // happens to be right when the bar is present.
-    // 200px, up from 168: a treemap needs vertical room to pack into rectangles rather than a
-    // row of slivers, and the tab bar's removal was to give it exactly that.
-    <div className="flex h-[200px] shrink-0 flex-col border-t border-border">
-      {/* Only worth a row when there is something to switch between. On an index there is one
-          tab, and a whole 38px band holding a single label is space the heatmap should have.
-          The symbol that used to sit on the right of this bar is gone too — it is already in
-          the instrument strip above, at 18px bold. */}
-      {tabs.length > 1 && (
-        <div className="flex shrink-0 items-center gap-1 border-b border-border px-3">
-          {/* Underline tabs, not filled pills: theirs are `border-b-2 px-3 py-2 text-sm`, brass
-              border + semibold when active, transparent border + muted when not. */}
-          {tabs.map((t, i) => (
-            <button
-              key={t}
-              onClick={() => setTab(i)}
-              className={cn(
-                "relative border-b-2 px-3 py-2 text-sm transition-colors",
-                i === tab
-                  ? "border-primary font-semibold text-primary"
-                  : "border-transparent text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
-      )}
-
-      <div className="min-h-0 flex-1 overflow-auto">
-        {tab === 0 ? (
-          <SectorStrip q={heat} />
-        ) : isIndex ? (
-          <p className="p-3 text-[12px] text-muted-foreground">
-            An index has no floorsheet and no swing_pro row — there is no broker tape for a
-            synthetic series, and the framework scores instruments you can actually buy.
-          </p>
-        ) : tab === 1 ? (
-          flow.isPending ? (
-            <div className="space-y-1.5 p-3">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <Skeleton key={i} className="h-4" />
-              ))}
-            </div>
-          ) : (
-            <table className="w-full text-[12px]">
-              <thead>
-                <tr className="border-b border-border text-muted-foreground">
-                  <th className="px-3 py-1 text-left font-medium">Broker</th>
-                  <th className="px-3 py-1 text-right font-medium">Net</th>
-                  <th className="px-3 py-1 text-right font-medium">Bought</th>
-                  <th className="px-3 py-1 text-right font-medium">Sold</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...(flow.data?.accumulating ?? []).slice(0, 4), ...(flow.data?.distributing ?? []).slice(0, 4)].map(
-                  (b) => (
-                    <tr key={b.broker} className="border-b border-border/40">
-                      <td className="px-3 py-1 font-mono">{b.broker}</td>
-                      <td className={cn("px-3 py-1 text-right font-mono tabular-nums", b.net >= 0 ? "text-up" : "text-down")}>
-                        {num(b.net, 0)}
-                      </td>
-                      <td className="px-3 py-1 text-right font-mono tabular-nums text-muted-foreground">
-                        {num(b.bought, 0)}
-                      </td>
-                      <td className="px-3 py-1 text-right font-mono tabular-nums text-muted-foreground">
-                        {num(b.sold, 0)}
-                      </td>
-                    </tr>
-                  ),
-                )}
-              </tbody>
-            </table>
-          )
-        ) : (
-          <table className="w-full text-[12px]">
-            <tbody>
-              <Row k="Trend" v={s("trend")} />
-              <Row k="Stage" v={s("stage")} />
-              <Row k="Structure" v={s("structure")} />
-              <Row k="Setup" v={s("setup")} />
-              <Row k="Volume" v={s("vol_label")} />
-              <Row k="RSI" v={n("rsi") == null ? "—" : n("rsi")!.toFixed(1)} />
-              <Row k="ATR" v={price(n("atr"))} />
-            </tbody>
-          </table>
-        )}
-      </div>
+    <div className="h-[210px] shrink-0 border-t border-border">
+      <SectorStrip q={heat} />
     </div>
-  );
-}
-
-function Row({ k, v, tone }: { k: string; v: string; tone?: "up" | "down" }) {
-  return (
-    <tr className="border-b border-border/40">
-      <td className="px-3 py-1 text-muted-foreground">{k}</td>
-      <td
-        className={cn(
-          "px-3 py-1 text-right font-mono tabular-nums",
-          tone === "up" && "text-up",
-          tone === "down" && "text-down",
-        )}
-      >
-        {v}
-      </td>
-    </tr>
   );
 }
 
@@ -730,12 +614,8 @@ function ChecksPanel({ q }: { q: UseQueryResult<Questions> }) {
 
 
 /**
- * The market under the chart as a real treemap: every sector packed into the full rectangle,
- * area by turnover, colour by today's move.
- *
- * A single row of equal-height tiles wasted the drawer's vertical space and made a 2.2B sector
- * and a 7M one look the same height. ECharts does the squarified packing — the same renderer the
- * /admin/heatmap page uses, so the two cannot drift apart in look or in numbers.
+ * The market under the chart. Renders through the shared SectorTreemap so it cannot drift from
+ * the /admin/heatmap page — which is what happened when the option lived in both files.
  *
  * Clicking a rectangle loads that sector's INDEX into the chart and opens its constituents in
  * the rail: one click from "banks are up" to the bank index charted with every bank beside it.
@@ -743,73 +623,18 @@ function ChecksPanel({ q }: { q: UseQueryResult<Questions> }) {
 function SectorStrip({ q }: { q: UseQueryResult<Heatmap> }) {
   const router = useRouter();
   const setDrill = useRail((s) => s.setDrill);
-  const theme = useTheme((s) => s.theme);
   const sectors = q.data?.sectors ?? [];
 
-  const option = useMemo(() => {
-    // Saturate at ±3%. NEPSE's circuit is ±15%, but a sector INDEX rarely moves more than a few
-    // percent, so ramping to 15 would paint every ordinary day the same flat grey.
-    const colour = (p: number) => {
-      const k = Math.min(Math.abs(p) / 3, 1);
-      const [r, g, b] = p >= 0 ? [63, 182, 139] : [224, 86, 78];
-      return `rgba(${r},${g},${b},${(0.25 + k * 0.65).toFixed(3)})`;
-    };
-    return {
-      backgroundColor: "transparent",
-      tooltip: {
-        formatter: (p: { name: string }) => {
-          const s = sectors.find((x) => x.sector === p.name);
-          if (!s) return p.name;
-          return `<b>${s.sector}</b><br/>${pct(s.pct)} ${
-            s.official ? "(published index)" : "(turnover-weighted)"
-          }<br/>${s.count} scrip · turnover ${compact(s.turnover)}${
-            s.index ? `<br/><i>click to open ${s.index}</i>` : ""
-          }`;
-        },
-      },
-      series: [
-        {
-          type: "treemap",
-          // Square-root the area so Hydro Power's 2.2B cannot swallow the rectangle — it is
-          // ~5x the next sector by turnover and would leave the rest unreadable slivers.
-          data: sectors.map((s) => ({
-            name: s.sector,
-            value: Math.sqrt(Math.max(s.turnover, 1e4)),
-            itemStyle: { color: colour(s.pct) },
-          })),
-          roam: false,
-          nodeClick: false,
-          breadcrumb: { show: false },
-          animationDuration: 300,
-          width: "100%",
-          height: "100%",
-          top: 0,
-          left: 0,
-          label: {
-            show: true,
-            position: "inside",
-            color: theme === "dark" ? "#e8ebed" : "#16202b",
-            fontSize: 11,
-            lineHeight: 14,
-            overflow: "truncate",
-            formatter: (p: { name: string }) => {
-              const s = sectors.find((x) => x.sector === p.name);
-              return s ? `{n|${s.sector}}\n{v|${pct(s.pct)}}` : p.name;
-            },
-            rich: {
-              n: { fontSize: 11, fontWeight: 500 },
-              v: { fontSize: 12, fontWeight: 700, fontFamily: "monospace" },
-            },
-          },
-          itemStyle: {
-            borderColor: theme === "dark" ? "#0e1419" : "#f4f6f9",
-            borderWidth: 2,
-            gapWidth: 2,
-          },
-        },
-      ],
-    };
-  }, [sectors, theme]);
+  const items = useMemo(
+    () =>
+      sectors.map((s) => ({
+        name: s.sector,
+        pct: s.pct,
+        turnover: s.turnover,
+        note: `${s.count} scrip${s.index ? ` · click to open ${s.index}` : ""}`,
+      })),
+    [sectors],
+  );
 
   if (q.isPending) return <Skeleton className="m-2 h-[calc(100%-1rem)]" />;
   if (!sectors.length) {
@@ -817,18 +642,15 @@ function SectorStrip({ q }: { q: UseQueryResult<Heatmap> }) {
   }
 
   return (
-    <ReactECharts
-      option={option}
-      style={{ height: "100%", width: "100%" }}
-      opts={{ renderer: "canvas" }}
-      notMerge
-      onEvents={{
-        click: (e: { name: string }) => {
-          const s = sectors.find((x) => x.sector === e.name);
-          if (!s?.index) return;
-          setDrill(s.index);
-          router.push(`/admin/chart?symbol=${encodeURIComponent(s.index)}`);
-        },
+    <SectorTreemap
+      items={items}
+      height="100%"
+      sat={3}
+      onSelect={(name) => {
+        const sec = sectors.find((x) => x.sector === name);
+        if (!sec?.index) return;
+        setDrill(sec.index);
+        router.push(`/admin/chart?symbol=${encodeURIComponent(sec.index)}`);
       }}
     />
   );
