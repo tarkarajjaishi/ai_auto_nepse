@@ -10,8 +10,16 @@
  * yesterday's analysis as today's more than once.
  */
 
-export const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "") ?? "http://127.0.0.1:8600";
+/**
+ * Empty means same-origin: in production nginx puts the Python API on `/api` of the very host
+ * serving this page, so `/api/health` resolves itself and there is no CORS exchange and no
+ * hostname baked into the bundle. Only dev needs an absolute URL, because the Next dev server
+ * (3000) and the API (8600) are different origins.
+ */
+export const API_BASE = (
+  process.env.NEXT_PUBLIC_API_BASE ??
+  (process.env.NODE_ENV === "production" ? "" : "http://127.0.0.1:8600")
+).replace(/\/$/, "");
 
 export class ApiError extends Error {
   constructor(
@@ -33,7 +41,7 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
     // A dead backend is the single most likely failure in dev, and "Failed to fetch" tells the
     // reader nothing. Name the thing that is not running.
     throw new ApiError(
-      `Cannot reach the API at ${API_BASE}. Is it running?  python -m api`,
+      `Cannot reach the API at ${API_BASE || "this origin"}. Is it running?  python -m api`,
       0,
       url,
     );
