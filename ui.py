@@ -345,6 +345,43 @@ def read_bars(path, mtime, limit):        # NB: no leading underscore — Stream
     return cols
 
 
+def with_live_bar(cols, symbol):
+    """Lay today's bar from the socket over a loaded daily series.
+
+    live_1d already writes exactly this row into the archive, but only every LIVE_1D_FLUSH
+    seconds — so without this the newest candle is up to that stale, and before the day's first
+    flush it is missing altogether. Same numbers either way; the only thing that changes is
+    latency. Daily series only: the intraday files are their own timeframe.
+
+    Returns a copy — mutating `cols` would poison the mtime-keyed read_bars cache it came from,
+    and every other page reading that symbol would inherit a provisional bar.
+    """
+    if not cols or not cols["when"]:
+        return cols
+    try:
+        feed = naasa_feed()
+        with feed["lock"]:
+            quote = dict(feed["snap"].get(symbol, {}))
+    except Exception:
+        return cols
+    day = live_1d.today()
+    line = live_1d.row(quote, day)
+    if line is None:                        # has not traded today — leave the archive alone
+        return cols
+    fields = line.split("\t")
+    values = [fields[0]] + [float(v) if v else None for v in fields[1:]]
+    out = {k: list(v) for k, v in cols.items()}
+    keys = ("when", "open", "high", "low", "close", "change", "pct", "volume", "amount")
+    replace = out["when"][-1] == day        # the flush already wrote today; refresh it in place
+    for key, value in zip(keys, values):
+        if key in out:
+            if replace:
+                out[key][-1] = value
+            else:
+                out[key].append(value)
+    return out
+
+
 def last_line(path, tail=4096):
     """Final line of a file without reading the whole thing — these archives are large."""
     try:
@@ -623,6 +660,7 @@ def naasa_feed():
 # the load. Raise it if the broker ever complains; do not lower it.
 ACCT_POLL = 3     # order book / holdings / collateral — authed report calls
 LIVE_1D_FLUSH = 20   # how often today's live bar is written to the archive, in seconds
+CANDLE_POLL = 5      # how often the chart redraws when Live candle is on
 IDX_POLL = 5     # index table — one batched quote call for every index
 HM_POLL = 10     # sector heatmap — a batched quote for ~282 scrips, the heaviest call we make
 
@@ -1762,6 +1800,8 @@ if page in PER_SYMBOL:
         st.query_params["sym"] = symbol
 
     data = bars(symbol, timeframe, None)
+    if timeframe == "1D":
+        data = with_live_bar(data, symbol)       # today's candle at socket speed
     if not data:
         st.error(f"No {timeframe} file for {symbol} — run fetch_ohlc.py / fetch_intraday.py first.")
         st.stop()
@@ -2207,17 +2247,30 @@ if page == "Chart":
     # height="stretch" all the way down: the container claims the space left under the
     # header and the chart fills it. A CSS height here instead is racy — Plotly settles at
     # its own 450px default before the stylesheet lands, and the chart renders short.
-    with st.container(key="mainchart"):
-        fig = build_chart(data, symbol, timeframe)
-        st.plotly_chart(fig, height="stretch", config={
-            "scrollZoom": True,            # wheel / pinch zooms about the pointer
-            "doubleClick": "reset",
-            "displaylogo": False,
-            "displayModeBar": "hover",
-            "responsive": True,            # follow the CSS-sized container, not chart_px
-            "modeBarButtonsToRemove": ["select2d", "lasso2d", "autoScale2d", "toggleSpikelines"],
-            "scrollZoomSpeed": 0.6,
-        })
+    # Streamlit re-mounts the Plotly component on every fragment run — key= and uirevision do
+    # not prevent it (same finding as the heatmap), so a live redraw costs the zoom and pan
+    # state. That is a real trade, so it is a switch rather than a default nobody asked for.
+    live_candle = timeframe == "1D" and st.checkbox(
+        "🔴 Live candle", value=True, key="live_candle",
+        help="Redraw every few seconds so today's candle moves with the market. The chart "
+             "re-mounts on each redraw, so zoom and pan reset — untick to inspect in detail.")
+
+    def _draw_chart():
+        d = with_live_bar(bars(symbol, timeframe, None), symbol) if live_candle else data
+        with st.container(key="mainchart"):
+            fig = build_chart(d, symbol, timeframe)
+            st.plotly_chart(fig, height="stretch", config={
+                "scrollZoom": True,        # wheel / pinch zooms about the pointer
+                "doubleClick": "reset",
+                "displaylogo": False,
+                "displayModeBar": "hover",
+                "responsive": True,        # follow the CSS-sized container, not chart_px
+                "modeBarButtonsToRemove": ["select2d", "lasso2d", "autoScale2d",
+                                           "toggleSpikelines"],
+                "scrollZoomSpeed": 0.6,
+            })
+
+    (st.fragment(run_every=CANDLE_POLL)(_draw_chart) if live_candle else _draw_chart)()
 
 
 # ---------------------------------------------------------------- floorsheet
