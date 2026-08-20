@@ -516,10 +516,12 @@ def _x_login(email, password, force=False):
         return _x_sess
 
 
-def feed_auth(email, password):
-    """(UserId=hdnLogin, session=hdnSession) for the WSS handshake — from the shared X-app login."""
-    s = _x_login(email, password)
-    return s["user_id"], s["session"]
+def _client_ip(op):
+    """The public IP the feed expects in the handshake, from the same place the order screen takes
+    it (`myip` <- /IP/IP.aspx). Hand the socket any other IP and NAASA completes the handshake and
+    then never sends a single frame — a connected, silent feed that reads as live."""
+    req = urllib.request.Request(X_APP + "/IP/IP.aspx", data=b"", method="POST")
+    return op.open(req, timeout=25).read().decode("utf-8", "replace").strip()
 
 
 def _decode_report(data):
@@ -669,7 +671,7 @@ def x_collateral(email, password):
     return resp if isinstance(resp, dict) else {}
 
 
-def feed_ws_url(user_id, session, client_ip="10.0.0.1"):
+def feed_ws_url(user_id, session, client_ip):
     q = urllib.parse.quote
     return (FEED_URL + "?UserId=" + q(user_id) + "&Password=" + q(session)
             + "&protocol=WSS&ClientIP=" + q(client_ip) + "&Source=1")
@@ -681,9 +683,10 @@ def stream_ticks(email, password, symbols, on_tick, stop=None):
     active at a time, so this evicts a browser tab logged in as the same account (and vice versa)."""
     import ssl
     import websocket
-    user_id, session = feed_auth(email, password)
-    ws = websocket.create_connection(feed_ws_url(user_id, session), timeout=15,
-                                     sslopt={"cert_reqs": ssl.CERT_NONE})
+    s = _x_login(email, password)
+    ws = websocket.create_connection(
+        feed_ws_url(s["user_id"], s["session"], _client_ip(s["op"])), timeout=15,
+        sslopt={"cert_reqs": ssl.CERT_NONE})
     try:
         ws.send(subscribe_frame(symbols))
         while stop is None or not stop():

@@ -548,6 +548,7 @@ def naasa_feed():
 
     def on_tick(rec):
         with state["lock"]:
+            state["status"] = "live"        # only a delivered tick proves the feed is live
             d = state["snap"].setdefault(rec["symbol"], {})
             d.update(rec["fields"]); d["_t"] = rec.get("time", "")
 
@@ -560,7 +561,7 @@ def naasa_feed():
                 state["status"] = "no login saved"; state["want"] = False; continue
             subs = state["subs"]
             try:
-                state["status"] = "live"; state["err"] = ""
+                state["status"] = "connecting"; state["err"] = ""
                 naasa.stream_ticks(em, pw, list(subs), on_tick,
                                    stop=lambda: (not state["want"]) or state["subs"] != subs)
             except Exception as e:
@@ -568,6 +569,19 @@ def naasa_feed():
 
     threading.Thread(target=loop, daemon=True).start()
     return state
+
+
+@st.cache_data(ttl=1, show_spinner=False)
+def acct_call(kind):
+    """One NAASA account report, cached 1s. The panels below poll on 1s fragments like the indices
+    do; without this every redraw would hit the report API, so the cache TTL and the fragments'
+    run_every are deliberately equal — one call per second, no more."""
+    em, pw = naasa.load_credentials()
+    if kind == "orders":
+        return naasa.x_orderbook(em, pw)
+    if kind == "holdings":
+        return naasa.x_holdings(em, pw)
+    return naasa.x_collateral(em, pw)
 
 
 def render_socket_depth(symbol, feed):
@@ -2521,67 +2535,79 @@ if page == "NAASA":
     if not (em and pw):
         st.caption("Sign in under 🔐 **NAASA account** in the sidebar (with Remember me) to load your live order book.")
     else:
-        try:
-            rows = naasa.x_orderbook(em, pw)
-            if rows:
-                df = pd.DataFrame(rows)
-                # (display name, first matching source column) — one source per name, no duplicates
-                wanted = [("Symbol", ("Scrip",)), ("Side", ("BuySellType", "BuySellText", "B/S")),
-                          ("Qty", ("Quantity", "RemainingQty")), ("Price", ("Price",)),
-                          ("Status", ("OrderStatus",)), ("Validity", ("OrderTerms",)),
-                          ("Time", ("BrokerOrderTime",)), ("Order No", ("ExchangeOrderNo",))]
-                view = pd.DataFrame({name: df[next(s for s in srcs if s in df.columns)]
-                                     for name, srcs in wanted
-                                     if any(s in df.columns for s in srcs)})
-                st.dataframe(view, use_container_width=True, hide_index=True, height=240)
-                st.caption(f"🔴 {len(rows)} open order(s) · live from NAASA (MarketOrder/OrderBook) · read-only.")
-            else:
-                st.info("No open orders in your NAASA order book right now.")
-        except Exception as e:
-            st.caption(f"⚠ Could not load the order book — {str(e)[:120]}")
+        @st.fragment(run_every=1)
+        def _orderbook_panel():
+            try:
+                rows = acct_call("orders")
+                if rows:
+                    df = pd.DataFrame(rows)
+                    # (display name, first matching source column) — one source per name, no dupes
+                    wanted = [("Symbol", ("Scrip",)), ("Side", ("BuySellType", "BuySellText", "B/S")),
+                              ("Qty", ("Quantity", "RemainingQty")), ("Price", ("Price",)),
+                              ("Status", ("OrderStatus",)), ("Validity", ("OrderTerms",)),
+                              ("Time", ("BrokerOrderTime",)), ("Order No", ("ExchangeOrderNo",))]
+                    view = pd.DataFrame({name: df[next(s for s in srcs if s in df.columns)]
+                                         for name, srcs in wanted
+                                         if any(s in df.columns for s in srcs)})
+                    st.dataframe(view, use_container_width=True, hide_index=True, height=240)
+                    st.caption(f"🔴 {len(rows)} open order(s) · live from NAASA "
+                               "(MarketOrder/OrderBook) · polled 1s · read-only.")
+                else:
+                    st.info("No open orders in your NAASA order book right now.")
+            except Exception as e:
+                st.caption(f"⚠ Could not load the order book — {str(e)[:120]}")
+        _orderbook_panel()
 
     # -- Holdings --
     st.markdown("<div class='section'>My Holdings</div>", unsafe_allow_html=True)
     if not (em and pw):
         st.caption("Sign in to load your holdings.")
     else:
-        try:
-            hold = naasa.x_holdings(em, pw)
-            if hold:
-                df = pd.DataFrame(hold)
-                cols = [c for c in ("NEPSECode", "AvailableQty", "CDSFreeBalance", "LastTradedPrice",
-                                    "ClosePrice", "ValueAsOfLTP", "DayGainLoss") if c in df.columns]
-                view = df[cols].rename(columns={
-                    "NEPSECode": "Symbol", "AvailableQty": "Qty", "CDSFreeBalance": "Free",
-                    "LastTradedPrice": "LTP", "ClosePrice": "Prev close",
-                    "ValueAsOfLTP": "Market value", "DayGainLoss": "Day P/L"})
-                st.dataframe(view, use_container_width=True, hide_index=True)
-                st.caption(f"🔴 {len(hold)} holding(s) · live from NAASA (TradeBook/HoldingDataReport) · read-only.")
-            else:
-                st.info("No holdings in your NAASA account.")
-        except Exception as e:
-            st.caption(f"⚠ Could not load holdings — {str(e)[:120]}")
+        @st.fragment(run_every=1)
+        def _holdings_panel():
+            try:
+                hold = acct_call("holdings")
+                if hold:
+                    df = pd.DataFrame(hold)
+                    cols = [c for c in ("NEPSECode", "AvailableQty", "CDSFreeBalance",
+                                        "LastTradedPrice", "ClosePrice", "ValueAsOfLTP",
+                                        "DayGainLoss") if c in df.columns]
+                    view = df[cols].rename(columns={
+                        "NEPSECode": "Symbol", "AvailableQty": "Qty", "CDSFreeBalance": "Free",
+                        "LastTradedPrice": "LTP", "ClosePrice": "Prev close",
+                        "ValueAsOfLTP": "Market value", "DayGainLoss": "Day P/L"})
+                    st.dataframe(view, use_container_width=True, hide_index=True)
+                    st.caption(f"🔴 {len(hold)} holding(s) · live from NAASA "
+                               "(TradeBook/HoldingDataReport) · polled 1s · read-only.")
+                else:
+                    st.info("No holdings in your NAASA account.")
+            except Exception as e:
+                st.caption(f"⚠ Could not load holdings — {str(e)[:120]}")
+        _holdings_panel()
 
     # -- Collateral & account summary --
     st.markdown("<div class='section'>Collateral & account summary</div>", unsafe_allow_html=True)
     if not (em and pw):
         st.caption("Sign in to load your collateral and trade summary.")
     else:
-        try:
-            f = _dash_fields(naasa.x_collateral(em, pw))     # groups [2]=holdings [3]=collateral, [4] PII ignored
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Available collateral", _money(f.get("GrossAvalibleExposure")))
-            c2.metric("Used collateral", _money(f.get("GrossUsedExposure")))
-            c3.metric("Holdings value", _money(f.get("TotalHoldingAmount")))
-            c4.metric("Holdings", f"{_num(f.get('HoldingStockCount'))} scrip(s)")
-            d1, d2, d3, d4 = st.columns(4)
-            d1.metric("Orders today", _num(f.get("OrderCount")))
-            d2.metric("Trades today", _num(f.get("TradeCount")))
-            d3.metric("Traded qty", _num(f.get("TotalTradedQty")))
-            d4.metric("Traded value", _money(f.get("TotalTradedValue")))
-            st.caption("🔴 Live from NAASA (Home/DashboardDetails) · read-only.")
-        except Exception as e:
-            st.caption(f"⚠ Could not load collateral — {str(e)[:120]}")
+        @st.fragment(run_every=1)
+        def _collateral_panel():
+            try:
+                f = _dash_fields(acct_call("collateral"))    # [2]=holdings [3]=collateral, [4] PII
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Available collateral", _money(f.get("GrossAvalibleExposure")))
+                c2.metric("Used collateral", _money(f.get("GrossUsedExposure")))
+                c3.metric("Holdings value", _money(f.get("TotalHoldingAmount")))
+                c4.metric("Holdings", f"{_num(f.get('HoldingStockCount'))} scrip(s)")
+                d1, d2, d3, d4 = st.columns(4)
+                d1.metric("Orders today", _num(f.get("OrderCount")))
+                d2.metric("Trades today", _num(f.get("TradeCount")))
+                d3.metric("Traded qty", _num(f.get("TotalTradedQty")))
+                d4.metric("Traded value", _money(f.get("TotalTradedValue")))
+                st.caption("🔴 Live from NAASA (Home/DashboardDetails) · polled 1s · read-only.")
+            except Exception as e:
+                st.caption(f"⚠ Could not load collateral — {str(e)[:120]}")
+        _collateral_panel()
 
 
 # ---------------------------------------------------------------- master signal
