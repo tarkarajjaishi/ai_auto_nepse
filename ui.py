@@ -2569,14 +2569,15 @@ if page == "NAASA":
             t_qty = q3.number_input("Qty", min_value=1, max_value=99999999, value=10, step=1)
             t_price = q4.number_input("Limit price (0 = market)", min_value=0.0, value=0.0,
                                       step=0.10, format="%.2f")
-            t_terms = q5.selectbox("Validity", naasa.ORDER_TERMS)
-            t_valid = st.text_input("GTD date (DD-MMM-YY)", value="",
-                                    help="Only for GTD orders — leave blank for the rest.")
+            # GTD is the one term needing a date, and the ticket carries no date field — so it
+            # is not offered here rather than left as an option that can only fail validation.
+            # naasa.ORDER_TERMS still lists it for API callers that supply term_validity.
+            t_terms = q5.selectbox("Validity", [t for t in naasa.ORDER_TERMS if t != "GTD"])
             review = st.form_submit_button("Review order →", use_container_width=True)
         if review:
             try:                       # validate now so the confirm step shows a real order
                 st.session_state["order_draft"] = naasa.order_body(
-                    t_scrip, t_side, t_qty, t_price, t_terms, t_valid.strip())
+                    t_scrip, t_side, t_qty, t_price, t_terms)
             except ValueError as e:
                 st.session_state.pop("order_draft", None)
                 st.error(f"Not a valid order — {e}")
