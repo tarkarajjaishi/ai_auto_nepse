@@ -1028,7 +1028,7 @@ def render_index_heatmap(rows):
                       paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
     # key= keeps ONE component across reruns: Plotly then animates tiles to their new
     # sizes and colours instead of the container going black while a fresh chart mounts.
-    st.plotly_chart(fig, key="hm_index", use_container_width=True,
+    st.plotly_chart(fig, key="hm_index", width="stretch",
                     config={"displayModeBar": False, "responsive": True})
 
 
@@ -1216,7 +1216,7 @@ def render_stock_heatmap(rows):
                       paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
     # key= keeps ONE component across reruns: Plotly then animates tiles to their new
     # sizes and colours instead of the container going black while a fresh chart mounts.
-    st.plotly_chart(fig, key="hm_stock", use_container_width=True,
+    st.plotly_chart(fig, key="hm_stock", width="stretch",
                     config={"displayModeBar": False, "responsive": True})
 
 
@@ -2241,13 +2241,13 @@ if page == "Floorsheet":
         )
         flow.update_layout(height=300, margin=dict(l=0, r=0, t=10, b=0), template="plotly_dark",
                            xaxis_title="broker", yaxis_title="net shares", showlegend=False)
-        st.plotly_chart(flow, use_container_width=True)
+        st.plotly_chart(flow, width="stretch")
         st.caption("Positive = net buyer that session. Broker codes are NEPSE member numbers.")
 
         st.dataframe(
             [{"buyer": b, "seller": s, "quantity": q, "rate": r, "amount": a, "transaction": t}
              for b, s, q, r, a, t in rows],
-            use_container_width=True, height=260,
+            width="stretch", height=260,
         )
 
 # ---------------------------------------------------------------- broker flow
@@ -2276,11 +2276,11 @@ if page == "Broker flow":
                 for c in ("net shares", "bought", "sold")}
         left.dataframe([{"broker": b, "net shares": v, "bought": bought[b], "sold": sold[b]}
                         for b, v in accum if v > 0],
-                       use_container_width=True, hide_index=True, column_config=_fmt)
+                       width="stretch", hide_index=True, column_config=_fmt)
         right.markdown("**Distributing**")
         right.dataframe([{"broker": b, "net shares": v, "bought": bought[b], "sold": sold[b]}
                          for b, v in distrib if v < 0],
-                        use_container_width=True, hide_index=True, column_config=_fmt)
+                        width="stretch", hide_index=True, column_config=_fmt)
 
         # concentration: how much of the buying sits with the top 5 brokers
         total_buy = sum(bought.values()) or 1
@@ -2365,7 +2365,7 @@ if page == "Scanner":
     pick = st.radio("Show", ["BUY", "SELL", "All"], horizontal=True, index=0, key="scan_pick")
     shown = table if pick == "All" else [r for r in table if r["signal"] == pick]
 
-    chosen = st.dataframe(paint(shown), use_container_width=True, hide_index=True, height=300,
+    chosen = st.dataframe(paint(shown), width="stretch", hide_index=True, height=300,
                           on_select="rerun", selection_mode="single-row", key="scan_rows")
     st.caption(f"{len(shown)} symbols · click a row to chart it")
 
@@ -2376,7 +2376,7 @@ if page == "Scanner":
         sub = bars(row["symbol"], "1D", SCAN_BARS)
         if sub:
             fig = build_chart(sub, row["symbol"], "1D", lock_price=True, chart_px=420)
-            st.plotly_chart(fig, use_container_width=True, key="scan_chart",
+            st.plotly_chart(fig, width="stretch", key="scan_chart",
                             config={"scrollZoom": True, "displaylogo": False, "doubleClick": "reset"})
             st.caption(f"{row['signal']} since {row['since'] or '—'} ({row['bars_ago']} bars ago) · "
                        f"trend {row['trend']} · structure {row['structure']}")
@@ -2415,10 +2415,10 @@ if page == "Scanner":
     left.markdown(f"### 🟢 Strong BUY · {len(buy_side)}")
     # every cell a plain number or string — a None in a numeric column collapses the layout
     left.dataframe(paint([{c: (r.get(c) if r.get(c) is not None else 0) for c in cols} for r in buy_side]),
-                   use_container_width=True, hide_index=True, height=250)
+                   width="stretch", hide_index=True, height=250)
     right.markdown(f"### 🔴 Strong SELL · {len(sell_side)}")
     right.dataframe(paint([{c: (r.get(c) if r.get(c) is not None else 0) for c in cols} for r in sell_side]),
-                    use_container_width=True, hide_index=True, height=250)
+                    width="stretch", hide_index=True, height=250)
     st.caption("Freshest signals first. Everything here comes from the indicator itself — "
                "badge, ALMA trend and structure break — and nothing else.")
 
@@ -2570,7 +2570,7 @@ if page == "Scanner":
         m4.metric("Reached target 2", f"{len(t2s) / len(done) * 100:.0f}%" if done else "—")
         m5.metric("Avg return", f"{avg:+.2f}%")
 
-        st.dataframe(paint(rows), use_container_width=True, hide_index=True, height=300)
+        st.dataframe(paint(rows), width="stretch", hide_index=True, height=300)
         st.caption("ltp is the latest close; open_pct is the unrealised move in the signal's "
                    "direction, progress is 1.0 when price has reached target 1. "
                    "Entry is the close of the bar the signal became confirmable, never the pivot "
@@ -2661,7 +2661,7 @@ if page == "NAASA":
             # is not offered here rather than left as an option that can only fail validation.
             # naasa.ORDER_TERMS still lists it for API callers that supply term_validity.
             t_terms = q5.selectbox("Validity", [t for t in naasa.ORDER_TERMS if t != "GTD"])
-            review = st.form_submit_button("Review order →", use_container_width=True)
+            review = st.form_submit_button("Review order →", width="stretch")
         if review:
             try:                       # validate now so the confirm step shows a real order
                 st.session_state["order_draft"] = naasa.order_body(
@@ -2686,7 +2686,7 @@ if page == "NAASA":
                         f"last traded price of Rs {ltp:,.2f}.")
             g1, g2 = st.columns(2)
             if g1.button(f"✅ Send this {draft['BuySellType'].upper()} order", type="primary",
-                         use_container_width=True):
+                         width="stretch"):
                 st.session_state.pop("order_draft", None)    # consume FIRST — no replay on rerun
                 try:
                     resp = naasa.x_place_order(em, pw, draft["Scrip"], draft["BuySellType"],
@@ -2702,7 +2702,7 @@ if page == "NAASA":
                         st.error(f"Broker REJECTED the order (code {code}) — {msg}")
                 except Exception as e:
                     st.error(f"Order was NOT sent — {e}")
-            if g2.button("Discard", use_container_width=True):
+            if g2.button("Discard", width="stretch"):
                 st.session_state.pop("order_draft", None)
                 st.rerun()
 
@@ -2721,7 +2721,7 @@ if page == "NAASA":
             pick = st.selectbox("Cancel an open order", range(len(open_rows)),
                                 format_func=lambda i: _order_label(open_rows[i]),
                                 index=None, placeholder="Choose an open order…")
-            if pick is not None and st.button("🚫 Cancel this order", use_container_width=True):
+            if pick is not None and st.button("🚫 Cancel this order", width="stretch"):
                 try:
                     code, msg = _broker_reply(naasa.x_cancel_order(em, pw, open_rows[pick]))
                     if code == 0:
@@ -2749,7 +2749,7 @@ if page == "NAASA":
                     view = pd.DataFrame({name: df[next(s for s in srcs if s in df.columns)]
                                          for name, srcs in wanted
                                          if any(s in df.columns for s in srcs)})
-                    st.dataframe(view, use_container_width=True, hide_index=True, height=240)
+                    st.dataframe(view, width="stretch", hide_index=True, height=240)
                     # The book is today's orders, not just the live ones — count them apart, or a
                     # filled trade reads as an order still working in the market.
                     n_open = sum(1 for r in rows if naasa.order_is_working(r))
@@ -2782,7 +2782,7 @@ if page == "NAASA":
                         "NEPSECode": "Symbol", "AvailableQty": "Qty", "CDSFreeBalance": "Free",
                         "LastTradedPrice": "LTP", "ClosePrice": "Prev close",
                         "ValueAsOfLTP": "Market value", "DayGainLoss": "Day P/L"})
-                    st.dataframe(view, use_container_width=True, hide_index=True)
+                    st.dataframe(view, width="stretch", hide_index=True)
                     st.caption(f"🔴 {len(hold)} holding(s) · live from NAASA "
                                f"(TradeBook/HoldingDataReport) · polled {ACCT_POLL}s · read-only.")
                 else:
@@ -3678,7 +3678,7 @@ if page == "Cron":
     _cols = st.columns([1, 1, 1, 1, 1, 1, 1, 3])
     for _i, (_wd, _lbl) in enumerate(market_hours.WEEK):
         _is_open = _wd in _open_now
-        if _cols[_i].button(_lbl, key=f"mh_day_{_wd}", use_container_width=True,
+        if _cols[_i].button(_lbl, key=f"mh_day_{_wd}", width="stretch",
                             type="primary" if _is_open else "secondary",
                             help="Open — click to close" if _is_open else "Closed — click to open"):
             market_hours.toggle_day(_wd)
@@ -4195,7 +4195,7 @@ if page == "Operator radar":
                     barfig.update_yaxes(range=[lo - npad if lo < 0 else 0, hi + npad],
                                         gridcolor="rgba(120,123,134,.12)", zerolinecolor="#394050")
                     st.caption("Daily NET — quantity (yellow) and date shown above each bar; green = net buying, red = net selling")
-                    st.plotly_chart(barfig, use_container_width=True,
+                    st.plotly_chart(barfig, width="stretch",
                                     config={"displayModeBar": False, "staticPlot": True},
                                     key=f"opbar_{r['symbol']}_{r['broker']}_{r['side']}")
 
@@ -4217,7 +4217,7 @@ if page == "Operator radar":
                     sellfig.update_xaxes(gridcolor="rgba(120,123,134,.12)")
                     sellfig.update_yaxes(range=[0, smax * 1.3], gridcolor="rgba(120,123,134,.12)")
                     st.caption("Daily SELL quantity — how many shares this broker sold each day (red)")
-                    st.plotly_chart(sellfig, use_container_width=True,
+                    st.plotly_chart(sellfig, width="stretch",
                                     config={"displayModeBar": False, "staticPlot": True},
                                     key=f"opsell_{r['symbol']}_{r['broker']}_{r['side']}")
 
