@@ -302,6 +302,13 @@ def _retest_detail(c, h, l, v, vsma, a, res, look=30):
 
     All None when there is no breakout in the window or price has not come back yet — "no
     retest" is a different statement from "a bad retest" and must not read as one.
+
+    REPORTED, NEVER SCORED, and that is a measured decision rather than caution. Replaying the
+    archive found 562 historical Breakout Retest bars (398 held, 164 failed) and the forward
+    20-day return does not separate them: median +0.02% when the retest held against +0.92%
+    when it failed. The spec asks for retest behaviour to be *described*, so it is described —
+    but it earns no points and vetoes nothing, and the sign is if anything the wrong way round.
+    Do not "improve" the framework by gating on it without re-running that test.
     """
     blank = dict(retest_depth=None, retest_held=None, retest_vol=None, retest_bars=None)
     if not res or not a:

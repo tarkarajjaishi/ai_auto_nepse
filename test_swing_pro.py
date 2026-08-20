@@ -74,7 +74,8 @@ SPEC_SECTIONS = {
     "8 breakout": [("six states", "Failed Breakout"), ("resistance level", "resistance_tested"),
                    ("previous tests", "res_tests"), ("consolidation duration", "consol_days"),
                    ("breakout candle size", "bo_candle"), ("close position", "close_pos"),
-                   ("follow-through", "follow_through")],
+                   ("follow-through", "follow_through"),
+                   ("retest behaviour", "_retest_detail")],
     "9 pullback": [("five states", "TREND BREAKDOWN"), ("declining volume", "pullback_dry"),
                    ("holds EMA", "close >= e20"), ("lower low", "broke_low"),
                    ("selling candles weaken", "_selling_weakens"),
@@ -422,6 +423,27 @@ def main():
         ("[9] a pullback on distribution is never called healthy",
          not [g for g in sample if g["accum"] == "Distribution"
               and g["pullback"] in ("BUY ZONE", "HEALTHY PULLBACK")]),
+        # §8's last bullet is "retest behaviour", the only one that had no number behind it.
+        # Synthetic, because a real Breakout Retest occurs 0 times on some sessions and a guard
+        # that depends on today's tape would go quietly green when the market has none.
+        ("[8] a retest that closed back under the level is not reported as held",
+         (lambda held, failed: held["retest_held"] is True and failed["retest_held"] is False)(
+             # breaks 100, pulls back to 99 (a wick through), closes above -> HELD
+             swing_pro._retest_detail([98.0, 99.0, 103.0, 101.0], [99, 100, 104, 102],
+                                      [97, 98, 100, 99.0], [1, 1, 1, 1], [1, 1, 1, 1],
+                                      2.0, 100.0),
+             # breaks 100, then CLOSES back under it -> FAILED
+             swing_pro._retest_detail([98.0, 99.0, 103.0, 96.0], [99, 100, 104, 100],
+                                      [97, 98, 100, 95.0], [1, 1, 1, 1], [1, 1, 1, 1],
+                                      2.0, 100.0))),
+        ("[8] 'no retest yet' is not reported as a failed one",
+         swing_pro._retest_detail([98.0, 99.0, 103.0, 108.0], [99, 100, 104, 109],
+                                  [97, 98, 102, 107.0], [1, 1, 1, 1], [1, 1, 1, 1],
+                                  2.0, 100.0)["retest_held"] is None),
+        ("[8] retest behaviour reaches the report", "retest:" in text),
+        ("[8] the retest measure is reported, never scored — it did not survive its own test",
+         "retest_held" not in src.split("def _score")[1].split("\ndef ")[0]
+         and "retest_depth" not in src.split("def _decision")[1].split("\ndef ")[0]),
     ]
     ok6 = sum(1 for _, good in gates if good)
     print(f"PASS 6  mandatory gates actually gate ....... {ok6}/{len(gates)}")

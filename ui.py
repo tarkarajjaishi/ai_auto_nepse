@@ -183,10 +183,16 @@ st.markdown("""
       flex: 1 1 auto !important; }
   .st-key-mainchart { flex: 1 1 0 !important; min-height: 0 !important;
       overflow: hidden !important; }
-  .st-key-mainchart [data-testid="stVerticalBlock"],
-  .st-key-mainchart [data-testid="stElementContainer"]:has(.stPlotlyChart),
-  .st-key-mainchart .stPlotlyChart {
+  .st-key-mainchart [data-testid="stVerticalBlock"] {
       flex: 1 1 0 !important; min-height: 0 !important; overflow: hidden !important; }
+  /* The chart element is positioned, not flexed. A percentage height needs a parent with a
+     DEFINITE height, and a flex item with min-height:0 has none — which is why height:100%
+     resolved to 0 and the map vanished. inset:0 against a relative parent is definite, so
+     Plotly's responsive sizing gets a real box and fills it exactly. */
+  .st-key-mainchart [data-testid="stElementContainer"]:has(.stPlotlyChart) {
+      position: relative !important; flex: 1 1 0 !important;
+      min-height: 200px !important; overflow: hidden !important; }
+  .st-key-mainchart .stPlotlyChart { position: absolute !important; inset: 0 !important; }
   .st-key-mainchart .js-plotly-plot,
   .st-key-mainchart .plot-container,
   .st-key-mainchart .svg-container { height: 100% !important; width: 100% !important; }
