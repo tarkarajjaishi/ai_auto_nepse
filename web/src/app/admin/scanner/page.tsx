@@ -106,6 +106,23 @@ function StrongSignals({ onPick }: { onPick: (symbol: string) => void }) {
 
   if (q.isPending || !q.data) return null;
 
+  // A board written before scan.py grew these columns has no `badge` at all. Filtering on a
+  // field that is not there yields zero matches, and zero matches renders as "nothing
+  // qualifies" — a confident statement about the market made from a missing column. Say what is
+  // actually true instead.
+  if (!q.data.columns.includes("badge")) {
+    return (
+      <section className="rounded-lg border border-primary/40 bg-primary/10 px-4 py-3 text-[13px]">
+        <p className="font-medium">Strong signals need a rebuilt board.</p>
+        <p className="mt-1 text-muted-foreground">
+          This <span className="font-mono">scan.txt</span> was written before the badge and its
+          trade levels existed, so the shortlist cannot be computed — that is not the same as
+          nothing qualifying. Run <span className="font-mono">python scan.py</span> to rebuild it.
+        </p>
+      </section>
+    );
+  }
+
   return (
     <section className="rounded-lg border border-border bg-card">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border px-4 py-2.5">
