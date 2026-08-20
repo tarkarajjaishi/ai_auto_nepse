@@ -492,61 +492,94 @@ def _validate_session(op):
     return json.loads(op.open(req, timeout=30).read().decode("utf-8", "replace")).get("sessionNo")
 
 
+def _trading_login(op):
+    """POST /api/auth/trading-login -> {clientCode, sessionNo}: the trading session for a
+    NextAuth-authenticated browser.
+
+    This replaced `Login/ValidateSessionNo` when NAASA rebuilt the X app as a Next.js SPA. Same
+    role — it mints the session number the socket and the reports run on — and, as before, it is
+    called immediately before the socket connects rather than once at login.
+    """
+    req = urllib.request.Request(X_APP + "/api/auth/trading-login",
+                                 data=json.dumps({"action": "LOGIN"}).encode(), method="POST")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("Accept", "application/json")
+    out = json.loads(op.open(req, timeout=40).read().decode("utf-8", "replace"))
+    if not out.get("sessionNo"):
+        raise RuntimeError("trading-login returned no sessionNo: %s" % str(out)[:160])
+    return out["clientCode"], out["sessionNo"]
+
+
+def _validate_session(op):
+    """The session number for the NEXT socket connect. Kept under its old name because every
+    caller means the same thing by it; the implementation moved to trading-login."""
+    return _trading_login(op)[1]
+
+
 def _x_login(email, password, force=False):
-    """Authenticated opener for the OLD NAASA X app (x.naasasecurities.com.np), cached module-wide
-    so the WSS feed AND the order-book/holdings/collateral report calls share ONE login — exactly
-    like the browser's order screen, which holds the socket and calls the report API on the same
-    session. Sharing one login is what stops the reports from fighting the live feed for NAASA's
-    single-active-session-per-account. Returns the cached {op, user_id, session}; re-logs in on
-    `force` or once the TTL lapses."""
+    """Authenticated opener for the NAASA trading app, cached module-wide so the feed and the
+    account reads share ONE login.
+
+    **Rewritten 2026-08-21.** NAASA replaced the ASP.NET X app with a Next.js SPA and the old
+    flow died completely: the login page no longer renders `hdnLogin`/`hdnSession` hidden inputs
+    to scrape, and the authorize URL we sent was rejected outright — `400 Invalid parameter:
+    redirect_uri` — because we asked to come back to `/login` while the new app registers
+    `/api/auth/callback/keycloak`. **That one wrong parameter was the whole outage.**
+
+    The new flow is NextAuth in front of the same Keycloak realm, which is the flow
+    `login_password()` below already drives for the other host:
+
+        GET  /api/auth/csrf                 -> csrfToken
+        POST /api/auth/signin/keycloak      -> the authorize URL, with the RIGHT redirect_uri
+        POST <keycloak login-actions>       -> credentials; 302s back through the callback
+        POST /api/auth/trading-login        -> {clientCode, sessionNo}
+
+    Returns the cached {op, user_id, session, gen}; re-logs in on `force` or once the TTL lapses.
+    """
     with _x_sess["lock"]:
         age = time.time() - _x_sess["ts"]
         if _x_sess["op"] and age < _X_TTL and not force:
             return _x_sess
-        # A re-login mints a NEW session, and NAASA allows exactly ONE per account — so every
-        # forced re-login EVICTS the live socket. Order book, holdings, collateral and the index
-        # table all poll every 1-3s through x_report, which force-relogins on a stale session; a
-        # burst of those mints sessions faster than the feed can adopt one, so the socket never
-        # survives long enough to deliver a tick. The reports win, the feed starves, and the page
-        # reads "connecting" forever while the thread sits healthy in recv(). Coalesce: honour at
-        # most one re-login per _X_RELOGIN_GAP so a burst SHARES a session instead of racing.
+        # A re-login mints a NEW session and NAASA allows one per account, so a forced re-login
+        # evicts whatever the socket is holding. Callers poll every few seconds and force on a
+        # stale session; without coalescing they mint sessions faster than the feed can adopt one
+        # and the socket never lives long enough to deliver a tick. At most one per gap.
         if force and _x_sess["op"] and age < _X_RELOGIN_GAP:
             return _x_sess
+
         jar = http.cookiejar.CookieJar()
         op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-        op.addheaders = [("User-Agent", "Mozilla/5.0")]
-        page = op.open(X_AUTH, timeout=30).read().decode("utf-8", "replace")
+        op.addheaders = [("User-Agent", "Mozilla/5.0"),
+                         ("Accept", "text/html,application/json,*/*")]
+
+        csrf = json.load(op.open(X_APP + "/api/auth/csrf", timeout=30))["csrfToken"]
+        body = urllib.parse.urlencode({"csrfToken": csrf, "callbackUrl": X_APP + "/",
+                                       "json": "true"}).encode()
+        r = op.open(urllib.request.Request(
+            X_APP + "/api/auth/signin/keycloak", data=body,
+            headers={"Content-Type": "application/x-www-form-urlencoded",
+                     "Accept": "application/json"}), timeout=30)
+        raw = r.read().decode("utf-8", "replace")
+        try:
+            auth_url = json.loads(raw)["url"]
+        except (ValueError, KeyError):
+            auth_url = r.geturl()          # NextAuth already redirected us to Keycloak
+
+        page = op.open(auth_url, timeout=30).read().decode("utf-8", "replace")
         m = re.search(r'action="([^"]*login-actions/authenticate[^"]*)"', page)
-        if m:                                          # not already SSO'd from a shared session
+        if m:                              # absent when the jar is already SSO'd
             creds = urllib.parse.urlencode({"username": email, "password": password,
                                             "credentialId": ""}).encode()
             op.open(urllib.request.Request(html_lib.unescape(m.group(1)), data=creds, headers={
                 "Content-Type": "application/x-www-form-urlencoded"}), timeout=30).read()
-        order = op.open(X_APP + "/MarketOrder/Order", timeout=30).read().decode("utf-8", "replace")
 
-        def field(name):
-            hit = (re.search(r'id=["\']%s["\'][^>]*value=["\']([^"\']*)' % name, order)
-                   or re.search(r'name=["\']%s["\'][^>]*value=["\']([^"\']*)' % name, order))
-            return hit.group(1) if hit else None
-        user_id, session = field("hdnLogin"), field("hdnSession")
-        if not (user_id and session):
-            raise RuntimeError("X-app login failed — could not scrape hdnLogin/hdnSession")
-        # The scraped hdnSession is NOT yet usable. The order screen always POSTs
-        # Login/ValidateSessionNo and swaps the answer in before it opens the socket
-        # ($("#hdnSession").val(response.sessionNo); WS_connect()). Skip that and the backend
-        # rejects every account-scoped report with -1006001 "Invalid sessionid" while the WSS
-        # still connects but never sends a tick — a live-looking feed with no data. Activate it
-        # here, once, so the socket and the reports share one working session.
-        try:
-            session = _validate_session(op) or session
-        except (OSError, ValueError):
-            pass                       # keep the scraped value; account calls fail loudly anyway
-        # `gen` bumps on every successful login. Login/ValidateSessionNo above is NOT
-        # idempotent — the new session number it mints INVALIDATES the previous one — so
-        # anything holding the old session (the live socket) must notice and re-establish.
+        user_id, session = _trading_login(op)
+        # `gen` bumps on every login: trading-login mints a new session number and invalidates the
+        # previous one, so anything holding the old session (the live socket) must re-establish.
         _x_sess.update(op=op, user_id=user_id, session=session, ts=time.time(),
                        gen=_x_sess["gen"] + 1)
         return _x_sess
+
 
 
 def _client_ip(op):
@@ -592,7 +625,23 @@ def _decode_report(data):
     return data
 
 
+def x_api(email, password, path, body=None, retry=True):
+    """POST one of the new SPA's `/api/*` routes with the NextAuth session, and decode it.
+
+    Same retry/stale semantics as x_report below; `path` is a full route ("/api/report") rather
+    than the old controller/action pair, because the rebuilt app is a Next.js API, not ASP.NET
+    controllers.
+    """
+    return _x_call(email, password, path, body, retry)
+
+
 def x_report(email, password, controller, action, body=None, retry=True):
+    """The OLD ASP.NET controller/action shape. Kept so nothing breaks at import, but those
+    endpoints no longer exist — the app was rebuilt as an SPA. Use x_api with a /api/... path."""
+    return _x_call(email, password, "/" + controller + "/" + action, body, retry)
+
+
+def _x_call(email, password, path, body=None, retry=True):
     """POST `/<controller>/<action>` on the X app (shared feed session) → decoded report. The app's
     `ExecuteAPI(POST, action, controller, body)` helper: JSON body, `{errorCode, data}` envelope
     where `data` is base64(JSON). Re-logs in once on failure (stale session).
@@ -603,7 +652,7 @@ def x_report(email, password, controller, action, body=None, retry=True):
     for attempt in ((0, 1) if retry else (0,)):
         s = _x_login(email, password, force=(attempt == 1))
         req = urllib.request.Request(
-            X_APP + "/" + controller + "/" + action,
+            X_APP + path,
             data=json.dumps(body or {}).encode(), method="POST",
             headers={"Content-Type": "application/json; charset=utf-8",
                      "X-Requested-With": "XMLHttpRequest", "Accept": "application/json"})
@@ -644,14 +693,16 @@ def x_report(email, password, controller, action, body=None, retry=True):
 def x_orderbook(email, password):
     """Open orders (order book) — list of row dicts. Cols incl Scrip, B/S, RemainingQty, Price,
     OrderStatus, BrokerOrderTime, BuySellType."""
-    rows = x_report(email, password, "MarketOrder", "OrderBook")
+    rows = x_api(email, password, "/api/report",
+                 {"reportType": "ORDERBOOK", "fromDate": "", "toDate": ""})
     return rows if isinstance(rows, list) else []
 
 
 def x_holdings(email, password):
     """Holdings — list of row dicts. Cols incl NEPSECode, AvailableQty, LastTradedPrice,
     ClosePrice, ValueAsOfLTP, DayGainLoss."""
-    rows = x_report(email, password, "TradeBook", "HoldingDataReport")
+    rows = x_api(email, password, "/api/report",
+                 {"reportType": "HOLDINGREPORT", "fromDate": "", "toDate": ""})
     return rows if isinstance(rows, list) else []
 
 
@@ -698,7 +749,7 @@ def x_collateral(email, password):
     where Data is 5 positional one-row groups: [0] order summary, [1] trade summary, [2] holdings
     totals, [3] collateral (GrossAllocatedExposure / GrossUsedExposure / GrossAvalibleExposure),
     [4] client PII (do NOT render). The body is double-encoded JSON, so parse again if needed."""
-    resp = x_report(email, password, "Home", "DashboardDetails")
+    resp = x_api(email, password, "/api/dashboard-details", {})
     if isinstance(resp, str):
         try:
             resp = json.loads(resp)
@@ -720,6 +771,15 @@ ORDER_TERMS = ("DAY", "GTD", "GTC", "IOC", "FOK")
 _ORDER_FIXED = {"DeliveryTerms": "D", "MarketSegment": "RL", "OrderCategory": "NORMAL",
                 "OrderType": "NORMAL", "AccRefCode": "SELF", "ProductType": "CASH",
                 "DisclosedQuantity": ""}
+
+
+def _order_endpoint_gone():
+    raise RuntimeError(
+        "Order placement is not wired to NAASA's new app yet. The old /MarketOrder/* endpoints "
+        "are gone; the replacements are /api/trading/order and /api/trading/amo, whose request "
+        "shape has NOT been read off their client and must not be guessed — this is a money path. "
+        "Holdings, the order book and collateral are working again; only placing, modifying and "
+        "cancelling are unported.")
 
 
 def order_body(scrip, side, quantity, price, terms="DAY", term_validity="", exchange="NEPSE"):
@@ -833,8 +893,8 @@ def modify_body(row, quantity, price, terms="DAY", term_validity=""):
 
 def x_modify_order(email, password, row, quantity, price, terms="DAY", term_validity=""):
     """Amend a working order. No auto-retry, same reason as x_place_order."""
-    return x_report(email, password, "MarketOrder", "ModifyOrder",
-                    modify_body(row, quantity, price, terms, term_validity), retry=False)
+    modify_body(row, quantity, price, terms, term_validity)          # still validates
+    _order_endpoint_gone()
 
 
 def x_place_order(email, password, scrip, side, quantity, price, terms="DAY", term_validity=""):
@@ -843,13 +903,14 @@ def x_place_order(email, password, scrip, side, quantity, price, terms="DAY", te
     Returns the broker's envelope — `ErrorCode` 0 means accepted. Never auto-retries (see
     x_report's `retry`): a duplicate order is far worse than a failed one the caller can repeat.
     """
-    body = order_body(scrip, side, quantity, price, terms, term_validity)
-    return x_report(email, password, "MarketOrder", "Order", body, retry=False)
+    order_body(scrip, side, quantity, price, terms, term_validity)   # still validates
+    _order_endpoint_gone()
 
 
 def x_cancel_order(email, password, row):
     """Cancel one open order, given its order-book row. No auto-retry, as for x_place_order."""
-    return x_report(email, password, "MarketOrder", "CancelOrder", cancel_body(row), retry=False)
+    cancel_body(row)                                                 # still validates
+    _order_endpoint_gone()
 
 
 def feed_ws_url(user_id, session, client_ip):

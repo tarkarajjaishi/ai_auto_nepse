@@ -422,13 +422,22 @@ def test_money_calls_never_auto_retry():
         fn = next((n for n in ast.walk(tree)
                    if isinstance(n, ast.FunctionDef) and n.name == name), None)
         assert fn is not None, "%s is gone from naasa.py" % name
+        names = {getattr(c.func, "id", getattr(c.func, "attr", "")) for c in ast.walk(fn)
+                 if isinstance(c, ast.Call)}
+        # Two legal states and nothing between them. Either the function is UNPORTED and
+        # refuses rather than posting to an endpoint that no longer exists, or it is wired
+        # and passes retry=False. NAASA rebuilt their app, so all three are currently the
+        # first; this keeps the retry rule waiting for whoever wires them back up.
+        if "_order_endpoint_gone" in names:
+            continue
         calls = [c for c in ast.walk(fn) if isinstance(c, ast.Call)
-                 and getattr(c.func, "id", getattr(c.func, "attr", "")) == "x_report"]
-        assert calls, "%s no longer goes through x_report" % name
+                 and getattr(c.func, "id", getattr(c.func, "attr", "")) in
+                 ("x_report", "x_api", "_x_call")]
+        assert calls, "%s reaches no transport and does not refuse either" % name
         for c in calls:
             kw = {k.arg: k.value for k in c.keywords}
             assert "retry" in kw and getattr(kw["retry"], "value", None) is False, \
-                "%s must call x_report(..., retry=False)" % name
+                "%s must pass retry=False - a retried place is a duplicate order" % name
 
     class _Dead:                        # every attempt dies in transport, the duplicate-risk case
         def __init__(self, log):
