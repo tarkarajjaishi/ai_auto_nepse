@@ -1,8 +1,11 @@
 """Bonus / rights adjusted price loader — the layer every calculation should read through.
 
 NEPSE prices in the archive are RAW: on a bonus or rights ex-date the close resets, printing a
--20% to -80% gap that never traded. NEPSE's daily circuit is +/-10%, so any move beyond that is
-arithmetic, and that is exactly how we detect one without needing a ratio feed.
+-20% to -80% gap that never traded. We have no ratio feed, so the ex-date has to be detected
+from the tape — and the thing that identifies one is not the SIZE of the fall but WHERE it
+happened. An ex-date is arithmetic: the price is restated overnight, so the session already
+OPENS at the adjusted level and nothing trades through the gap. A limit-down is the opposite —
+it opens near the previous close and falls during the session.
 
 Adjustment is applied ON READ, never written back into 1D.txt — `fetch_last_session.py` rewrites
 those rows every day, so a stored adjustment would be wiped and, worse, re-applied on top of
@@ -16,7 +19,7 @@ market), and history becomes continuous, which is what indicators and stops need
 """
 from fetch_ohlc import MASTER
 
-CIRCUIT_DROP = -0.105        # beyond the -10% circuit (small tolerance) = corporate action
+CIRCUIT_DROP = -0.105        # a gap this big AT THE OPEN did not trade; it was restated
 MIN_FACTOR = 0.2             # a >5x split is implausible in this market; treat as bad data
 
 
@@ -37,15 +40,30 @@ def raw_bars(symbol):
     return (d, o, h, l, c, v) if c else None
 
 
-def ex_dates(dates, closes):
-    """[(index, factor)] for every bar whose drop is too big to be a real trade."""
+def ex_dates(dates, closes, opens):
+    """[(index, factor)] for every bar whose fall was restated overnight rather than traded.
+
+    The gate is on the OPEN. Testing the close instead conflated two different events, because
+    NEPSE's circuit is no longer the +/-10% this module was written against — it is +/-15%, and
+    the tape proves it: 150 sessions close at >= +14.5%, and in 2026 the largest up move in the
+    entire market is exactly 15.00%. So every ordinary limit-down of -10.5% to -15% was being
+    read as a corporate action and the symbol's whole prior history rescaled behind it.
+
+    67 of the 139 events this used to flag were false positives, and they are not subtle: they
+    OPEN at +5.00% and close at -15.00%, which is a session that traded, not a price that was
+    restated. 48 symbols had their entire pre-event history multiplied by a fabricated factor —
+    NIL by 0.34, CORBL by 0.49, ULHC by 0.62 — and every consumer of bars() saw the invention.
+
+    The factor is still measured close-to-close, so the 72 genuine adjustments are unchanged.
+    """
     out = []
     for i in range(1, len(closes)):
         prev = closes[i - 1]
         if prev <= 0:
             continue
         f = closes[i] / prev
-        if (f - 1) <= CIRCUIT_DROP and f >= MIN_FACTOR:
+        gap = opens[i] / prev - 1              # what was already gone before a share changed hands
+        if gap <= CIRCUIT_DROP and f >= MIN_FACTOR:
             out.append((i, f))
     return out
 

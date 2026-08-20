@@ -299,8 +299,8 @@ def last_line(path, tail=4096):
     return rows[-1] if rows else ""
 
 
-@st.cache_data(show_spinner=False, ttl=30)
-def archive_state():
+@st.cache_data(show_spinner=False)
+def archive_state(_stamp=0.0):
     """Newest stamp in every store, and how many symbols actually reach it.
 
     'Behind' is the number that stop short of the newest date anyone has — a symbol that
@@ -334,24 +334,19 @@ def archive_state():
     newest = max(stamps, default="")
     out["Broker flow"] = (newest, sum(1 for s in stamps if s != newest), len(stamps))
 
-    spike = MASTER / "volume_spike.txt"
-    spike_day = ""
-    if spike.exists():
-        f = last_line(spike).split("	")
-        spike_day = f[2] if len(f) > 2 else ""
-    spike_n = sum(1 for _ in spike.open(encoding="utf-8")) - 1 if spike.exists() else 0
-    out["Volume spike"] = (spike_day, 0, spike_n)   # one row per window, not per symbol
+    def by_date(path, col):
+        """(newest date, rows not at it, total). MAX, not the last line: these two files are
+        sorted by rank, not by date, so the physical last row is routinely an older session."""
+        if not path.exists():
+            return "", 0, 0
+        ds = [f[col] for f in (l.split("	") for l in
+                               path.read_text(encoding="utf-8").splitlines()[1:])
+              if len(f) > col and f[col]]
+        newest = max(ds, default="")
+        return newest, sum(1 for d in ds if d != newest), len(ds)
 
-    scan = MASTER / "scan.txt"
-    scan_day = last_line(scan).split("	")[1] if scan.exists() else ""
-    scan_rows, scan_behind = 0, 0
-    if scan.exists():
-        for line in scan.read_text(encoding="utf-8").splitlines()[1:]:
-            f = line.split("	")
-            if len(f) > 1:
-                scan_rows += 1
-                scan_behind += (f[1] != scan_day)      # a real count, not a hardcoded zero
-    out["Signal scan"] = (scan_day, scan_behind, scan_rows)
+    out["Volume spike"] = by_date(MASTER / "volume_spike.txt", 2)
+    out["Signal scan"] = by_date(MASTER / "scan.txt", 1)
     return out
 
 
@@ -1390,16 +1385,39 @@ _qp_page = st.query_params.get("page")
 page = st.sidebar.radio("Menu", PAGES, index=PAGES.index(_qp_page) if _qp_page in PAGES else 0,
                         label_visibility="collapsed", key="nav")
 
-# One freshness line for the WHOLE app. It used to live on the Cron page alone, so a failed fetch
-# left every other page showing stale numbers with no hint they were stale.
-_state = archive_state()
+# One freshness line for the WHOLE app. `_stale` only compares the stores to EACH OTHER, and one
+# pipeline fills all of them — so a whole-pipeline stall freezes them in lockstep and that check
+# stays empty forever. It printed a green "archive current" over two-day-old prices. State the
+# AGE against the NPT calendar instead: a fact the trader reads, not a verdict the app gets wrong.
+# NPT, not the system clock — the VPS runs UTC and is a day out for ~6h daily.
+_state = archive_state(file_stamp(MASTER / "scan.txt"))
 _session = max((v[0][:10] for v in _state.values() if v[0]), default="")
 _stale = [k for k, (stamp, _b, _t) in _state.items() if stamp and stamp[:10] != _session]
+def _missed_sessions(newest):
+    """NEPSE trades Sun-Thu, so calendar age lies: Thursday data read on Sunday is 3 days old and
+    perfectly current, while Tuesday data read on Thursday has missed a real session. Count the
+    trading days that have passed since `newest` instead. Holidays only ever inflate this, which
+    is why 1 missed session is still treated as fine — today's 15:15 job may simply not have run."""
+    try:
+        d = date_cls.fromisoformat(newest)
+    except ValueError:
+        return None
+    today, n = datetime.now(NPT).date(), 0
+    while d < today:
+        d += timedelta(days=1)
+        if d.weekday() not in (4, 5):         # Mon=0 ... Fri=4, Sat=5 are not trading days
+            n += 1
+    return n
+
+
+_missed = _missed_sessions(_session) if len(_session) == 10 else None
 if _session:
+    _ok = _missed is not None and _missed <= 1 and not _stale
     st.sidebar.caption(
-        (f"🟢 archive current · **{_session}**" if not _stale
-         else f"🟠 **{_session}** · behind: {', '.join(_stale)}")
-        + "  ·  [Cron](?page=Cron)")
+        (f"🟢 archive · **{_session}**" if _ok else f"🟠 archive · **{_session}**")
+        + ("" if not _missed else
+           f" · {_missed} NEPSE session{'s' if _missed > 1 else ''} behind")
+        + (f" · stores behind: {', '.join(_stale)}" if _stale else ""))
 if st.query_params.get("page") != page:
     st.query_params["page"] = page
 st.sidebar.divider()
@@ -1409,22 +1427,26 @@ st.sidebar.divider()
 overlays = []
 oscillator = "None"
 
-with st.sidebar.expander("🧠  Personal indicators", expanded=False):
-    st.caption("SMC — ported from Pine, computed in Python")
+with st.sidebar.expander("🧠  Personal indicators (chart + Scanner)", expanded=False):
+    st.caption("SMC — ported from Pine, computed in Python. The sensitivities below feed the "
+               "Scanner and Backtest too, not just the chart drawing.")
 
+    # The sliders render unconditionally on purpose. They used to be `... if <checkbox> else
+    # <default>`, and a widget Streamlit does not render has its state DELETED — so unticking a
+    # box silently reset the sensitivity that scan.py and the Backtest equity curve are computed
+    # from, changing which symbols came back. The checkboxes still gate the DRAWING only.
     smc_wave = st.checkbox("Trend wave (ALMA)", value=False)
-    wave_len = st.slider("Wave period", 5, 100, 21, key="wave_len") if smc_wave else 21
+    wave_len = st.slider("Wave period", 5, 100, 21, key="wave_len")
 
     smc_struct = st.checkbox("Structure BOS / CHoCH", value=False)
-    smc_sens = st.slider("Structure sensitivity", 2, 30, 7, key="smc_sens") if smc_struct else 7
+    smc_sens = st.slider("Structure sensitivity", 2, 30, 7, key="smc_sens")
 
     smc_badges = st.checkbox("Swing BUY / SELL badges", value=False)
-    sig_sens = st.slider("Swing sensitivity", 3, 50, 10, key="sig_sens") if smc_badges else 10
-    if smc_badges:
-        st.caption("⚠ a swing is only confirmed this many bars later — historical marks, not live calls")
+    sig_sens = st.slider("Swing sensitivity", 3, 50, 10, key="sig_sens")
+    st.caption("⚠ a swing is only confirmed this many bars later — historical marks, not live calls")
 
     smc_sd = st.checkbox("−2.5 SD target", value=False)
-    sd_len = st.slider("SD period", 5, 100, 20, key="sd_len") if smc_sd else 20
+    sd_len = st.slider("SD period", 5, 100, 20, key="sd_len")
 
 st.sidebar.caption(f"{len(names)} instruments · {sum(1 for v in names.values() if v == 'indices')} indices")
 
@@ -3250,7 +3272,11 @@ if page == "Cron":
         "Store": label,
         "Last data": stamp or "—",
         "At newest": f"{total - behind:,} / {total:,}" if total else "—",
-        "Fresh": "yes" if stamp and stamp[:10] == session else "no",
+        # same absolute rule as the sidebar — "yes" used to mean "agrees with the other
+        # stores", which is "yes" for every row when the whole pipeline has stalled
+        "Fresh": ("—" if not stamp else
+                  "yes" if stamp[:10] == session and (_missed is not None and _missed <= 1)
+                  else "no"),
     } for label, (stamp, behind, total) in state.items()]), width="stretch", hide_index=True)
 
     # --- MASTER pipeline: one Run-all + one timer, jobs run strictly one-by-one, colour-highlighted
