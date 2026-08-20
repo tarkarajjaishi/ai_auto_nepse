@@ -879,6 +879,7 @@ def render_index_heatmap(rows):
         textfont=dict(size=15, color=[_hm_ink(c) for c in changes]),
         textposition="middle center", hovertemplate="%{label}<extra></extra>", tiling=dict(pad=3)))
     fig.update_layout(margin=dict(t=0, l=0, r=0, b=0), uirevision="idx-heatmap",
+                      height=HM_HEIGHT,
                       transition=dict(duration=350, easing="cubic-in-out"),
                       paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
     # key= keeps ONE component across reruns: Plotly then animates tiles to their new
@@ -1068,6 +1069,7 @@ def render_stock_heatmap(rows):
                                       + [_hm_ink(r["chg"]) for r in rows])),
         textposition="middle center"))
     fig.update_layout(margin=dict(t=0, l=0, r=0, b=0), uirevision="stock-heatmap",
+                      height=HM_HEIGHT,
                       transition=dict(duration=350, easing="cubic-in-out"),
                       paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
     # key= keeps ONE component across reruns: Plotly then animates tiles to their new
