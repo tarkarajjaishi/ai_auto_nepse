@@ -176,12 +176,22 @@ st.markdown("""
      space under it. Re-establish the chain through whatever Streamlit nests in here. */
   .st-key-mainchart > div,
   .st-key-mainchart [data-testid="stVerticalBlockBorderWrapper"],
-  .st-key-mainchart [data-testid="stVerticalBlock"],
-  .st-key-mainchart [data-testid="stElementContainer"] {
+  .st-key-mainchart [data-testid="stVerticalBlock"] {
       display: flex !important; flex-direction: column !important;
       flex: 1 1 0 !important; min-height: 0 !important; }
+  /* only the chart element stretches — matching every stElementContainer made the legend and
+     the segmented control stretch too, and they spilled over the header */
+  .st-key-mainchart [data-testid="stElementContainer"]:has(.stPlotlyChart),
   .st-key-mainchart .stPlotlyChart,
   .st-key-mainchart .js-plotly-plot { flex: 1 1 0 !important; min-height: 0 !important; }
+
+  /* Value-change flash. A permanent square is noise on 15 rows; an animation fires only on the
+     render where the number actually moved, then fades. The whole table is re-rendered each
+     poll, so an unchanged cell simply never carries the class and never animates. */
+  @keyframes tickUp   { from { background: rgba(63,185,80,.45); } to { background: transparent; } }
+  @keyframes tickDown { from { background: rgba(248,81,73,.45); } to { background: transparent; } }
+  td.tick-up { animation: tickUp 1s ease-out 1; }
+  td.tick-dn { animation: tickDown 1s ease-out 1; }
 
   /* Cron "job running" animation — an indeterminate sliding bar + pulsing label */
   .cron-run { position: relative; height: 7px; border-radius: 4px; overflow: hidden;
@@ -798,34 +808,24 @@ def _tick_memory():
     return {}
 
 
-def tick_mark(key, value, pad="4px 10px"):
-    """A square that flags this cell as UP / DOWN / unchanged since the previous draw.
+def tick_class(key, value):
+    """CSS class for a cell whose value moved on THIS render: '' / 'tick-up' / 'tick-dn'.
 
-    Colour alone would be invisible to a colourblind eye and in a screenshot, so the square
-    carries an arrow too. Grey means the value did not move on this poll — that is information,
-    not absence of it: on a thin scrip it is how you tell 'quiet' from 'stalled feed'.
+    A class, not a coloured div. The div sat there permanently on all 15 rows and read as
+    clutter; and because the table is re-rendered every poll, the browser replays the animation
+    only for cells that carry the class on that render — so the flash means "this number just
+    moved", which is precisely the signal wanted.
     """
     mem = _tick_memory()
     try:
         v = float(value)
     except (TypeError, ValueError):
         return ""
-    last, up, since = mem.get(key, (None, None, ""))
-    if last is None:
-        mem[key] = (v, None, "")                       # first sight: nothing to compare against
-    elif v != last:
-        up, since = v > last, f"{last:,.2f}"
-        mem[key] = (v, up, since)                      # a REAL move — remember its direction
-    # else: unchanged this poll, so keep whatever direction we last recorded. Resetting to grey
-    # here is what made every marker flash green for one second and then vanish.
-    if up is None:
-        return ("<span title='no move yet this session' style='display:inline-block;width:9px;"
-                "height:9px;border-radius:2px;background:#3a4150;margin-right:6px'></span>")
-    col, arrow = ("#3fb950", "▲") if up else ("#f85149", "▼")
-    return (f"<span title='last move was {'up' if up else 'down'} from {since}' "
-            f"style='display:inline-block;width:9px;height:9px;border-radius:2px;"
-            f"background:{col};margin-right:6px'></span>"
-            f"<span style='color:{col};font-size:.8em'>{arrow}</span> ")
+    last = mem.get(key)
+    mem[key] = v
+    if last is None or v == last:
+        return ""                                      # no move on this render, no animation
+    return "tick-up" if v > last else "tick-dn"
 
 
 def render_index_table(rows, compact=False):
@@ -850,8 +850,9 @@ def render_index_table(rows, compact=False):
         body.append(
             f"<tr style='text-align:right;border-top:1px solid #20262f'>"
             f"<td style='text-align:left;padding:{pad};color:{col};font-weight:600'>{r.get('ticker')}</td>"
-            f"<td style='padding:{pad}'>{tick_mark('idx:' + str(r.get('ticker')), r.get('LTP'))}"
-            f"{n(r.get('LTP'))}</td><td style='padding:{pad}'>{n(r.get('High'))}</td>"
+            f"<td class='{tick_class('idx:' + str(r.get('ticker')), r.get('LTP'))}' "
+            f"style='padding:{pad}'>{n(r.get('LTP'))}</td>"
+            f"<td style='padding:{pad}'>{n(r.get('High'))}</td>"
             f"<td style='padding:{pad}'>{n(r.get('Low'))}</td><td style='padding:{pad}'>{n(r.get('Open'))}</td>"
             f"<td style='padding:{pad}'>{n(r.get('Close'))}</td>"
             f"<td style='padding:{pad};color:{col};font-weight:600'>{chg:+.2f}%</td></tr>")
