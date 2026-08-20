@@ -207,6 +207,42 @@ function SwingQuantamInner() {
             </div>
           )}
 
+          {/* The measured verdict, printed above the evidence rather than buried under it.
+              These numbers come from Master_data/swing_quantam/backtest.txt (spec sections
+              93-104): 36 symbols, 6,964 stock-days, 195 decision dates, 2022-01-25 to
+              2026-08-18, entry at the next session's open on corporate-action-adjusted bars.
+              They are hardcoded on purpose — they change only when someone re-runs the
+              backtest, and a stale "no edge" is the safe direction to be stale in. If the
+              engine's rules change, re-run it and update this block. */}
+          <div className="flex items-start gap-3 rounded-lg border border-down/40 bg-down/10 p-3.5 text-[13px]">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-down" />
+            <div className="text-muted-foreground">
+              <span className="font-medium text-foreground">
+                Backtested: this board has no demonstrated edge. Do not trade
+                the zones below.
+              </span>{" "}
+              Over 6,964 stock-days the buy zone returned{" "}
+              <span className="font-mono text-foreground">−0.86%</span> against
+              the same-day universe mean — worse than random entry (p 0.98), and
+              negative in{" "}
+              <span className="font-mono text-foreground">all five</span> years
+              tested. The swing score does not even rank: its bottom bucket wins
+              47.4% of the time and its top bucket 50.5%. Of 15 rule families
+              only 2 beat a random control at p&lt;0.05, and neither survives
+              the p&lt;0.0033 threshold that screening 15 rules requires — which
+              is what you get from data with no signal in it. Buy-and-hold over
+              the same dates returned a mean of +1.30% and a{" "}
+              <span className="font-mono text-foreground">
+                median of −0.43%
+              </span>
+              .{" "}
+              <span className="text-foreground">
+                Read the sections below as a description of what the floorsheet
+                did, not as a forecast.
+              </span>
+            </div>
+          </div>
+
           {/* ── why, and what argues against it ──────────────────────────────────────────── */}
           <section className="rounded-lg border border-border bg-card">
             <h3 className="border-b border-border px-4 py-2.5 text-[13px] font-semibold tracking-tight">
