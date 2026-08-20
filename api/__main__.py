@@ -123,7 +123,12 @@ def route(path, query):
               "collateral": account.collateral}.get(arg)
         if not fn:
             return 404, {"error": "account/holdings, account/orderbook or account/collateral"}
-        return 200, {"configured": True, **fn()}
+        try:
+            return 200, {"configured": True, **fn()}
+        except account.UpstreamChanged as e:
+            # 503, not 500: the server is fine, the dependency is gone. `upstream` lets the page
+            # say so plainly instead of showing a stack-flavoured 500 that reads like our bug.
+            return 503, {"error": str(e), "configured": True, "upstream": "naasa"}
 
     if head in ("report", "scorecard", "questions") and arg:
         import swing_pro

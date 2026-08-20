@@ -18,6 +18,8 @@ hold it in place and both are enforced here rather than trusted to the caller:
 The credentials live on the box in Master_data/naasa_login.txt and never leave it; this module
 returns numbers, not the session.
 """
+import urllib.error
+
 import naasa
 
 # Group [3] is collateral, [2] holdings totals, [1] trade summary, [0] order summary. Only these
@@ -51,6 +53,10 @@ def configured():
     return bool(email and password)
 
 
+class UpstreamChanged(RuntimeError):
+    """NAASA's own app changed shape — nothing on our side can be signed in to."""
+
+
 def _creds():
     email, password = naasa.load_credentials()
     if not (email and password):
@@ -60,8 +66,35 @@ def _creds():
     return email, password
 
 
+def _guard(fn):
+    """Run a NAASA call, and name the failure when it is theirs rather than ours.
+
+    Verified on 2026-08-20: x.naasasecurities.com.np is now a Next.js SPA. /MarketOrder/Order —
+    the page every account call scrapes hdnLogin/hdnSession from — returns 404, the login page no
+    longer mentions Keycloak at all, and the old authorize URL answers 400 "Invalid parameter:
+    redirect_uri" for the `blaze` client on every redirect_uri we can form. So the whole X-app
+    integration is dead upstream: login, order book, holdings, collateral, batch quotes, indices
+    and the WebSocket feed.
+
+    Without this, the page renders a bare "HTTP Error 400: Bad Request", which reads like OUR bug
+    and sends the next person debugging our code instead of theirs.
+    """
+    try:
+        return fn()
+    except urllib.error.HTTPError as e:
+        if e.code in (400, 404) and "naasasecurities" in str(getattr(e, "url", "") or ""):
+            raise UpstreamChanged(
+                "NAASA replaced the X app with a new single-page app, so the login flow this "
+                "integration uses no longer exists. Their authorize URL rejects our redirect_uri "
+                "and /MarketOrder/Order — the page holdings and orders are scraped from — is now "
+                "a 404. This affects the Streamlit NAASA page and the live socket feed too; it is "
+                "not specific to this screen, and nothing here can fix it without re-reading how "
+                "their new app authenticates.") from e
+        raise
+
+
 def holdings():
-    rows = naasa.x_holdings(*_creds())
+    rows = _guard(lambda: naasa.x_holdings(*_creds()))
     out = []
     for r in rows:
         out.append({
@@ -77,7 +110,7 @@ def holdings():
 
 
 def orderbook():
-    rows = naasa.x_orderbook(*_creds())
+    rows = _guard(lambda: naasa.x_orderbook(*_creds()))
     out = []
     for r in rows:
         out.append({
@@ -94,7 +127,7 @@ def orderbook():
 
 def collateral():
     """The dashboard money figures, allow-listed. Group [4] (client PII) can never come through."""
-    payload = naasa.x_collateral(*_creds())
+    payload = _guard(lambda: naasa.x_collateral(*_creds()))
     flat = {}
     for group in (payload.get("Data") or []):
         row = group[0] if isinstance(group, list) and group else group

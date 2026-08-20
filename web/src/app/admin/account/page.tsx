@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { CircleAlert, Eye, KeyRound } from "lucide-react";
+import { CircleAlert, Eye, KeyRound, PlugZap } from "lucide-react";
 
 import { StatTile } from "@/components/stat-tile";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -32,10 +32,13 @@ export default function AccountPage() {
     retry: false,
   });
 
-  // 503 means "no login saved on the box" — a setup step, not a failure. Anything else is real.
-  const notConfigured = [holdings, orders, coll].some(
+  // Two different 503s, and conflating them would send someone to re-enter a password that was
+  // never the problem. `configured: false` is a setup step; anything else 503 is NAASA itself.
+  const blocked = [holdings, orders, coll].find(
     (q) => q.error instanceof ApiError && q.error.status === 503,
-  );
+  )?.error as ApiError | undefined;
+  const notConfigured = blocked?.message.includes("No NAASA login") ?? false;
+  const upstreamGone = Boolean(blocked) && !notConfigured;
   const f = coll.data?.fields ?? {};
   const value = holdings.data?.rows.reduce((a, r) => a + (r.value ?? 0), 0) ?? null;
   const day = holdings.data?.rows.reduce((a, r) => a + (r.day_change ?? 0), 0) ?? null;
@@ -52,7 +55,20 @@ export default function AccountPage() {
         </span>
       </div>
 
-      {notConfigured ? (
+      {upstreamGone ? (
+        <div className="flex max-w-3xl items-start gap-3 rounded-lg border border-primary/40 bg-primary/10 p-4 text-[13px]">
+          <PlugZap className="mt-0.5 size-4 shrink-0 text-primary" />
+          <div>
+            <div className="font-medium">NAASA changed their app — this data is unreachable.</div>
+            <p className="mt-1 text-muted-foreground">{blocked?.message}</p>
+            <p className="mt-2 text-muted-foreground">
+              Everything else in this terminal is unaffected: the boards, the floorsheet and the
+              heatmap all read the archive, and the archive is still being filled from chukul.com.
+              This screen is the only one that needed a broker session.
+            </p>
+          </div>
+        </div>
+      ) : notConfigured ? (
         <div className="flex max-w-2xl items-start gap-3 rounded-lg border border-border bg-muted/40 p-4 text-[13px]">
           <KeyRound className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
           <div>
