@@ -107,14 +107,25 @@ def holdings():
     rows = _guard(lambda: naasa.x_holdings(*_creds()))
     out = []
     for r in rows:
+        # NAASA's rebuilt API renamed two of these and dropped a third, so each falls back to the
+        # old name: ValueAsOfLTP -> MarketValue, WACC -> HoldAvgPrice, and DayGainLoss is simply
+        # gone. Without the fallbacks every one of them renders as an em dash on the account page.
+        qty = _num(r.get("AvailableQty"))
+        ltp = _num(r.get("LastTradedPrice"))
+        close = _num(r.get("ClosePrice"))
+        value = _num(r.get("MarketValue")) or _num(r.get("ValueAsOfLTP"))
+        day = _num(r.get("DayGainLoss"))
+        if day is None and None not in (qty, ltp, close):
+            day = round((ltp - close) * qty, 2)   # what DayGainLoss was, computed the same way
         out.append({
             "symbol": r.get("NEPSECode") or r.get("Scrip"),
-            "quantity": _num(r.get("AvailableQty")),
-            "ltp": _num(r.get("LastTradedPrice")),
-            "close": _num(r.get("ClosePrice")),
-            "value": _num(r.get("ValueAsOfLTP")),
-            "day_change": _num(r.get("DayGainLoss")),
-            "wacc": _num(r.get("WACCValue") or r.get("WACC")),
+            "quantity": qty,
+            "ltp": ltp,
+            "close": close,
+            "value": value if value is not None else (
+                round(ltp * qty, 2) if None not in (ltp, qty) else None),
+            "day_change": day,
+            "wacc": _num(r.get("HoldAvgPrice") or r.get("WACCValue") or r.get("WACC")),
         })
     return {"rows": [r for r in out if r["symbol"]], "count": len(out)}
 

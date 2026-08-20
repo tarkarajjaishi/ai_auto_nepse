@@ -632,14 +632,14 @@ def _decode_report(data):
     return data
 
 
-def x_api(email, password, path, body=None, retry=True):
+def x_api(email, password, path, body=None, retry=True, method="POST"):
     """POST one of the new SPA's `/api/*` routes with the NextAuth session, and decode it.
 
     Same retry/stale semantics as x_report below; `path` is a full route ("/api/report") rather
     than the old controller/action pair, because the rebuilt app is a Next.js API, not ASP.NET
     controllers.
     """
-    return _x_call(email, password, path, body, retry)
+    return _x_call(email, password, path, body, retry, method)
 
 
 def x_report(email, password, controller, action, body=None, retry=True):
@@ -648,7 +648,7 @@ def x_report(email, password, controller, action, body=None, retry=True):
     return _x_call(email, password, "/" + controller + "/" + action, body, retry)
 
 
-def _x_call(email, password, path, body=None, retry=True):
+def _x_call(email, password, path, body=None, retry=True, method="POST"):
     """POST `/<controller>/<action>` on the X app (shared feed session) → decoded report. The app's
     `ExecuteAPI(POST, action, controller, body)` helper: JSON body, `{errorCode, data}` envelope
     where `data` is base64(JSON). Re-logs in once on failure (stale session).
@@ -660,7 +660,7 @@ def _x_call(email, password, path, body=None, retry=True):
         s = _x_login(email, password, force=(attempt == 1))
         req = urllib.request.Request(
             X_APP + path,
-            data=json.dumps(body or {}).encode(), method="POST",
+            data=json.dumps(body or {}).encode(), method=method,
             headers={"Content-Type": "application/json; charset=utf-8",
                      "X-Requested-With": "XMLHttpRequest", "Accept": "application/json"})
         try:
@@ -774,28 +774,34 @@ def x_collateral(email, password):
 ORDER_TERMS = ("DAY", "GTD", "GTC", "IOC", "FOK")
 
 # The constant leg of every order object. The backend answers "-102 Wrong Request Object" when a
-# key is missing, so these ride along even though they never vary.
-_ORDER_FIXED = {"DeliveryTerms": "D", "MarketSegment": "RL", "OrderCategory": "NORMAL",
-                "OrderType": "NORMAL", "AccRefCode": "SELF", "ProductType": "CASH",
-                "DisclosedQuantity": ""}
 
 
-def _order_endpoint_gone():
-    raise RuntimeError(
-        "Order placement is not wired to NAASA's new app yet. The old /MarketOrder/* endpoints "
-        "are gone; the replacements are /api/trading/order and /api/trading/amo, whose request "
-        "shape has NOT been read off their client and must not be guessed — this is a money path. "
-        "Holdings, the order book and collateral are working again; only placing, modifying and "
-        "cancelling are unported.")
+
+def _valid_till(iso):
+    """GTD dates go up as DD-MON-YY. Their own builder splits an ISO date and rebuilds it that
+    way, so `2026-08-29` becomes `29-AUG-26`."""
+    y, m, d = str(iso).split("-")
+    mon = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+           "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"][int(m) - 1]
+    return "%s-%s-%s" % (d, mon, y[-2:])
 
 
 def order_body(scrip, side, quantity, price, terms="DAY", term_validity="", exchange="NEPSE"):
-    """Build and validate the payload for ONE new order. Pure and side-effect free on purpose —
-    the field set is what decides whether the right trade happens, so it must be testable without
-    sending anything.
+    """Build and validate the payload for ONE new order on the rebuilt API.
 
-    A `price` of 0 is the screen's MARKET-order flag (it flips `Market` to "1"); any other price
-    is a limit. Quantity rules are the screen's own ValidatePlaceOrder(): a whole number, 1..1e8-1.
+    Read field-for-field off the order screen's own bundle:
+
+        BuySellType  "Buy" / "Sell"
+        DeliveryFlag "DEL" on a buy, "AUTO" on a sell   <- new, and asymmetric
+        OrderTerms   DAY / GTC / IOC / FOK / GTD
+        OrderType    "MKT" for a market order, else "NORMAL"
+        Price        "0" for a market order, else the limit
+        Quantity, Scrip
+        ValidTill    only when OrderTerms is GTD, as DD-MON-YY
+
+    A market order is OrderType "MKT" + Price "0" — the old app's Market="1" flag is gone, and
+    sending the old shape here would be silently wrong rather than rejected. `exchange` is
+    accepted for call compatibility and no longer sent; the new API infers it.
     """
     side = str(side).upper().strip()
     if side not in ("BUY", "SELL"):
@@ -812,21 +818,22 @@ def order_body(scrip, side, quantity, price, terms="DAY", term_validity="", exch
         raise ValueError("terms must be one of %s, got %r" % (ORDER_TERMS, terms))
     if terms == "GTD" and not term_validity:
         raise ValueError("a GTD order needs a term_validity date")
-    body = dict(_ORDER_FIXED)
-    body.update({
-        "TradingAccount": "CNC", "Exchange": exchange, "Scrip": str(scrip).upper().strip(),
-        "Quantity": str(qty), "Price": "0" if px == 0 else ("%g" % px),
-        "Market": "1" if px == 0 else "0",
-        "OrderTerms": terms, "TermValidity": term_validity,
-        "BuySellIndicator": "B" if side == "BUY" else "S",
+    body = {
         "BuySellType": "Buy" if side == "BUY" else "Sell",
-        "isSquareOff": 0,
-    })
+        "DeliveryFlag": "DEL" if side == "BUY" else "AUTO",
+        "OrderTerms": terms,
+        "OrderType": "MKT" if px == 0 else "NORMAL",
+        "Price": "0" if px == 0 else ("%g" % px),
+        "Quantity": qty,
+        "Scrip": str(scrip).upper().strip(),
+    }
+    if terms == "GTD":
+        body["ValidTill"] = _valid_till(term_validity)
     return body
 
 
-# Substrings, not exact matches: the status vocabulary is only partly known (REJECTED is the one
-# the app's own JS tests for) and NAASA writes both CANCELLED and CANCELED in different places.
+# Substrings, not exact matches: the status vocabulary is only partly known and NAASA writes both
+# CANCELLED and CANCELED in different places.
 _FINISHED = ("TRADED", "COMPLETE", "CANCEL", "REJECT", "EXPIR")
 
 
@@ -849,40 +856,55 @@ def order_is_working(row):
         return True              # no usable quantity; the status did not say finished
 
 
+def _residue(row):
+    """The quantity still working on an order — what their `ql()` helper resolves to."""
+    for key in ("RemainingQty", "Quantity", "TotalQuantity"):
+        v = row.get(key)
+        if v not in (None, "", "-"):
+            return v
+    return 0
+
+
 def cancel_body(row):
-    """Payload to cancel ONE open order, built from its order-book row. The screen rebuilds the
-    whole order object and adds OrderId/TranId (both = BrokerTranID); note TradingAccount is BLANK
-    here, unlike a new order."""
-    tran = row.get("BrokerTranID") or row.get("LatestOrderID")
-    if not tran:
-        raise ValueError("order row carries no BrokerTranID — nothing to cancel")
+    """Payload to cancel ONE working order, from its order-book row.
+
+    Their builder is `U(order)` and it is sent as **DELETE** /api/trading/order — not a POST to a
+    separate cancel action, as the old app did.
+    """
+    tran = row.get("BrokerTranID") or row.get("TranId") or ""
+    order_id = row.get("LatestOrderID") or row.get("OrderId") or row.get("OrderNo") or ""
+    if not (tran or order_id):
+        raise ValueError("order row carries no BrokerTranID/LatestOrderID — nothing to cancel")
     if not order_is_working(row):
         raise ValueError("order %s is %s — there is nothing left to cancel"
-                         % (tran, row.get("OrderStatus") or "already finished"))
-    side = str(row.get("B/S") or row.get("BuySellIndicator") or row.get("BuySellType") or "").upper()
-    if not side.startswith(("B", "S")):
-        raise ValueError("order row has no readable buy/sell side: %r" % (side,))
-    body = dict(_ORDER_FIXED)
-    body.update({
-        "TradingAccount": "", "Exchange": row.get("Exchange") or "NEPSE",
-        "Scrip": row.get("Scrip"), "Quantity": row.get("RemainingQty"),
-        "Price": row.get("Price"), "Market": "0", "OrderTerms": "", "TermValidity": "",
-        "BuySellIndicator": "B" if side.startswith("B") else "S",
-        "BuySellType": "Buy" if side.startswith("B") else "Sell",
-        "OrderId": tran, "TranId": tran, "AMOBulkIndicator": row.get("OrderStatus"),
-    })
-    return body
+                         % (order_id or tran, row.get("OrderStatus") or "already finished"))
+    return {
+        "OrderStatus": row.get("OrderStatus"),
+        "BuySellType": row.get("BuySellType"),
+        # An order-book row has no DeliveryFlag — it reports the same thing as TradeType ("DEL"
+        # on the buy we checked). Their client skips straight to the literal "DEL", which would
+        # cancel a SELL under the wrong flag; reading TradeType first is right on both sides and
+        # falls back to their behaviour when it is absent.
+        "DeliveryFlag": row.get("DeliveryFlag") or row.get("TradeType") or "DEL",
+        "OrderTerms": row.get("OrderTerms") or "DAY",
+        "OrderType": "NORMAL",
+        "Price": row.get("Price") or "0",
+        "Quantity": _residue(row),
+        "Scrip": row.get("Scrip"),
+        "OrderId": str(order_id),
+        "TranId": str(tran),
+    }
 
 
 def modify_body(row, quantity, price, terms="DAY", term_validity=""):
-    """Payload to change a working order's quantity/price (POST /MarketOrder/ModifyOrder).
+    """Payload to change a working order's quantity/price.
 
-    The screen rebuilds the whole order object and adds the identifiers, so this is `order_body`
-    plus OrderId/TranId (both = BrokerTranID) and **OriginalRemainingQty**, which is what the
-    exchange matches the amendment against — send the new quantity there and the change is
-    rejected or, worse, applied to the wrong residue.
+    Their screen sends the same object a NEW order uses, plus the identifiers — TranId and OrderId
+    both set to the order's transaction id, the existing OrderStatus (defaulting to ACCEPTED), and
+    **OriginalRemainingQty**, which is what the exchange matches the amendment against. Put the new
+    quantity in that field and the change lands on the wrong residue.
     """
-    tran = row.get("BrokerTranID") or row.get("LatestOrderID")
+    tran = row.get("BrokerTranID") or row.get("TranId") or row.get("LatestOrderID") or ""
     if not tran:
         raise ValueError("order row carries no BrokerTranID — nothing to modify")
     if not order_is_working(row):
@@ -890,18 +912,17 @@ def modify_body(row, quantity, price, terms="DAY", term_validity=""):
                          % (tran, row.get("OrderStatus") or "already finished"))
     side = str(row.get("B/S") or row.get("BuySellIndicator") or row.get("BuySellType") or "")
     body = order_body(row.get("Scrip"), "BUY" if side.upper().startswith("B") else "SELL",
-                      quantity, price, terms, term_validity,
-                      exchange=row.get("Exchange") or "NEPSE")
-    body.update({"OrderId": tran, "TranId": tran,
-                 "OriginalRemainingQty": row.get("RemainingQty"),
-                 "AMOBulkIndicator": row.get("OrderStatus")})
+                      quantity, price, terms, term_validity)
+    body.update({"TranId": str(tran), "OrderId": str(tran),
+                 "OrderStatus": row.get("OrderStatus") or "ACCEPTED",
+                 "OriginalRemainingQty": _residue(row)})
     return body
 
 
 def x_modify_order(email, password, row, quantity, price, terms="DAY", term_validity=""):
     """Amend a working order. No auto-retry, same reason as x_place_order."""
-    modify_body(row, quantity, price, terms, term_validity)          # still validates
-    _order_endpoint_gone()
+    return x_api(email, password, "/api/trading/order",
+                 modify_body(row, quantity, price, terms, term_validity), retry=False)
 
 
 def x_place_order(email, password, scrip, side, quantity, price, terms="DAY", term_validity=""):
@@ -910,14 +931,15 @@ def x_place_order(email, password, scrip, side, quantity, price, terms="DAY", te
     Returns the broker's envelope — `ErrorCode` 0 means accepted. Never auto-retries (see
     x_report's `retry`): a duplicate order is far worse than a failed one the caller can repeat.
     """
-    order_body(scrip, side, quantity, price, terms, term_validity)   # still validates
-    _order_endpoint_gone()
+    body = order_body(scrip, side, quantity, price, terms, term_validity)
+    return x_api(email, password, "/api/trading/order", body, retry=False)
 
 
 def x_cancel_order(email, password, row):
     """Cancel one open order, given its order-book row. No auto-retry, as for x_place_order."""
-    cancel_body(row)                                                 # still validates
-    _order_endpoint_gone()
+    # DELETE, not POST — their screen sends method "delete" to the same /api/trading/order.
+    return x_api(email, password, "/api/trading/order", cancel_body(row), retry=False,
+                 method="DELETE")
 
 
 def feed_ws_url(user_id, session, client_ip):

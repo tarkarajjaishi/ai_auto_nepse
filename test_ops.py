@@ -328,21 +328,33 @@ def test_order_body_is_exactly_what_the_screen_sends():
     """A missing or renamed key is rejected as "-102 Wrong Request Object"; a wrong VALUE trades
     the wrong thing, silently and for real. So pin the whole payload, not a sample of it."""
     b = naasa.order_body(" nabil ", "buy", 10, 549.5)
-    assert set(b) == {
-        "TradingAccount", "Exchange", "Scrip", "Quantity", "Price", "Market", "OrderTerms",
-        "TermValidity", "BuySellIndicator", "BuySellType", "DeliveryTerms", "MarketSegment",
-        "OrderCategory", "OrderType", "AccRefCode", "ProductType", "DisclosedQuantity",
-        "isSquareOff"}, sorted(b)
-    assert b["Scrip"] == "NABIL" and b["Exchange"] == "NEPSE"
-    assert b["Quantity"] == "10" and b["Price"] == "549.5"
-    assert b["BuySellIndicator"] == "B" and b["BuySellType"] == "Buy"
-    assert b["Market"] == "0", "a priced order must go as a LIMIT order"
-    assert b["TradingAccount"] == "CNC"
+    assert set(b) == {"BuySellType", "DeliveryFlag", "OrderTerms", "OrderType", "Price",
+                      "Quantity", "Scrip"}, sorted(b)
+    assert b["Scrip"] == "NABIL"
+    assert b["Quantity"] == 10 and b["Price"] == "549.5"
+    assert b["BuySellType"] == "Buy"
+    assert b["OrderType"] == "NORMAL", "a priced order must go as a LIMIT order"
+    assert b["DeliveryFlag"] == "DEL"
 
-    # price 0 IS the screen's market-order flag — the two must never drift apart
+    # price 0 IS the screen's market-order flag — the two must never drift apart, and on this
+    # API that is OrderType MKT rather than the old Market="1" field.
     m = naasa.order_body("NABIL", "SELL", 5, 0)
-    assert m["Market"] == "1" and m["Price"] == "0"
-    assert m["BuySellIndicator"] == "S" and m["BuySellType"] == "Sell"
+    assert m["OrderType"] == "MKT" and m["Price"] == "0"
+    assert m["BuySellType"] == "Sell"
+    # A sell delivers from the demat, a buy does not: the flag is asymmetric and getting it
+    # backwards is rejected at the broker, not by us.
+    assert m["DeliveryFlag"] == "AUTO"
+
+    # GTD is the only validity that carries a date, and it goes up as DD-MON-YY.
+    g = naasa.order_body("NABIL", "BUY", 1, 100, "GTD", "2026-08-29")
+    assert g["ValidTill"] == "29-AUG-26", g["ValidTill"]
+    assert "ValidTill" not in b, "a DAY order must not carry a validity date"
+    try:
+        naasa.order_body("NABIL", "BUY", 1, 100, "GTD")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("GTD with no date should have been rejected")
 
     for bad in (0, -1, 2.5, 100000000):
         try:
@@ -366,10 +378,22 @@ def test_order_body_is_exactly_what_the_screen_sends():
         raise AssertionError("a negative price should have been rejected")
 
     # cancel rebuilds the order and identifies it by BrokerTranID; TradingAccount is BLANK here
-    c = naasa.cancel_body({"Scrip": "NABIL", "B/S": "B", "RemainingQty": "10", "Price": "549.5",
-                           "BrokerTranID": "77123", "OrderStatus": "OPEN", "Exchange": "NEPSE"})
-    assert c["OrderId"] == "77123" and c["TranId"] == "77123"
-    assert c["TradingAccount"] == "" and c["BuySellIndicator"] == "B"
+    # A REAL order-book row, copied from the account (2026-08-20 SAHAS), part-filled here so it
+    # is still cancellable. Note what it does NOT contain: no DeliveryFlag, and OrderType reads
+    # "Add" — a value the request side would reject, which is why the body hardcodes NORMAL.
+    live = {"LatestOrderID": 9263601, "ExchangeOrderNo": "2026082005015954",
+            "ClientCode": "22607070507", "BrokerTranID": 9263601, "Exchange": "NEPSE",
+            "Scrip": "SAHAS", "B/S": "B", "RemainingQty": 4, "Price": "701.80",
+            "OrderTerms": "DAY", "TermValidity": "", "OrderStatus": "OPEN",
+            "TradingAccount": "CNC", "Quantity": 10, "MarketOrder": "1", "ErrorCode": 0,
+            "OrderCategory": "MARKET", "TradeType": "DEL", "OrderType": "Add",
+            "BuySellType": "Buy", "TotalQuantity": 10}
+    c = naasa.cancel_body(live)
+    assert c["TranId"] == "9263601" and c["OrderId"] == "9263601", (c["TranId"], c["OrderId"])
+    assert c["Quantity"] == 4, "a cancel names the RESIDUE, not the original size"
+    assert c["OrderType"] == "NORMAL", "the row's OrderType 'Add' must never be echoed back"
+    assert c["DeliveryFlag"] == "DEL", "absent DeliveryFlag falls back to TradeType"
+    assert naasa.cancel_body(dict(live, TradeType="AUTO"))["DeliveryFlag"] == "AUTO",         "a sell must not be cancelled under the buy flag"
     try:
         naasa.cancel_body({"Scrip": "NABIL", "B/S": "B"})
     except ValueError:
@@ -380,7 +404,7 @@ def test_order_body_is_exactly_what_the_screen_sends():
     # The order book returns TODAY's orders, filled ones included. Offering to cancel a trade
     # that already executed is the bug this guards: it shipped once, on the money screen.
     filled = {"Scrip": "SAHAS", "B/S": "B", "RemainingQty": "0", "Price": "701.80",
-              "BrokerTranID": "9263601", "OrderStatus": "TRADED", "Exchange": "NEPSE"}
+              "BrokerTranID": "9263601", "OrderStatus": "TRADED", "BuySellType": "Buy"}
     assert naasa.order_is_working(filled) is False, "a TRADED order is not working"
     try:
         naasa.cancel_body(filled)
@@ -400,15 +424,21 @@ def test_order_body_is_exactly_what_the_screen_sends():
     working = dict(filled, OrderStatus="OPEN", RemainingQty="10")
     m = naasa.modify_body(working, 4, 705.0)
     assert m["OriginalRemainingQty"] == "10", m["OriginalRemainingQty"]
-    assert m["Quantity"] == "4" and m["Price"] == "705", (m["Quantity"], m["Price"])
+    assert m["Quantity"] == 4 and m["Price"] == "705", (m["Quantity"], m["Price"])
     assert m["OrderId"] == m["TranId"] == "9263601"
-    assert m["BuySellIndicator"] == "B", "side comes from the order, not from the caller"
+    assert m["BuySellType"] == "Buy", "side comes from the order, not from the caller"
     try:
         naasa.modify_body(filled, 4, 705.0)
     except ValueError:
         pass
     else:
         raise AssertionError("a filled order must not produce a modify request")
+
+    # A cancel is a DELETE to the same path. Sent as a POST it reads as a NEW order at the
+    # residue price — the single worst way for this to fail.
+    src = Path("naasa.py").read_text(encoding="utf-8")
+    fn = src[src.index("def x_cancel_order("):src.index("def ", src.index("def x_cancel_order(") + 5)]
+    assert 'method="DELETE"' in fn, "x_cancel_order must send DELETE, not POST"
 
     print("  naasa.order_body    full payload pinned; qty/side/price rules enforced")
 
