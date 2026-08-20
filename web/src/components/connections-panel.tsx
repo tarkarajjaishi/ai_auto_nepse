@@ -60,13 +60,26 @@ export function ConnectionsPanel() {
              c={q.data?.swp} loading={q.isPending} />
       </div>
 
-      <p className="border-t border-border px-4 py-2.5 text-[12px] text-muted-foreground">
-        Signing in is not possible from here. Both logins are stored on the server, not in your
-        browser — that is what lets the scheduled jobs and the live feed share one session — and
-        this API has no write route by design. To change a login, sign in on the Streamlit app
-        under <span className="font-mono">NAASA account</span> or{" "}
-        <span className="font-mono">SmartWealthPro</span> with Remember me.
-      </p>
+      <div className="space-y-1.5 border-t border-border px-4 py-2.5 text-[12px] text-muted-foreground">
+        <p>
+          <span className="font-medium text-foreground">Where the email and password go:</span>{" "}
+          open{" "}
+          <a href="/" className="font-mono text-foreground underline underline-offset-2">
+            ai.tarkarajjaishi.com.np/
+          </a>{" "}
+          (the Streamlit app, this same login), then in the <em>left sidebar</em> expand{" "}
+          <span className="font-mono">🔐 NAASA account</span> or{" "}
+          <span className="font-mono">💼 SmartWealthPro</span>, enter the credentials and tick{" "}
+          <span className="font-mono">Remember me</span>. Come back here and press Test both.
+        </p>
+        <p>
+          They are saved on the server, in{" "}
+          <span className="font-mono">Master_data/naasa_login.txt</span> and{" "}
+          <span className="font-mono">swp_login.txt</span> — never in your browser. That is what
+          lets the scheduled jobs and the live feed share one session, and it is why there is no
+          sign-in box on this page: this API has no write route, by design.
+        </p>
+      </div>
     </section>
   );
 }
