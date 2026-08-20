@@ -27,3 +27,10 @@ baseline.json
 
 # Manual data exports (SWP screener etc.) — data lives in Master_data/*.txt, not in git
 *.xlsx
+
+# Next.js frontend
+web/node_modules/
+web/.next/
+web/out/
+web/.env*.local
+
