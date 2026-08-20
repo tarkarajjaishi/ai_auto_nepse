@@ -21,6 +21,7 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 import live_1d
+import market_hours
 import naasa
 import supply_demand
 import swing_pro
@@ -573,7 +574,7 @@ def naasa_feed():
 
     def loop():
         while True:
-            if not state["want"]:
+            if not (state["want"] and market_hours.feed_on()):
                 state["status"] = "off"; time.sleep(0.4); continue
             em, pw = naasa.load_credentials()
             if not (em and pw):
@@ -583,7 +584,7 @@ def naasa_feed():
                 state["status"] = "connecting"; state["err"] = ""
                 naasa.stream_ticks(em, pw, list(subs), on_tick, depth=list(depth),
                                    stop=lambda: (not state["want"]) or state["subs"] != subs
-                                   or state["depth"] != depth)
+                                   or state["depth"] != depth or not market_hours.feed_on())
             except Exception as e:
                 state["err"] = str(e)[:110]; state["status"] = "reconnecting"; time.sleep(4)
 
@@ -745,7 +746,7 @@ def market_status():
     CLOSED all day Fri/Sat, when NEPSE is shut."""
     now = datetime.now(NPT)
     mins = now.hour * 60 + now.minute
-    if now.weekday() in (4, 5):          # Fri, Sat
+    if not market_hours.is_trading_day(now):        # per the Market Open Hours switch
         return "CLOSED", "#8a93a5"
     if 630 <= mins < 646:                # 10:30–10:45
         return "PRE-OPEN", "#e3a008"
@@ -1419,7 +1420,8 @@ def cron_scheduler():
     def loop():
         while True:
             now = datetime.now(NPT)
-            today, weekend = now.strftime("%Y-%m-%d"), now.weekday() in (4, 5)
+            today = now.strftime("%Y-%m-%d")
+            weekend = not market_hours.is_trading_day(now)   # "closed today", per the switch
             now_min = now.hour * 60 + now.minute
             for t in load_master_times():
                 key = f"master@{t}@{today}"
@@ -1645,7 +1647,7 @@ def _missed_sessions(newest):
     today, n = datetime.now(NPT).date(), 0
     while d < today:
         d += timedelta(days=1)
-        if d.weekday() not in (4, 5):         # Mon=0 ... Fri=4, Sat=5 are not trading days
+        if market_hours.is_trading_day(d):    # only days the market actually opens count
             n += 1
     return n
 
@@ -3623,6 +3625,49 @@ if page == "Supply Demand":
 
 if page == "Cron":
     sched_state = cron_scheduler()          # start / reuse the background scheduler thread
+
+    # -- Market Open Hours ----------------------------------------------------------------------
+    # The single switch. Which weekdays the market trades used to be hardcoded as
+    # `weekday() in (4, 5)` in three separate places, so a schedule change meant finding all
+    # three. Everything now reads market_hours: the session banner, the scheduler's "is anything
+    # due", the archive-freshness counter, and the live socket.
+    st.markdown("<div class='section'>Market Open Hours</div>", unsafe_allow_html=True)
+    st.caption("Click a day to toggle. Honoured by every cron, by the session banner and by the "
+               "live feed.")
+    _open_now = market_hours.open_days()
+    _cols = st.columns([1, 1, 1, 1, 1, 1, 1, 3])
+    for _i, (_wd, _lbl) in enumerate(market_hours.WEEK):
+        _is_open = _wd in _open_now
+        if _cols[_i].button(_lbl, key=f"mh_day_{_wd}", use_container_width=True,
+                            type="primary" if _is_open else "secondary",
+                            help="Open — click to close" if _is_open else "Closed — click to open"):
+            market_hours.toggle_day(_wd)
+            st.rerun()
+    _n_open, _n_tot, _feed_armed = market_hours.summary()
+    _cols[7].markdown(
+        f"<div style='padding-top:8px;color:#8a93a5;font-weight:600'>{_n_open} / {_n_tot} "
+        "days open</div>", unsafe_allow_html=True)
+
+    if _n_open:
+        st.success(f"**Market Schedule ACTIVE** — the {_n_open} day(s) above are honoured by every "
+                   "cron, by the session banner and by the live feed.")
+    else:
+        st.warning("**Market Schedule — every day closed.** No cron will fire, the banner reads "
+                   "CLOSED and the live feed stays off until at least one day is open.")
+
+    _want_feed = st.toggle(
+        "NAASA live feed (WSS)", value=_feed_armed, key="mh_feed",
+        help="Master switch for the websocket. Off stops the live ladder, the account panels' "
+             "live prices and the live 1D archive updater — the archive then only moves when the "
+             "daily fetch runs.")
+    if _want_feed != _feed_armed:
+        market_hours.set_feed_on(_want_feed)
+        st.rerun()
+    st.caption(("🟢 Feed armed — it runs while the market is open on the days above."
+                if _want_feed else
+                "⚪ Feed off — no socket, no live prices, and today's 1D bar stops updating."))
+    st.markdown("<hr style='margin:14px 0;border:none;border-top:1px solid #2b3240'>",
+                unsafe_allow_html=True)
 
     # Live banner — shows whichever is running now: an auto-fired scheduled job, a manual run, or
     # the older systemd service. Polls every few seconds and clears itself when idle.

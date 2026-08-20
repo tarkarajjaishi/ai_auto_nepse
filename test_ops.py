@@ -32,6 +32,7 @@ import fetch_ohlc
 import fetch_swp
 import indicators
 import live_1d
+import market_hours
 import master_signal
 import naasa
 import prices
@@ -489,6 +490,7 @@ def main():
     test_order_ticket_is_not_on_a_timer()
     test_forced_relogin_is_coalesced()
     live_1d.demo()          # today's bar maths + the archive-never-shrinks rule
+    market_hours.demo()     # the one open/closed switch: defaults, toggles, bad file
     print("ok")
     return 0
 
