@@ -437,6 +437,60 @@ def live_snapshot(symbol):
         return {}
 
 
+def live_price(sym):
+    """{ltp, chp, bid, ask, vol, src} for one symbol, socket first then the public REST quote.
+
+    The boards are computed on the last CLOSED session, so during a live session their entry /
+    stop / target are yesterday's plan against today's tape. This is what lets a page say where
+    price actually is right now without the trader leaving for the NAASA panel.
+    """
+    try:
+        with naasa_feed()["lock"]:
+            sk = dict(naasa_feed()["snap"].get(sym, {}))
+    except Exception:
+        sk = {}
+    if sk.get("LTP"):
+        return {"ltp": float(sk["LTP"]), "bid": sk.get("BidPrice"), "ask": sk.get("OfferPrice"),
+                "vol": sk.get("TTQ"), "chp": None, "src": f"socket · {sk.get('_t', '')}"}
+    q = live_snapshot(sym)
+    if q.get("lp"):
+        return {"ltp": float(q["lp"]), "bid": q.get("bid"), "ask": q.get("ask"),
+                "vol": q.get("volume"), "chp": q.get("chp"), "src": "public quote (15s)"}
+    return {}
+
+
+def live_vs_plan(sym, entry, stop, target, key):
+    """Where the live price sits against a plan the board computed on the last closed session."""
+    try:                                   # point the socket at whatever the trader is reading
+        feed = naasa_feed()
+        want = (sym, "NEPSE", "SENSIND")
+        if feed["subs"] != want:
+            feed["subs"] = want
+    except Exception:
+        pass
+
+    @st.fragment(run_every=3)
+    def _strip():
+        q = live_price(sym)
+        if not q:
+            st.caption("No live quote for this symbol right now — the plan below is from the "
+                       "last closed session.")
+            return
+        ltp = q["ltp"]
+        risk = abs(entry - stop) or 1
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("LIVE", f"{ltp:,.2f}",
+                  None if q["chp"] is None else f"{float(q['chp']):+.2f}%")
+        c2.metric("vs entry", f"{(ltp - entry) / entry * 100:+.2f}%",
+                  f"{ltp - entry:+,.2f}", delta_color="off")
+        c3.metric("R from entry", f"{(ltp - entry) / risk:+.2f}R", delta_color="off")
+        hit = ("STOP HIT" if ltp <= stop else "TARGET HIT" if ltp >= target else "in trade range")
+        c4.metric("status", hit)
+        st.caption(f"🔴 {q['src']} · plan entry {entry:,.2f} · stop {stop:,.2f} · "
+                   f"target {target:,.2f} (computed on the last closed session)")
+    _strip()
+
+
 @st.cache_resource(show_spinner=False)
 def naasa_feed():
     """Server-wide NAASA live socket. A daemon thread that logs in, holds the socket, and keeps
@@ -2994,6 +3048,7 @@ if page == "Swing Trader Pro":
                         f"<div class='section'>{sym} — {f['grade']} · {f['decision']} "
                         f"<a href='?page=Chart&sym={sym}' target='_self' class='jump'>"
                         f"open chart ↗</a></div>", unsafe_allow_html=True)
+                    live_vs_plan(sym, f["entry"], f["stop"], f["t1"], key="sp_live")
                     st.code(swing_pro.report(f), wrap_lines=True)
                     c1, c2 = st.columns(2)
                     with c1:
@@ -3161,6 +3216,8 @@ if page == "Supply Demand":
                             f"{r['state']} zone, {r['signal']} "
                             f"<a href='?page=Chart&sym={r['symbol']}' target='_self' "
                             f"class='jump'>open chart ↗</a></div>", unsafe_allow_html=True)
+                live_vs_plan(r["symbol"], float(r["entry"]), float(r["sl"]),
+                             float(r["tp"]), key="sd_live")
                 st.markdown(sd_ticket(r["symbol"], r), unsafe_allow_html=True)
                 st.caption(
                     "Their entry is the zone edge. Once price has run past it that level is a "

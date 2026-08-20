@@ -12,25 +12,30 @@ Core combination, in the order the framework applies it:
 """
 from fetch_ohlc import MASTER
 from indicators import sma, ema, rsi, macd, atr, adx, pivots, trade_levels
+from prices import bars as _adjusted
 
 LIQUID_MIN = 500_000            # Rs median 20-day turnover; below this NEPSE fills are unreliable
 
 
 def _bars(symbol):
-    """(dates, o, h, l, c, v) oldest-last, or None when the file is missing / too short."""
-    p = MASTER / "symbols" / symbol.replace("/", "-") / "1D.txt"
-    if not p.exists():
-        return None
-    d, o, h, l, c, v = [], [], [], [], [], []
-    for line in p.read_text(encoding="utf-8").splitlines()[1:]:
-        f = line.split("\t")
-        if len(f) > 7 and f[4] not in ("", "None") and f[7] not in ("", "None"):
-            try:
-                d.append(f[0]); o.append(float(f[1])); h.append(float(f[2]))
-                l.append(float(f[3])); c.append(float(f[4])); v.append(float(f[7]))
-            except ValueError:
-                continue
-    return (d, o, h, l, c, v) if len(c) >= 60 else None
+    """(dates, o, h, l, c, v) oldest-last, corporate-action adjusted, or None when the file is
+    missing or too short.
+
+    This was a verbatim second copy of prices.raw_bars, which made trade_setup the one consumer
+    of the archive reading RAW while backtest, swing_pro, supply_demand and absorb all read
+    through prices.bars(). That split mattered most where the two meet: supply_demand builds its
+    zones from the adjusted series and then takes its `trend` and `confirmed` columns from here,
+    so one row was assembled from two different price series for the same symbol on the same day.
+
+    NB on the numbers: an audit measured 11 signals flipping between the two loaders, but that
+    was against the OLD prices.py, which fabricated 67 adjustments out of ordinary limit-downs —
+    all of them recent, so they reached the bars this module reads. With the ex-date detector
+    fixed, the two loaders now agree on all 334 scorable symbols. This stays a deletion of a
+    duplicate parser, not a numeric fix: the genuine adjustments left are 2016-2021 and do not
+    reach a 200-bar window, but the next real bonus would have silently broken this module.
+    """
+    b = _adjusted(symbol)
+    return b if b and len(b[4]) >= 60 else None
 
 
 def _last(series, i):
