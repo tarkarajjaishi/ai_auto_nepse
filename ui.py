@@ -2507,26 +2507,12 @@ if page == "NAASA":
         "<span class='section' style='margin:0'>NAASA order panel</span>"
         f"<span style='background:{scol};color:#0d1117;font-weight:700;padding:2px 11px;"
         f"border-radius:5px'>{status}</span></div>", unsafe_allow_html=True)
-    st.caption("Read-only monitor. PRE-OPEN 10:30–10:45 (queue orders), PRE-OPEN CLOSE 10:46–10:59, "
-               "LIVE 11:00–15:00, CLOSED otherwise. Place actual orders in NAASA.")
+    st.caption("PRE-OPEN 10:30–10:45 (queue orders), PRE-OPEN CLOSE 10:46–10:59, "
+               "LIVE 11:00–15:00, CLOSED otherwise. Orders go under **Place order** below.")
 
     # `symbol` is always None here (this page is outside PER_SYMBOL), so seed from ?sym=
     _nsym = st.query_params.get("sym") or "NABIL"
     sym = st.text_input("Scrip", value=_nsym, key="naasa_sym").strip().upper() or "NABIL"
-    q = live_snapshot(sym)
-
-    side = st.radio("Side", ["BUY", "SELL"], horizontal=True, key="naasa_side")
-    f1, f2, f3, f4, f5 = st.columns([2, 1, 1, 1, 1])
-    f1.text_input("Scrip ", value=sym, disabled=True, key="naasa_f_scrip")
-    f2.text_input("Quantity", placeholder="0", disabled=True, key="naasa_f_qty")
-    lo_hi = f"{q.get('low', '–')} – {q.get('high', '–')}"
-    f3.text_input("Price", placeholder="Price", disabled=True, key="naasa_f_price",
-                  help=f"Low–High: {lo_hi}")
-    f4.selectbox("Validity", ["DAY"], disabled=True, key="naasa_f_val")
-    f5.text_input("Valid Till", placeholder="Pick a date", disabled=True, key="naasa_f_till")
-    st.radio("Order type", ["LMT", "MKT", "AMO"], horizontal=True, disabled=True,
-             key="naasa_f_type", label_visibility="collapsed")
-
     # Live feed is always on (NAASA WSS) — no toggle, NO cache. Show the socket snapshot only, the
     # instant it arrives. No public/REST fallback here: this panel is live-or-nothing on purpose.
     feed = naasa_feed()
