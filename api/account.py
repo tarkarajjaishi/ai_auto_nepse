@@ -69,12 +69,21 @@ def _creds():
 def _guard(fn):
     """Run a NAASA call, and name the failure when it is theirs rather than ours.
 
-    Verified on 2026-08-20: x.naasasecurities.com.np is now a Next.js SPA. /MarketOrder/Order —
-    the page every account call scrapes hdnLogin/hdnSession from — returns 404, the login page no
-    longer mentions Keycloak at all, and the old authorize URL answers 400 "Invalid parameter:
-    redirect_uri" for the `blaze` client on every redirect_uri we can form. So the whole X-app
-    integration is dead upstream: login, order book, holdings, collateral, batch quotes, indices
-    and the WebSocket feed.
+    Re-measured 2026-08-20 22:53 NPT, because the earlier diagnosis here was wrong in a way that
+    sends you to the wrong place. What is actually true:
+
+      * `/MarketOrder/Order` is **307**, not 404 — it redirects to the new SPA login. The page is
+        still served; it just no longer renders the hidden hdnLogin/hdnSession inputs.
+      * The break is one step earlier, at Keycloak: the authorize URL answers **400 "Invalid
+        parameter: redirect_uri"** for client `blaze` with redirect_uri
+        `https://x.naasasecurities.com.np/login`. That client/redirect pair is no longer
+        registered.
+      * x.naasasecurities.com.np is now a Next.js SPA and its login logic lives in JS bundles, so
+        recovering this means re-reading how the new app authenticates.
+
+    Worth knowing: this integration was working earlier the SAME day — a real order was placed
+    through it at 12:52 NPT — so the cutover happened mid-session. Do not assume "dead upstream"
+    is permanent without re-probing; and do not assume it is alive because it worked this morning.
 
     Without this, the page renders a bare "HTTP Error 400: Bad Request", which reads like OUR bug
     and sends the next person debugging our code instead of theirs.
@@ -84,12 +93,13 @@ def _guard(fn):
     except urllib.error.HTTPError as e:
         if e.code in (400, 404) and "naasasecurities" in str(getattr(e, "url", "") or ""):
             raise UpstreamChanged(
-                "NAASA replaced the X app with a new single-page app, so the login flow this "
-                "integration uses no longer exists. Their authorize URL rejects our redirect_uri "
-                "and /MarketOrder/Order — the page holdings and orders are scraped from — is now "
-                "a 404. This affects the Streamlit NAASA page and the live socket feed too; it is "
-                "not specific to this screen, and nothing here can fix it without re-reading how "
-                "their new app authenticates.") from e
+                "NAASA replaced the X app with a Next.js single-page app, and the Keycloak client "
+                "this integration logs in with is no longer registered: their authorize URL "
+                "answers 400 'Invalid parameter: redirect_uri' for client 'blaze'. The old order "
+                "screen still responds (307 to the new login), so the break is the login flow, "
+                "not the page. This hits the Streamlit NAASA page and the live socket feed "
+                "identically — it is not specific to this screen — and fixing it means re-reading "
+                "how their new app authenticates.") from e
         raise
 
 
