@@ -772,7 +772,8 @@ def render_index_heatmap(rows):
         labels=labels, parents=[""] * len(labels), values=[1] * len(labels),
         marker=dict(colors=[_hm_color(c) for c in changes], cornerradius=6,
                     line=dict(width=2, color="#0d1117")),
-        text=labels, textinfo="text", textfont=dict(size=15, color="white"),
+        text=labels, textinfo="text",
+        textfont=dict(size=15, color=[_hm_ink(c) for c in changes]),
         textposition="middle center", hovertemplate="%{label}<extra></extra>", tiling=dict(pad=3)))
     fig.update_layout(margin=dict(t=0, l=0, r=0, b=0),
                       paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
@@ -833,6 +834,11 @@ def stock_heatmap_rows():
 
 _HM_BUCKETS = [("≤ -2%", "#8b1a1a"), ("-1%", "#c0392b"), ("-0%", "#e0736a"), ("0%", "#5b6472"),
                ("+0%", "#5bbf7a"), ("+1%", "#27ae60"), ("≥ +2%", "#1c8b45")]
+
+
+def _hm_ink(chg):
+    """Readable ink for a tile: white fails on the pale buckets (2.29:1), dark ink passes."""
+    return "#0d1117" if -1 < chg < 2 and not (-0.05 <= chg < 0.05) else "#ffffff"
 
 
 def _hm_color(chg):
@@ -927,7 +933,10 @@ def render_stock_heatmap(rows):
         marker=dict(colors=colors, cornerradius=6, line=dict(width=2, color="#0d1117")),
         branchvalues="total", maxdepth=1, tiling=dict(pad=3), sort=True,
         pathbar=dict(visible=False),          # no empty breadcrumb strip; click a sector's header to go back
-        hovertemplate="%{label}<extra></extra>", textfont=dict(size=13, color="white"),
+        hovertemplate="%{label}<extra></extra>",
+        textfont=dict(size=13, color=([_hm_ink(nepse_chg)]
+                                      + [_hm_ink(sec_chg[s]) for s in sectors]
+                                      + [_hm_ink(r["chg"]) for r in rows])),
         textposition="middle center"))
     fig.update_layout(margin=dict(t=0, l=0, r=0, b=0),
                       paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
@@ -1267,9 +1276,9 @@ def paint(rows, columns=None):
             f"color:{RED};font-weight:600" if v == "SELL" else "")
 
     def outcome(v):
-        return {"TARGET 2": f"background-color:rgba(18,184,134,.30);color:#0B7285;font-weight:600",
+        return {"TARGET 2": f"background-color:rgba(18,184,134,.30);color:{GREEN};font-weight:600",
                 "TARGET 1": "background-color:rgba(18,184,134,.14)",
-                "STOP": f"background-color:rgba(255,107,91,.28);color:#B42318;font-weight:600",
+                "STOP": f"background-color:rgba(255,107,91,.28);color:{RED};font-weight:600",
                 "OPEN": f"color:{GREY}"}.get(v, "")
 
     def pnl(v):
@@ -1928,7 +1937,11 @@ if page == "Broker flow":
     if not dates:
         st.info(f"No floorsheet for {symbol}.")
     else:
-        window = st.slider("Sessions", 5, min(120, len(dates)), min(20, len(dates)))
+        if len(dates) < 6:                       # a slider needs a real range to mean anything
+            window = len(dates)
+            st.caption(f"Only {window} floorsheet session(s) on file for {symbol} — showing all.")
+        else:
+            window = st.slider("Sessions", 5, min(120, len(dates)), min(20, len(dates)))
         picked = dates[:window]
         net, bought, sold = broker_flow(symbol, tuple(picked))
         ranked = sorted(net.items(), key=lambda kv: -kv[1])
@@ -1937,13 +1950,17 @@ if page == "Broker flow":
         st.subheader(f"Net broker flow · last {window} sessions ({picked[-1]} → {picked[0]})")
         left, right = st.columns(2)
         left.markdown("**Accumulating**")
-        left.dataframe([{"broker": b, "net shares": f"{v:,.0f}", "bought": f"{bought[b]:,.0f}",
-                         "sold": f"{sold[b]:,.0f}"} for b, v in accum if v > 0],
-                       use_container_width=True, hide_index=True)
+        # keep these numeric — as f-strings pandas infers object dtype and Streamlit's
+        # header-click sort compares them as TEXT, ranking "9,000" above "80,000"
+        _fmt = {c: st.column_config.NumberColumn(format="%,d")
+                for c in ("net shares", "bought", "sold")}
+        left.dataframe([{"broker": b, "net shares": v, "bought": bought[b], "sold": sold[b]}
+                        for b, v in accum if v > 0],
+                       use_container_width=True, hide_index=True, column_config=_fmt)
         right.markdown("**Distributing**")
-        right.dataframe([{"broker": b, "net shares": f"{v:,.0f}", "bought": f"{bought[b]:,.0f}",
-                          "sold": f"{sold[b]:,.0f}"} for b, v in distrib if v < 0],
-                        use_container_width=True, hide_index=True)
+        right.dataframe([{"broker": b, "net shares": v, "bought": bought[b], "sold": sold[b]}
+                         for b, v in distrib if v < 0],
+                        use_container_width=True, hide_index=True, column_config=_fmt)
 
         # concentration: how much of the buying sits with the top 5 brokers
         total_buy = sum(bought.values()) or 1
@@ -3036,36 +3053,37 @@ if page == "Indicator cron":
                 on_select="rerun", selection_mode="single-row", key="sd_tbl")
             st.caption("👆 **Click any row to chart it** — the Buy/Sell badge is pinned to the "
                        "last traded candle, with the zones and SL/TP lines behind it.")
+            # ONE expander. Streamlit raises StreamlitAPIException on a nested one, which took
+            # the whole Indicator cron page down until this was un-nested.
             with st.expander("ⓘ  What each column means"):
-                with st.expander("ⓘ  What each column means"):
-                    st.caption(
-                        "**order** — what you would actually place. `AT ENTRY` means the last candle "
-                        "closed inside the zone, so the level is live now; `LIMIT` means price has not "
-                        "come back yet, so the entry is a resting order at that price, not a fill today. "
-                        "**confirmed** — the zone is being touched AND the day traded ≥1.5× its own "
-                        "20-day average volume AND it is liquid enough to fill AND **trend** agrees. That "
-                        "last clause matters: the rule backtest.py validated was volume confirmation *on "
-                        "a confirmed uptrend*, and without it heavy volume into a FALLING stock at a "
-                        "demand zone counts as confirmation — which is distribution, not accumulation. "
-                        "**trend** is trade_setup's own verdict, the same one the Scanner shows. "
-                        "This is the only column "
-                        "here backed by measurement rather than by the vendor: across backtest.py's "
-                        "7,349 replayed trades, volume confirmation was the single ingredient that kept "
-                        "its edge out of sample (ADX and breakout filters both collapsed). Their "
-                        "indicator reads no volume at all — this column is the bridge to **Master "
-                        "signal**. **vol_x** — that volume multiple. "
-                        "**in_zone** — did the last candle *close* inside the zone? A `signal` can fire "
-                        "on a single wick that price left again; `in_zone = yes` is the one still standing "
-                        "at tomorrow's open, which is why it sorts first. Do not read it as rare: about a "
-                        "third of the market qualifies on any day, because the board picks the zone "
-                        "*nearest* the close and the median zone is ~2.5% wide against a median distance "
-                        "of ~1.2% — the close lands inside it often, by construction. "
-                        "**direction** — Bullish is a demand zone (buy the retest), Bearish a supply zone. "
-                        "**age** — bars since the zone formed. **zone_history** — how the ZONE has behaved, *not* a rating of the trade: `strong` does NOT mean strong buy, it means price came back to this zone exactly once and it held. Nothing on this board grades conviction. *untested* nobody has come back "
-                        "yet, *strong* it was retested once and held, *weak* worn out by repeat visits; a "
-                        "zone price CLOSED through is a *turncoat* and is dropped. **risk_pct** — entry to "
-                        "stop, so a wide zone on a volatile stock costs more; **dist_pct** — how far price "
-                        "sits from entry, negative meaning entry is below.")
+                st.caption(
+                    "**order** — what you would actually place. `AT ENTRY` means the last candle "
+                    "closed inside the zone, so the level is live now; `LIMIT` means price has not "
+                    "come back yet, so the entry is a resting order at that price, not a fill today. "
+                    "**confirmed** — the zone is being touched AND the day traded ≥1.5× its own "
+                    "20-day average volume AND it is liquid enough to fill AND **trend** agrees. That "
+                    "last clause matters: the rule backtest.py validated was volume confirmation *on "
+                    "a confirmed uptrend*, and without it heavy volume into a FALLING stock at a "
+                    "demand zone counts as confirmation — which is distribution, not accumulation. "
+                    "**trend** is trade_setup's own verdict, the same one the Scanner shows. "
+                    "This is the only column "
+                    "here backed by measurement rather than by the vendor: across backtest.py's "
+                    "7,349 replayed trades, volume confirmation was the single ingredient that kept "
+                    "its edge out of sample (ADX and breakout filters both collapsed). Their "
+                    "indicator reads no volume at all — this column is the bridge to **Master "
+                    "signal**. **vol_x** — that volume multiple. "
+                    "**in_zone** — did the last candle *close* inside the zone? A `signal` can fire "
+                    "on a single wick that price left again; `in_zone = yes` is the one still standing "
+                    "at tomorrow's open, which is why it sorts first. Do not read it as rare: about a "
+                    "third of the market qualifies on any day, because the board picks the zone "
+                    "*nearest* the close and the median zone is ~2.5% wide against a median distance "
+                    "of ~1.2% — the close lands inside it often, by construction. "
+                    "**direction** — Bullish is a demand zone (buy the retest), Bearish a supply zone. "
+                    "**age** — bars since the zone formed. **zone_history** — how the ZONE has behaved, *not* a rating of the trade: `strong` does NOT mean strong buy, it means price came back to this zone exactly once and it held. Nothing on this board grades conviction. *untested* nobody has come back "
+                    "yet, *strong* it was retested once and held, *weak* worn out by repeat visits; a "
+                    "zone price CLOSED through is a *turncoat* and is dropped. **risk_pct** — entry to "
+                    "stop, so a wide zone on a volatile stock costs more; **dist_pct** — how far price "
+                    "sits from entry, negative meaning entry is below.")
 
             # --- the chart, for whichever row was clicked ------------------------------------
             picked = list(ev.selection.rows) if ev and ev.selection else []
@@ -3700,13 +3718,13 @@ if page == "Operator radar":
             sb = ts.get("still_buy") if is_long else None
             timing = ("<span style='background:#d29922;color:#0d1117;font-weight:700;padding:2px 10px;"
                       "border-radius:5px;font-size:.82em'>⏳ entry: wait (extended)</span>" if sb is False
-                      else "<span style='background:#2ea043;color:#fff;font-weight:700;padding:2px 10px;"
+                      else "<span style='background:#2ea043;color:#0d1117;font-weight:700;padding:2px 10px;"
                       "border-radius:5px;font-size:.82em'>✅ entry: buyable now</span>" if sb is True
                       else "")
             st.markdown(
                 "<div style='display:flex;align-items:center;gap:12px;flex-wrap:wrap'>"
                 "<span style='font-weight:700;font-size:1.03em'>📐 Professional trade setup</span>"
-                f"<span style='background:{col};color:#fff;font-weight:700;padding:2px 11px;"
+                f"<span style='background:{col};color:#0d1117;font-weight:700;padding:2px 11px;"
                 f"border-radius:5px'>{sig} setup</span>"
                 f"<span style='color:#8a93a5'>score <b style='color:{col}'>{ts['score']}/100</b>"
                 f" · grade {ts['grade']}</span>{timing}</div>", unsafe_allow_html=True)
