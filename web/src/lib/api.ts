@@ -128,6 +128,106 @@ export type Questions = {
 
 export type Report = { symbol: string; text: string; fields: Record<string, unknown> };
 
+export type Trade = {
+  buyer: string;
+  seller: string;
+  quantity: number;
+  rate: number;
+  amount: number;
+  transaction: string;
+};
+
+export type BrokerNet = { broker: string; bought: number; sold: number; net: number };
+
+export type FloorsheetDates = { symbol: string; sessions: string[]; latest: string };
+
+export type Floorsheet = {
+  symbol: string;
+  date: string;
+  trades: Trade[];
+  brokers: BrokerNet[];
+  /** rows in `trades` vs rows in the session — a capped table must say it is capped */
+  shown: number;
+  trades_total: number;
+  totals: {
+    trades: number;
+    shares: number;
+    turnover: number;
+    avg_trade: number | null;
+    brokers: number;
+    unparsed_rows: number;
+  };
+};
+
+export type BrokerFlow = {
+  symbol: string;
+  sessions: number;
+  from: string | null;
+  to: string | null;
+  accumulating: BrokerNet[];
+  distributing: BrokerNet[];
+  top5_buy_share: number | null;
+  source: "broker_flow" | "floorsheet";
+};
+
+export type HeatSymbol = {
+  symbol: string;
+  date: string;
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  close: number;
+  pct: number | null;
+  volume: number;
+  turnover: number;
+};
+
+export type HeatSector = {
+  sector: string;
+  index: string | null;
+  pct: number;
+  turnover: number;
+  count: number;
+  symbols: HeatSymbol[];
+  /** true = the sector's own published index; false = turnover-weighted from its members */
+  official: boolean;
+};
+
+export type Heatmap = {
+  session: string | null;
+  archive_session: string | null;
+  nepse: (HeatSymbol & { index: string }) | null;
+  sectors: HeatSector[];
+  symbols: number;
+};
+
+export type Indices = {
+  session: string | null;
+  rows: (HeatSymbol & { index: string })[];
+};
+
+export type Holding = {
+  symbol: string;
+  quantity: number | null;
+  ltp: number | null;
+  close: number | null;
+  value: number | null;
+  day_change: number | null;
+  wacc: number | null;
+};
+
+export type Order = {
+  symbol: string;
+  side: string | null;
+  quantity: number | null;
+  remaining: number | null;
+  price: number | null;
+  status: string | null;
+  time: string | null;
+};
+
+export type Collateral = { configured: boolean; fields: Record<string, number | null> };
+
 /* ── calls ──────────────────────────────────────────────────────────────────────────────── */
 
 export const api = {
@@ -143,6 +243,22 @@ export const api = {
     get<Scorecard>(`/api/scorecard/${encodeURIComponent(symbol)}`, signal),
   questions: (symbol: string, signal?: AbortSignal) =>
     get<Questions>(`/api/questions/${encodeURIComponent(symbol)}`, signal),
+
+  floorsheetDates: (symbol: string, signal?: AbortSignal) =>
+    get<FloorsheetDates>(`/api/floorsheet/${encodeURIComponent(symbol)}`, signal),
+  floorsheet: (symbol: string, date: string, signal?: AbortSignal) =>
+    get<Floorsheet>(`/api/floorsheet/${encodeURIComponent(symbol)}?date=${date}`, signal),
+  brokerFlow: (symbol: string, n = 20, signal?: AbortSignal) =>
+    get<BrokerFlow>(`/api/brokerflow/${encodeURIComponent(symbol)}?n=${n}`, signal),
+  heatmap: (signal?: AbortSignal) => get<Heatmap>("/api/heatmap", signal),
+  indices: (signal?: AbortSignal) => get<Indices>("/api/indices", signal),
+
+  /** Read-only. There is deliberately no place/modify/cancel here, and none on the server. */
+  holdings: (signal?: AbortSignal) =>
+    get<{ configured: boolean; rows: Holding[]; count: number }>("/api/account/holdings", signal),
+  orderbook: (signal?: AbortSignal) =>
+    get<{ configured: boolean; rows: Order[]; count: number }>("/api/account/orderbook", signal),
+  collateral: (signal?: AbortSignal) => get<Collateral>("/api/account/collateral", signal),
 };
 
 /* ── query keys ─────────────────────────────────────────────────────────────────────────── */
@@ -156,4 +272,12 @@ export const qk = {
   report: (s: string) => ["report", s] as const,
   scorecard: (s: string) => ["scorecard", s] as const,
   questions: (s: string) => ["questions", s] as const,
+  floorsheetDates: (s: string) => ["floorsheet-dates", s] as const,
+  floorsheet: (s: string, d: string) => ["floorsheet", s, d] as const,
+  brokerFlow: (s: string, n: number) => ["brokerflow", s, n] as const,
+  heatmap: ["heatmap"] as const,
+  indices: ["indices"] as const,
+  holdings: ["holdings"] as const,
+  orderbook: ["orderbook"] as const,
+  collateral: ["collateral"] as const,
 };

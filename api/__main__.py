@@ -12,6 +12,16 @@ Routes (all GET, all JSON):
     /api/report/<symbol>              the full 22-section swing_pro analysis
     /api/scorecard/<symbol>           section 20, ten parts
     /api/questions/<symbol>           section 21, the fifteen answers
+    /api/floorsheet/<symbol>          the session dates on file
+    /api/floorsheet/<symbol>?date=…   one session: every trade, and each broker's net
+    /api/brokerflow/<symbol>?n=20     who accumulated and who distributed over n sessions
+    /api/heatmap                      every equity under its sector, from the archive
+    /api/indices                      the last bar of every index
+    /api/account/holdings|orderbook|collateral      NAASA, read-only
+
+GET only, and that is load-bearing rather than incidental: `do_POST` does not exist, so no
+route can mutate anything even by accident. The account routes reach a live broker session but
+only ever read from it — see api/account.py for why no order path is importable from here.
 
 Nothing here computes. Every route calls a function that already exists and is already tested.
 """
@@ -75,6 +85,45 @@ def route(path, query):
                                "volume": f_}
                               for a, b_, c_, d_, e_, f_ in
                               zip(d[s], o[s], h[s], l[s], c[s], v[s])]}
+
+    if head == "floorsheet" and arg:
+        from . import market
+        dates = market.sessions(arg)
+        if not dates:
+            return 404, {"error": f"no floorsheet on file for {arg.upper()!r}"}
+        want = query.get("date", [None])[0]
+        if not want:
+            return 200, {"symbol": arg.upper(), "sessions": dates, "latest": dates[0]}
+        if want not in dates:
+            return 404, {"error": f"{arg.upper()} has no floorsheet for {want}",
+                         "sessions": dates[:20]}
+        return 200, market.floorsheet(arg, want)
+
+    if head == "brokerflow" and arg:
+        from . import market
+        n = max(1, min(500, int(query.get("n", ["20"])[0])))
+        return 200, market.broker_flow(arg, n)
+
+    if head == "heatmap":
+        from . import market
+        return 200, {**market.heatmap(), "archive_session": tables.newest_bar()}
+
+    if head == "indices":
+        from . import market
+        return 200, market.indices()
+
+    if head == "account":
+        from . import account
+        if not account.configured():
+            return 503, {"error": "No NAASA login is saved on the server.",
+                         "detail": "Sign in on the Streamlit app under 'NAASA account' with "
+                                   "Remember me. The session lives on the box, not the browser.",
+                         "configured": False}
+        fn = {"holdings": account.holdings, "orderbook": account.orderbook,
+              "collateral": account.collateral}.get(arg)
+        if not fn:
+            return 404, {"error": "account/holdings, account/orderbook or account/collateral"}
+        return 200, {"configured": True, **fn()}
 
     if head in ("report", "scorecard", "questions") and arg:
         import swing_pro

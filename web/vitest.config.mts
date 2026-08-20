@@ -4,7 +4,9 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   plugins: [react()],
-  resolve: { alias: { "@": resolve(__dirname, "src") } },
+  // import.meta.dirname, not __dirname: Vite's native config loader is becoming the default and
+  // does not provide the CJS globals, so __dirname here is a warning today and a break later.
+  resolve: { alias: { "@": resolve(import.meta.dirname, "src") } },
   test: {
     environment: "jsdom",
     globals: true,

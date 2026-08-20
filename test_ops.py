@@ -536,6 +536,122 @@ def test_order_ticket_is_not_on_a_timer():
     print("  order ticket        no run_every fragment can reach a money call, even indirectly")
 
 
+def test_api_can_never_place_an_order():
+    """The web API reaches a live broker session. No path through it may reach a money call.
+
+    The Account page tells the reader "there is no endpoint behind a Place button". That promise
+    is only worth anything if something checks it, because the failure mode is a future edit that
+    adds one helper — `api/account.py` importing a convenience wrapper that happens to call
+    naasa.x_place_order is a two-line change nobody would flag in review.
+
+    Transitive across every module in api/, for the same reason the ui.py version is: a direct
+    containment check would miss exactly the shape the accident takes.
+    """
+    root = Path(__file__).parent / "api"
+    money = {"x_place_order", "x_cancel_order", "x_modify_order"}
+
+    def called_names(node):
+        out = set()
+        for c in ast.walk(node):
+            if isinstance(c, ast.Call):
+                out.add(getattr(c.func, "attr", None) or getattr(c.func, "id", None))
+        return {n for n in out if n}
+
+    funcs, calls = {}, {}
+    for path in sorted(root.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for n in ast.walk(tree):
+            if isinstance(n, ast.FunctionDef):
+                key = f"{path.stem}.{n.name}"
+                funcs[key] = n
+                calls[key] = called_names(n)
+
+    by_name = {}
+    for key in funcs:
+        by_name.setdefault(key.split(".", 1)[1], []).append(key)
+
+    def reaches(start, seen=None):
+        seen = seen or set()
+        for callee in calls.get(start, ()):
+            if callee in money:
+                return callee
+            for nxt in by_name.get(callee, ()):
+                if nxt not in seen:
+                    hit = reaches(nxt, seen | {nxt})
+                    if hit:
+                        return hit
+        return None
+
+    assert funcs, "no functions found under api/ — this test no longer matches the tree"
+    for key in funcs:
+        hit = reaches(key)
+        assert not hit, f"api/{key.replace('.', '.py:')}() can reach {hit}()"
+
+    # The server must also be GET-only: a handler that cannot receive a POST cannot be talked
+    # into one, regardless of what the routing table grows into later.
+    #
+    # Checked against DEFINED METHOD NAMES, not `"do_POST" in source`. The naive spelling failed
+    # the moment the module docstring explained that do_POST does not exist — a test that a
+    # comment can turn red is a test people learn to edit rather than believe.
+    handlers = {n.name
+                for n in ast.walk(ast.parse((root / "__main__.py").read_text(encoding="utf-8")))
+                if isinstance(n, ast.FunctionDef) and n.name.startswith("do_")}
+    assert handlers == {"do_GET", "do_OPTIONS"}, \
+        f"the API answers more than GET now: {sorted(handlers)}"
+
+    # ...and the walk must be able to fail, or it proves nothing.
+    probe = ast.parse("def a():\n    b()\ndef b():\n    naasa.x_place_order(1,2,3,4,5)\n")
+    pf = {f"p.{n.name}": n for n in ast.walk(probe) if isinstance(n, ast.FunctionDef)}
+    funcs, calls = pf, {k: called_names(v) for k, v in pf.items()}
+    by_name = {k.split(".", 1)[1]: [k] for k in pf}
+    assert reaches("p.a") == "x_place_order", \
+        "the transitive walk cannot see an indirect money call — it proves nothing"
+    print("  api read-only       no route reaches a money call; GET is the only verb")
+
+
+def test_collateral_never_returns_client_pii():
+    """Home/DashboardDetails group [4] is the client's personal details. It must not come out.
+
+    ui.py flattens all five groups into one dict and is then careful to render only money fields
+    — one `st.json(f)` away from publishing a name and document number. The API cannot rely on
+    that kind of care, so account.collateral() allow-lists: unknown keys are dropped rather than
+    passed through. This feeds it a payload shaped like the real one and checks what escapes.
+    """
+    from api import account
+
+    pii = {"ClientName": "A Real Person", "ClientCode": "1301-XXXXXXXX",
+           "Address": "Kathmandu", "MobileNumber": "98########", "Email": "x@y.z",
+           "BOID": "1301060000######", "PAN": "#########"}
+    payload = {"Data": [
+        [{"TotalOrderCount": "7"}],
+        [{"TotalBuyAmount": "125000.5", "TotalSellAmount": "0"}],
+        [{"TotalHoldingAmount": "980000", "HoldingStockCount": "12"}],
+        [{"GrossAvalibleExposure": "45000", "GrossUsedExposure": "0",
+          "GrossAllocatedExposure": "45000"}],
+        [pii],
+    ]}
+    saved = account.naasa.x_collateral
+    try:
+        account.naasa.x_collateral = lambda *a, **k: payload
+        account.naasa.load_credentials = lambda: ("probe@example.com", "probe")
+        out = account.collateral()["fields"]
+    finally:
+        account.naasa.x_collateral = saved
+
+    leaked = sorted(set(out) & set(pii))
+    assert not leaked, f"collateral() leaked client PII: {leaked}"
+    assert out["GrossAvalibleExposure"] == 45000, "the money fields must still come through"
+    assert out["HoldingStockCount"] == 12, "numbers must arrive parsed, not as strings"
+    # An allow-list, not a block-list: a field NAASA adds tomorrow is invisible by default.
+    account.naasa.x_collateral = lambda *a, **k: {"Data": [[{"SomethingNew": "1", **pii}]]}
+    try:
+        assert account.collateral()["fields"] == {}, \
+            "an unrecognised field came through — this is a block-list, and it will leak"
+    finally:
+        account.naasa.x_collateral = saved
+    print("  account PII         collateral allow-lists money fields; group [4] cannot escape")
+
+
 def test_forced_relogin_is_coalesced():
     """NAASA allows ONE session per account, so every re-login evicts the live socket. The order
     book, holdings, collateral and index panels all poll every few seconds through x_report, which
@@ -578,6 +694,8 @@ def main():
     test_order_body_is_exactly_what_the_screen_sends()
     test_money_calls_never_auto_retry()
     test_order_ticket_is_not_on_a_timer()
+    test_api_can_never_place_an_order()
+    test_collateral_never_returns_client_pii()
     test_forced_relogin_is_coalesced()
     live_1d.demo()          # today's bar maths + the archive-never-shrinks rule
     market_hours.demo()     # the one open/closed switch: defaults, toggles, bad file
