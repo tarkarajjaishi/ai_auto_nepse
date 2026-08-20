@@ -462,7 +462,13 @@ def _levels(c, h, l, a, highs, lows):
     risk = close - stop
     if risk <= 0:
         return None
-    near_res = next((v for _, v in reversed(rh) if v > close), None)
+    # Section 10 lists "near resistance" and "major resistance" as different things: NEAR is the
+    # closest level overhead, MAJOR the highest. This used to take the most RECENT swing high
+    # above price instead of the closest, which is not the same level on 227 of 307 symbols and
+    # overstated the distance to resistance by 3.9% at the median, 22% at worst. It matters more
+    # than a printed line: T1 is measured to near_res, so the mandatory R:R gate was being fed a
+    # resistance further away than the one price will actually hit first.
+    near_res = min((v for _, v in rh if v > close), default=None)
     major_res = max((v for _, v in rh if v > close), default=None)
     # Targets come from STRUCTURE first, R-multiples only as the fallback. Defining T1 as a flat
     # 2R made the whole thing circular: reward/risk was then arithmetically pinned at exactly
@@ -544,7 +550,14 @@ def _score(f):
     s += 5 if f["last_event"].startswith(("BOS up", "CHoCH up")) else 0
     p["structure"] = min(s, 15)
     # Volume confirmation ............................................... 15
-    vscore = 6 if f["vol_x"] >= 1.5 else (3 if f["vol_x"] >= 1.2 else 0)
+    # The stated cap is 15 and it has to be attainable. The base leg used to pay 6, so the best
+    # a real stock could score here was 6+3+3 = 12: the fourth leg, pullback_dry, requires
+    # v[-1] < vsma[-1] (i.e. vol_x < 1.0) and can never coexist with the up_day leg's vol_x >= 1.2.
+    # That silently made the rubric total 97, while scorecard() and Section 20 both printed /15
+    # — and selftest's `assert total == 100` only passed on a synthetic dict analyse() cannot
+    # produce. Section 5's two preferred shapes stay separate: expansion tops out at 15, and a
+    # dip on drying volume still earns its own 3.
+    vscore = 9 if f["vol_x"] >= 1.5 else (5 if f["vol_x"] >= 1.2 else 0)
     vscore += 3 if f["vol_x"] >= 2.0 else 0
     vscore += 3 if f["up_day"] and f["vol_x"] >= 1.2 else 0      # buying, not just activity
     vscore += 3 if f["pullback_dry"] else 0                       # dips on falling volume
@@ -855,7 +868,11 @@ def analyse(symbol, funds=None, calendar=None):
     # structural those labels were wrong on 188 of 307 symbols, T2 reaching 308R under a "3R" tag.
     f["t2_r"] = (f["t2"] - f["entry"]) / f["risk"]
     f["t3_r"] = (f["t3"] - f["entry"]) / f["risk"]
-    f["target_realistic"] = f["t1_atr"] <= 15          # ~3 weeks of normal movement for a swing
+    # Measured on the FURTHEST stated target. Testing T1 was dead: _levels caps T1 at the 10-ATR
+    # horizon, so `t1_atr <= 15` was true by construction and the warning never printed. T2/T3
+    # carry no ATR cap of their own, and 31 of 307 symbols state a T3 beyond 15 ATR — roughly a
+    # quarter's worth of normal movement, which is not a swing target.
+    f["target_realistic"] = f["t3_atr"] <= 15          # ~3 weeks of normal movement for a swing
     # Section 21 — the professional trader question that must be answered BEFORE issuing BUY
     f["capital_question"] = (
         "If I were risking my own capital on this stock using only the 1D chart, does the "
@@ -1070,7 +1087,7 @@ def report(f):
          f"Target 1:              {_n(f['t1'])}   ({f['rr']:.1f}R, {f['t1_atr']:.1f} ATR)",
          f"Target 2:              {_n(f['t2'])}   ({f['t2_r']:.1f}R, {f['t2_atr']:.1f} ATR)",
          f"Target 3:              {_n(f['t3'])}   ({f['t3_r']:.1f}R, {f['t3_atr']:.1f} ATR)"
-         + ("" if f["target_realistic"] else "   T1 IS FAR vs NORMAL DAILY MOVEMENT"),
+         + ("" if f["target_realistic"] else "   FAR vs NORMAL DAILY MOVEMENT"),
          f"Risk/Reward:           1:{_n(f['rr'], 2)} to the realistic target — {f['rr_band']}",
          f"Trade Invalidation:    {f['invalidation']}",
          "Expected Holding Period: several days to several weeks (swing)",

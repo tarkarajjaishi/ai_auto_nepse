@@ -58,8 +58,12 @@ def vps_ship():
          f"systemctl is-active {SERVICE}"],
         stdin=tar.stdout, text=True, capture_output=True)
     tar.stdout.close(), tar.wait()
-    print(f"  {len(files)} file(s) shipped · service {ship.stdout.strip() or ship.stderr.strip()}")
-    return "active" in ship.stdout
+    state = ship.stdout.strip()
+    print(f"  {len(files)} file(s) shipped · service {state or ship.stderr.strip()}")
+    # Exact match. `systemd is-active` answers with one of active / inactive / failed /
+    # activating / deactivating, and a substring test called three of those a healthy deploy —
+    # "active" is in "inactive". This is the only end-to-end health check the deploy has.
+    return state == "active"
 
 
 def main():
@@ -75,8 +79,16 @@ def main():
         print("GitHub:")
         ok &= git_sync(msg)
     if not a.no_vps:
-        print("VPS:")
-        ok &= vps_ship()
+        # Never ship code that did not reach GitHub. This used to run unconditionally, so a
+        # rejected push — non-fast-forward, expired token, no network — still restarted the VPS
+        # on source nobody else has, which is precisely the drift the docstring above says this
+        # script exists to prevent.
+        if not ok:
+            print("VPS:  SKIPPED — the push failed, so shipping now would leave the box ahead "
+                  "of the repo. Fix the push and re-run, or use --no-git to ship deliberately.")
+        else:
+            print("VPS:")
+            ok &= vps_ship()
     print("deploy ok" if ok else "deploy FINISHED WITH ERRORS")
     return 0 if ok else 1
 

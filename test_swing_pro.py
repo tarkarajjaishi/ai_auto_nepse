@@ -244,12 +244,19 @@ def main():
         if len(sample) >= 120:
             break
 
-    # every value the framework computes must reach the reader, the score, or a gate
+    # Every value the framework computes must reach the reader, the score, or a gate.
+    # This was assigned to `dead` and never read — the comprehension ran, called report()
+    # twelve times and threw the answer away, so the guard the docstring advertises enforced
+    # nothing. It also could not have worked: it matched `str(f[k])` against the report text,
+    # but the report prints rounded numbers, so an unrounded float never matches and every
+    # surfaced value would have looked dead. Ask the honest question instead — is the key
+    # referenced anywhere OUTSIDE the analyse() body that produced it?
+    _before, _, _rest = src.partition("def analyse(")
+    consumers = _before + (_rest.split("\ndef ", 1)[1] if "\ndef " in _rest else "")
     dead = [k for k in ("crossovers", "separation", "macd_cross", "macd_above_zero",
                         "rsi_overext", "adv_decl", "close_pos", "prev_breakout",
                         "consol_days", "res_tests", "follow_through", "trade_freq")
-            if str(swing_pro.report(f)).count(str(f.get(k))) == 0
-            and k not in src.split("def _score")[1].split("def ")[0]]
+            if f'"{k}"' not in consumers and f"'{k}'" not in consumers]
     rrs = [g["rr"] for g in sample]
     # use the implementation's OWN definition, not a paraphrase of it — a paraphrase passed
     # locally and failed on the VPS's fresher session, which is how this guard got caught lying
@@ -260,6 +267,7 @@ def main():
                      if g["performer"] in ("ELITE PERFORMER", "STRONG PERFORMER")
                      and g["accum"] == "Distribution"]
     guards = [
+        ("[all] every computed value reaches the reader, the score or a gate", not dead),
         ("[12] R:R is not arithmetically pinned to 2.0 (1:3+ must be reachable)",
          max(rrs) > 2.01),
         ("[12] R:R is bounded — no 90R 'realistic' targets", max(rrs) <= 5.01),
@@ -349,6 +357,20 @@ def main():
          not any(t in text for t in ("(2R,", "(3R,", "(5R,"))),
         ("[14] the ui swing page passes the market calendar, so the clicked report matches "
          "the row it was clicked from", "swing_market_calendar" in uisrc),
+        # near resistance must be the CLOSEST level overhead, not the most recent one. T1 is
+        # measured to it, so getting this wrong fed the mandatory gate a resistance further
+        # away than the one price actually reaches first — on 227 of 307 symbols.
+        ("[10] near resistance is the nearest level overhead, not merely the newest",
+         swing_pro._levels([100.0], [100.0], [100.0], 2.0,
+                           [(0, 130.0), (1, 105.0)], [(0, 96.0)])["near_res"] == 105.0),
+        ("[10] major resistance is still the highest, not the nearest",
+         swing_pro._levels([100.0], [100.0], [100.0], 2.0,
+                           [(0, 130.0), (1, 105.0)], [(0, 96.0)])["major_res"] == 130.0),
+        # the rubric prints "/15" for volume, so 15 has to be reachable on real data
+        ("[20] every rubric part can actually reach its stated cap",
+         max(g["parts"]["volume"] for g in sample) == 15),
+        ("[11] the target-realism warning is measured on a target that is not already capped",
+         'f["t1_atr"] <= 15' not in src),
     ]
     ok6 = sum(1 for _, good in gates if good)
     print(f"PASS 6  mandatory gates actually gate ....... {ok6}/{len(gates)}")

@@ -759,7 +759,12 @@ def render_index_heatmap(rows):
     """Our own NEPSE index heatmap — one tile per index, coloured by %change (diverging red→green),
     labelled with symbol, LTP and %change. Built from the same NAASA snapshot as the table."""
     if not rows:
-        st.info("Sign in under 🔐 NAASA account (with Remember me) to load the heatmap.")
+        em, _pw = naasa.load_credentials()
+        st.info("Sign in under 🔐 NAASA account (with Remember me) to load the heatmap."
+                if not em else
+                "Signed in, but NAASA returned no index quotes just now — the feed is down or "
+                "the session expired. Re-enter the password under 🔐 NAASA account, or retry "
+                "after the 10:30 NPT pre-open.")
         return
     labels, changes, ltps = [], [], []
     for r in rows:
@@ -1375,12 +1380,23 @@ names = universe()
 st.sidebar.title("NEPSE archive")
 PAGES = ["Chart", "Floorsheet", "Broker flow", "Scanner",
          "Volume spike", "Operator radar", "Master operator", "Swing master", "Master signal",
-         "Backtest", "NAASA", "Heatmap", "Swing Trader Pro", "Indicator cron", "Cron"]
+         "Backtest", "NAASA", "Heatmap", "Swing Trader Pro", "Supply Demand", "Cron"]
 # Persist the current page in the URL (?page=…) so a refresh / hard refresh / redeploy keeps you
 # where you are — a browser reload starts a fresh Streamlit session, so session_state alone resets.
 _qp_page = st.query_params.get("page")
 page = st.sidebar.radio("Menu", PAGES, index=PAGES.index(_qp_page) if _qp_page in PAGES else 0,
                         label_visibility="collapsed", key="nav")
+
+# One freshness line for the WHOLE app. It used to live on the Cron page alone, so a failed fetch
+# left every other page showing stale numbers with no hint they were stale.
+_state = archive_state()
+_session = max((v[0][:10] for v in _state.values() if v[0]), default="")
+_stale = [k for k, (stamp, _b, _t) in _state.items() if stamp and stamp[:10] != _session]
+if _session:
+    st.sidebar.caption(
+        (f"🟢 archive current · **{_session}**" if not _stale
+         else f"🟠 **{_session}** · behind: {', '.join(_stale)}")
+        + "  ·  [Cron](?page=Cron)")
 if st.query_params.get("page") != page:
     st.query_params["page"] = page
 st.sidebar.divider()
@@ -2665,9 +2681,14 @@ if page == "Backtest":
                 unsafe_allow_html=True)
     hdr, rows = _tsv("backtest.txt")
     if not rows:
-        st.info("No backtest.txt yet — run `python backtest.py` on the server (it replays ~7,600 "
-                "trades and takes a few minutes).")
-    else:
+        st.info("No backtest.txt yet — press **↻ Run the backtest** below. It replays ~7,600 "
+                "trades and takes a few minutes.")
+    # the button sits OUTSIDE the if/else on purpose: this was the one empty state in the app
+    # that named a script no control could run, so it was unreachable from the phone or the VPS
+    if st.button("↻ Run the backtest", key="bt_run"):
+        run_job("Backtest", "backtest.py")
+        st.rerun()
+    if rows:
         m = rows[0]
         st.caption(f"**{m[7]} trades** · {m[9]} → {m[10]} · split at {m[8]} · "
                    f"{m[11]}% round-trip cost · max hold {m[12]} bars · entry at the **next** bar's "
@@ -2678,9 +2699,19 @@ if page == "Backtest":
             "OUT-of-sample n": int(r[4]), "OUT win%": float(r[5]), "OUT avg%": float(r[6]),
             "degradation": round(float(r[3]) - float(r[6]), 2),
         } for r in rows]).sort_values("OUT avg%", ascending=False)
-        st.dataframe(tab, width="stretch", hide_index=True,
-                     column_config={"OUT avg%": st.column_config.NumberColumn(
-                         "OUT avg%", help="The only column with any claim on the future")})
+        st.dataframe(
+            tab, width="stretch", hide_index=True,
+            # the variant name auto-sizes to ~300px and eats a phone screen on its own
+            column_order=["variant", "OUT avg%", "degradation", "OUT win%", "OUT-of-sample n",
+                          "in-sample avg%", "in-sample win%", "in-sample n"],
+            column_config={
+                "variant": st.column_config.TextColumn("variant", width="medium"),
+                "OUT avg%": st.column_config.NumberColumn(
+                    "OUT avg%", width="small",
+                    help="The only column with any claim on the future"),
+                "degradation": st.column_config.NumberColumn(
+                    "degradation", width="small",
+                    help="in-sample avg% minus OUT avg% — big means fitted to the past")})
         st.caption("Read the **OUT avg%** column and ignore the rest. A big `degradation` means "
                    "the rule was fitted to the past — ADX and breakout both look best in-sample "
                    "and collapse out of it.")
@@ -2954,8 +2985,12 @@ if page == "Swing Trader Pro":
                                               "question": f"{q}  (yes = bad)"})
                             else:
                                 qrows.append({"": "YES" if ans else "no", "question": q})
-                        st.dataframe(pd.DataFrame(qrows), width="stretch", hide_index=True,
-                                     height=430)
+                        st.dataframe(
+                            pd.DataFrame(qrows), width="stretch", hide_index=True, height=430,
+                            column_config={
+                                "": st.column_config.TextColumn("", width="small"),
+                                "question": st.column_config.TextColumn(
+                                    "question", width="large")})
                     st.caption(
                         f"**Why {f['decision']}:** {f['why']}. "
                         f"**Trade invalidation:** {f['invalidation']} — and per the framework, "
@@ -2972,7 +3007,7 @@ if page == "Swing Trader Pro":
         st.rerun()
 
 
-if page == "Indicator cron":
+if page == "Supply Demand":
     rows = supply_demand_board()
     st.markdown("<div class='section'>Supply Demand Dashboard — what is at a zone in the last "
                 "traded session</div>", unsafe_allow_html=True)
@@ -3054,7 +3089,7 @@ if page == "Indicator cron":
             st.caption("👆 **Click any row to chart it** — the Buy/Sell badge is pinned to the "
                        "last traded candle, with the zones and SL/TP lines behind it.")
             # ONE expander. Streamlit raises StreamlitAPIException on a nested one, which took
-            # the whole Indicator cron page down until this was un-nested.
+            # the whole Supply Demand page down until this was un-nested.
             with st.expander("ⓘ  What each column means"):
                 st.caption(
                     "**order** — what you would actually place. `AT ENTRY` means the last candle "
@@ -3145,6 +3180,8 @@ if page == "Indicator cron":
             st.session_state["sd_mtf_rows"] = (supply_demand.scan_timeframes(mtf_sym), mtf_sym)
     if st.session_state.get("sd_mtf_rows"):
         tf_rows, tf_for = st.session_state["sd_mtf_rows"]
+        if tf_for != mtf_sym:          # stale: the selectbox moved on since this was computed
+            st.info(f"Showing **{tf_for}**. Press **Scan timeframes** to run {mtf_sym}.")
         st.caption(f"**{tf_for}**")
         if not tf_rows:
             st.info(f"Not enough history for {tf_for}.")
@@ -3313,7 +3350,8 @@ if page == "Volume spike":
 
     if not rows:
         st.info("No screen yet — press **Rebuild screen** below to run volume_spike.py.")
-    else:
+        rows = []
+    if rows:
         st.caption(
             f"Session {screened}. Unusual volume, with the heaviest brokers on each side. "
             "**Activity screen, not a buy list, and not proof of an operator.** Two things the "
@@ -3379,6 +3417,12 @@ if page == "Operator radar":
     rows = operator_scan()
     st.markdown("<div class='section'>Who is buying more / selling more</div>",
                 unsafe_allow_html=True)
+    # operator_scan.txt carries no date of its own, so state the archive session it was built on
+    # and when the file was written — this page used to show undated numbers.
+    _osp = MASTER / "operator_scan.txt"
+    if _osp.exists():
+        st.caption(f"Archive session **{_session or '—'}** · scan file written "
+                   f"{datetime.fromtimestamp(_osp.stat().st_mtime):%Y-%m-%d %H:%M}.")
     st.caption(
         "A stock is **PROVEN** only when **three independent sources agree**: "
         "**(1) Floorsheet** — one broker is the dominant net buyer/seller, regularly, still going "
