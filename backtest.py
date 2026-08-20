@@ -26,6 +26,38 @@ from prices import bars as adjusted_bars
 from trade_setup import LIQUID_MIN
 
 
+def oos_edge():
+    """[(volume threshold, measured out-of-sample avg %)] read from the last run's own output.
+
+    This module is where the number comes from, so this is where the readers get it. It used to
+    be transcribed by hand into master_signal.py and swing_master.py, and the two copies drifted
+    apart from each other AND from the file — three different values shipped for every band
+    (vol>3x: 2.39 / 2.44 / 2.51), each printed to the reader as a measurement. A hardcoded
+    result of a rerunnable computation is a claim with an expiry date on it.
+
+    Empty when backtest.py has not been run; callers already treat "no edge" as "not a candidate".
+    """
+    p = MASTER / "backtest.txt"
+    if not p.exists():
+        return []
+    lines = p.read_text(encoding="utf-8").splitlines()
+    if len(lines) < 2:
+        return []
+    cols = lines[0].split("\t")
+    if "variant" not in cols or "oos_avg" not in cols:
+        return []
+    vi, oi = cols.index("variant"), cols.index("oos_avg")
+    out = []
+    for line in lines[1:]:
+        f = line.split("\t")
+        if len(f) > max(vi, oi) and f[vi].startswith("+ volume>"):
+            try:
+                out.append((float(f[vi][len("+ volume>"):-1]), float(f[oi])))
+            except ValueError:
+                continue
+    return sorted(out, reverse=True)
+
+
 def _bars(symbol):
     """Bonus/rights ADJUSTED bars. Raw prices print -20%..-80% ex-date gaps that never traded,
     which fire stops that never happened — see prices.py."""

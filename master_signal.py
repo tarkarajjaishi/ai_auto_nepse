@@ -23,6 +23,7 @@ years and bleeds in flat ones. Position size accordingly, and read `verdict` bef
 import sys
 from datetime import datetime
 
+import backtest
 from fetch_ohlc import MASTER
 from indicators import sma
 from trade_setup import LIQUID_MIN, setup
@@ -31,13 +32,16 @@ OUT = MASTER / "master_signal.txt"
 HEADER = ("symbol\tverdict\tclose\tvol_x\tentry\tstop\ttarget1\ttarget2\trisk_pct\trr"
           "\tadx\trsi\tscore\tedge_oos")
 
-# Measured out-of-sample averages per trade (~20 bars). These are historical, not predictions.
-EDGE = [(3.0, 2.39), (2.0, 1.79), (1.5, 1.68)]
-
-
 def edge_for(vol_x):
-    """The measured OOS average for the volume band this candidate falls in."""
-    for threshold, avg in EDGE:
+    """The measured OOS average (~20 bars) for the volume band this candidate falls in.
+
+    Read from backtest.py's own output, not transcribed. The three numbers used to be a literal
+    here and another literal in swing_master.py, and both had drifted from the measurement and
+    from each other — three different values shipped for every band (vol>3x: 2.39 here, 2.44
+    there, 2.51 in backtest.txt), each printed in an 'edge%' column as measured fact.
+    Historical, not a prediction.
+    """
+    for threshold, avg in backtest.oos_edge():
         if vol_x >= threshold:
             return threshold, avg
     return None, None

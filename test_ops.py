@@ -23,8 +23,11 @@ import sys
 import tempfile
 from pathlib import Path
 
+import backtest
 import fetch_swp
+import master_signal
 import prices
+import swing_master
 
 H = "a\tb"
 
@@ -86,6 +89,47 @@ def test_ex_date_detection():
     print("  prices.ex_dates     restatement yes; limit-down, bought-back gap and bad data no")
 
 
+def test_position_never_exceeds_the_book():
+    """swing_master sized on risk alone, so a tight stop geared the position past the capital.
+
+    The real case: SSHL 2025-07-31, entry 192.83 stop 192.39 — a 0.23% stop on a Rs 100,000
+    book sized 2,272 shares, Rs 438,110, 4.4x the whole account, while the sheet reported the
+    risk as a tidy Rs 1,000.
+    """
+    cap, budget = 100_000.0, 1_000.0     # Rs 100k book, 1% risk
+
+    qty = swing_master.size(cap, budget, 192.83, 192.39)
+    assert qty * 192.83 <= cap, f"SSHL sized {qty} shares = Rs {qty * 192.83:,.0f} on a Rs {cap:,.0f} book"
+
+    # a normal stop is unaffected — still sized by risk, not by the cash cap
+    wide = swing_master.size(cap, budget, 100.0, 90.0)
+    assert wide == 100, f"a 10% stop should size 1000/10 = 100 shares, got {wide}"
+
+    # degenerate inputs size nothing rather than raising
+    assert swing_master.size(cap, budget, 100.0, 100.0) == 0, "zero risk must not size"
+    assert swing_master.size(cap, budget, 100.0, 110.0) == 0, "an inverted stop must not size"
+    assert swing_master.size(0.0, budget, 100.0, 90.0) == 0, "no capital, no position"
+    print("  swing_master.size   capped at the cash available; risk sizing otherwise unchanged")
+
+
+def test_edge_is_read_not_transcribed():
+    """Both sheets print an 'edge%' column as a MEASURED out-of-sample average. They used to
+    hardcode it, and the two copies drifted from each other and from backtest.txt — three
+    different values shipped for every volume band (vol>3x: 2.39 / 2.44 / 2.51)."""
+    measured = dict(backtest.oos_edge())
+    if not measured:
+        print("  edge                backtest.txt absent — nothing to check")
+        return
+    for band in measured:
+        a = master_signal.edge_for(band + 0.01)[1]
+        b = swing_master.edge_for(band + 0.01)
+        assert a == b == measured[band], \
+            f"vol>={band}: master_signal {a}, swing_master {b}, backtest.txt {measured[band]}"
+    src = (Path(__file__).parent / "swing_master.py").read_text(encoding="utf-8")
+    assert "EDGE = [" not in src, "a transcribed EDGE table is back in swing_master"
+    print(f"  edge                both sheets read backtest.txt ({len(measured)} bands agree)")
+
+
 def _ui_src():
     return (Path(__file__).parent / "ui.py").read_text(encoding="utf-8")
 
@@ -134,6 +178,8 @@ def main():
     test_rewrite()
     test_deploy_health()
     test_ex_date_detection()
+    test_position_never_exceeds_the_book()
+    test_edge_is_read_not_transcribed()
     test_no_nested_expanders()
     test_every_page_has_a_body()
     print("ok")

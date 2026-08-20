@@ -3,8 +3,9 @@
 Horizon matches the evidence: every result in backtest.py was measured over ~20 trading days, so
 this plans a 2-6 week swing and nothing else. Four rules, each traceable to a measurement:
 
- 1. ENTRY  — volume-confirmed continuation, the only filter that held out of sample
-              (vol>3x +2.44%, vol>2x +1.80%, vol>1.5x +1.72% vs +0.58% baseline).
+ 1. ENTRY  — volume-confirmed continuation, the only filter that held out of sample. The exact
+              averages per volume band are read from backtest.py's own output rather than quoted
+              here, because a transcribed measurement goes stale silently and this one did.
  2. FRESH  — the backtest entered on the NEXT open after a fresh trigger. An extended setup is a
               different trade that was never measured, so it is listed as WAIT, never as a buy.
  3. TIME STOP — absorb.py found the MEDIAN forward 20d return is NEGATIVE across 212k observations
@@ -19,21 +20,30 @@ this plans a 2-6 week swing and nothing else. Four rules, each traceable to a me
 import argparse
 from datetime import datetime
 
+import backtest
 from fetch_ohlc import MASTER
 from indicators import sma
 from trade_setup import LIQUID_MIN, setup
 
 OUT = MASTER / "swing_master.txt"
+# cost_rs is appended at the END on purpose: ui.py reads this file positionally
+# (`int(r[9])` for risk_rs), so inserting a column mid-header would silently shift it.
 HEADER = ("symbol\tverdict\tclose\tvol_x\tentry\tstop\ttarget1\ttarget2\tqty\trisk_rs"
-          "\trisk_pct\trr\tedge_oos\thold_bars")
+          "\trisk_pct\trr\tedge_oos\thold_bars\tcost_rs")
 
-EDGE = [(3.0, 2.44), (2.0, 1.80), (1.5, 1.72)]     # measured out-of-sample avg per ~20-bar trade
 HOLD_BARS = 20
 BASE_WIN = 44                                       # NEPSE base rate, from 212k observations
 
 
 def edge_for(vol_x):
-    for threshold, avg in EDGE:
+    """The measured out-of-sample average for this volume band, read from backtest.py's output.
+
+    These three numbers used to be transcribed here by hand, and the copy drifted from the one
+    in master_signal.py AND from the measurement itself — three different values shipped for
+    every band, each printed in an 'edge%' column as fact. backtest.oos_edge() reads the file
+    that produced them, so the sheet can no longer quote a stale figure.
+    """
+    for threshold, avg in backtest.oos_edge():
         if vol_x >= threshold:
             return avg
     return None
@@ -53,6 +63,20 @@ def market_up():
                 continue
     s = sma(closes, 200)
     return bool(closes and s[-1] is not None and closes[-1] > s[-1])
+
+
+def size(capital, budget, entry, stop):
+    """Shares to buy: a fixed rupee loss at the stop, but never more stock than the cash buys.
+
+    Risk-based sizing fixes the LOSS, not the POSITION — `budget / (entry - stop)` blows up as
+    the stop tightens. With a 0.23% stop it sized Rs 438,110 of SSHL against a Rs 100,000 book,
+    4.4x geared, and 7 rows over the archive exceeded the whole book. Worse, the sheet printed
+    qty and risk Rs but never the position value, so nothing on it revealed the exposure.
+    """
+    per_share = entry - stop
+    if per_share <= 0 or entry <= 0 or capital <= 0:
+        return 0
+    return int(min(budget // per_share, capital // entry))
 
 
 def plan(capital, risk_pct):
@@ -75,8 +99,11 @@ def plan(capital, risk_pct):
         per_share = s["entry"] - s["stop"]
         if per_share <= 0:
             continue
-        qty = int(budget // per_share)                 # fixed rupee loss if the stop is hit
+        qty = size(capital, budget, s["entry"], s["stop"])
+        if qty <= 0:
+            continue
         rows.append({**s, "edge": edge, "qty": qty, "risk_rs": round(qty * per_share),
+                     "cost_rs": round(qty * s["entry"]),
                      "verdict": "BUY" if s.get("still_buy") else "WAIT"})
     rows.sort(key=lambda r: (r["verdict"] == "BUY", r["edge"], r["vol_ratio"]), reverse=True)
     return rows
@@ -93,7 +120,7 @@ def main():
     lines = [HEADER] + ["\t".join(str(x) for x in (
         r["symbol"], r["verdict"], r["close"], round(r["vol_ratio"], 2), r["entry"], r["stop"],
         r["target1"], r["target2"], r["qty"], r["risk_rs"], r["risk_pct"], r["rr"],
-        r["edge"], HOLD_BARS)) for r in rows]
+        r["edge"], HOLD_BARS, r["cost_rs"])) for r in rows]
     OUT.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     buys = [r for r in rows if r["verdict"] == "BUY"]
@@ -106,11 +133,11 @@ def main():
         return 0
 
     print(f"{'symbol':<9}{'action':<7}{'entry':>9}{'stop':>9}{'T1':>9}{'T2':>9}"
-          f"{'qty':>7}{'risk Rs':>9}{'edge%':>7}")
+          f"{'qty':>7}{'cost Rs':>11}{'risk Rs':>9}{'edge%':>7}")
     for r in rows:
         print(f"{r['symbol']:<9}{r['verdict']:<7}{r['entry']:>9.2f}{r['stop']:>9.2f}"
-              f"{r['target1']:>9.2f}{r['target2']:>9.2f}{r['qty']:>7}{r['risk_rs']:>9,}"
-              f"{r['edge']:>7.2f}")
+              f"{r['target1']:>9.2f}{r['target2']:>9.2f}{r['qty']:>7}{r['cost_rs']:>11,}"
+              f"{r['risk_rs']:>9,}{r['edge']:>7.2f}")
 
     total_risk = sum(r["risk_rs"] for r in buys)
     print(f"\nPLAN — hold max {HOLD_BARS} bars (~4 weeks), then out whatever the price is.")
