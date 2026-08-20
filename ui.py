@@ -181,7 +181,7 @@ st.markdown("""
   .stMain .block-container { display: flex !important; flex-direction: column !important;
       height: 100dvh !important; max-height: 100dvh !important; overflow: hidden !important;
       padding-bottom: .3rem !important; }
-  .st-key-mainchart { height: 42dvh !important; min-height: 200px !important;
+  .st-key-mainchart { height: calc(100dvh - 620px) !important; min-height: 210px !important;
       flex: 0 0 auto !important; overflow: hidden !important; }
   .st-key-mainchart [data-testid="stVerticalBlock"],
   .st-key-mainchart [data-testid="stElementContainer"],
@@ -899,7 +899,7 @@ def render_index_heatmap(rows):
                       paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
     # key= keeps ONE component across reruns: Plotly then animates tiles to their new
     # sizes and colours instead of the container going black while a fresh chart mounts.
-    st.plotly_chart(fig, height="stretch", key="hm_index",
+    st.plotly_chart(fig, key="hm_index", use_container_width=True,
                     config={"displayModeBar": False, "responsive": True})
 
 
@@ -1087,7 +1087,7 @@ def render_stock_heatmap(rows):
                       paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
     # key= keeps ONE component across reruns: Plotly then animates tiles to their new
     # sizes and colours instead of the container going black while a fresh chart mounts.
-    st.plotly_chart(fig, height="stretch", key="hm_stock",
+    st.plotly_chart(fig, key="hm_stock", use_container_width=True,
                     config={"displayModeBar": False, "responsive": True})
 
 
@@ -2073,7 +2073,7 @@ if page == "Chart":
     # height="stretch" all the way down: the container claims the space left under the
     # header and the chart fills it. A CSS height here instead is racy — Plotly settles at
     # its own 450px default before the stylesheet lands, and the chart renders short.
-    with st.container(key="mainchart", height="stretch"):
+    with st.container(key="mainchart"):
         fig = build_chart(data, symbol, timeframe)
         st.plotly_chart(fig, height="stretch", config={
             "scrollZoom": True,            # wheel / pinch zooms about the pointer
@@ -2941,7 +2941,7 @@ if page == "Heatmap":
     # teardown is the black flash. Sector aggregates move slowly, so a 1s redraw bought nothing
     # and cost a blink every second. The table beside it still ticks at 1s where it matters.
     hm_every = st.session_state.get("hm_secs", 20)
-    with st.container(key="mainchart", height="stretch"):
+    with st.container(key="mainchart"):
         @st.fragment(run_every=hm_every if live else None)
         def _hm_chart():
             if view == "Stocks by sector":
