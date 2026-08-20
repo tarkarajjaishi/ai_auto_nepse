@@ -1181,9 +1181,14 @@ def report(f):
             if f["retest_depth"] is None else
             f"{'HELD' if f['retest_held'] else 'FAILED — closed back under the level'}, "
             f"cut {f['retest_depth']:.2f} ATR below it {f['retest_bars']}d after the breakout"
+            # 0.00x is not "dry", it is "did not trade" — on a thin debenture the level was
+            # never actually tested by anyone, which is a liquidity fact, not a healthy one.
             + ("" if f["retest_vol"] is None else
-               f", on {f['retest_vol']:.2f}x volume"
-               f" ({'dry, as a healthy retest should be' if f['retest_vol'] < 1.0 else 'heavy — sellers are still there'})")),
+               f", on {f['retest_vol']:.2f}x volume ("
+               + ("barely traded at all — thin liquidity, not absorption"
+                  if f["retest_vol"] < 0.1 else
+                  "dry, as a healthy retest should be" if f["retest_vol"] < 1.0 else
+                  "heavy — sellers are still there") + ")")),
          f"Smart-Money Evidence:  " + ", ".join(x for x in (
              f["demand_zone"], "liquidity sweep" if f["sweep"] else None,
              "support reclaim" if f["reclaim"] else None,

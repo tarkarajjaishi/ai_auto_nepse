@@ -171,31 +171,27 @@ st.markdown("""
      column gaps above it are never subtracted, so it overshoots the fold. */
   .st-key-mainchart { flex: 1 1 0 !important;
       border: none !important; background: transparent !important; padding: 0 !important; }
-  /* FULL FIT, no page scroll. The earlier attempt failed because the FIGURE carried a fixed
-     450px height while its box was smaller, so the overspill painted over the table. The chart
-     is autosize + responsive now, so Plotly follows the box instead of dictating to it, and
-     every level clips — a miscalculation can shrink the map but can never overlap the table. */
+  /* FULL FIT, no page scroll — using VIEWPORT units, not flex percentages.
+     Four earlier attempts each traded one artifact for another: flex:1 1 0 gave Plotly a box it
+     could not measure (450px chart in a 191px slot, painted over the table); height:100% against
+     a flex item resolved to 0 and the map vanished; and container-only resizing left Plotly
+     laying out at its old size with 247 of 297 tiles clipped, because Plotly re-lays-out on
+     WINDOW resize, not container resize. A vh height is definite at first paint, so Plotly sizes
+     correctly once and never needs a nudge. */
   .stMain .block-container { display: flex !important; flex-direction: column !important;
-      height: 100dvh !important; max-height: 100dvh !important; overflow: hidden !important; }
-  .stMain .block-container > div,
-  .stMain [data-testid="stVerticalBlock"]:has(> .st-key-mainchart) {
-      display: flex !important; flex-direction: column !important; min-height: 0 !important;
-      flex: 1 1 auto !important; }
-  .st-key-mainchart { flex: 1 1 0 !important; min-height: 0 !important;
-      overflow: hidden !important; }
-  .st-key-mainchart [data-testid="stVerticalBlock"] {
-      flex: 1 1 0 !important; min-height: 0 !important; overflow: hidden !important; }
-  /* The chart element is positioned, not flexed. A percentage height needs a parent with a
-     DEFINITE height, and a flex item with min-height:0 has none — which is why height:100%
-     resolved to 0 and the map vanished. inset:0 against a relative parent is definite, so
-     Plotly's responsive sizing gets a real box and fills it exactly. */
-  .st-key-mainchart [data-testid="stElementContainer"]:has(.stPlotlyChart) {
-      position: relative !important; flex: 1 1 0 !important;
-      min-height: 200px !important; overflow: hidden !important; }
-  .st-key-mainchart .stPlotlyChart { position: absolute !important; inset: 0 !important; }
+      height: 100dvh !important; max-height: 100dvh !important; overflow: hidden !important;
+      padding-bottom: .3rem !important; }
+  .st-key-mainchart { height: 42dvh !important; min-height: 200px !important;
+      flex: 0 0 auto !important; overflow: hidden !important; }
+  .st-key-mainchart [data-testid="stVerticalBlock"],
+  .st-key-mainchart [data-testid="stElementContainer"],
+  .st-key-mainchart .stPlotlyChart,
   .st-key-mainchart .js-plotly-plot,
   .st-key-mainchart .plot-container,
   .st-key-mainchart .svg-container { height: 100% !important; width: 100% !important; }
+  /* whatever the map leaves goes to the table, and only the TABLE scrolls if a screen is short */
+  .stMain .block-container > div:last-child { flex: 1 1 auto !important; min-height: 0 !important;
+      overflow-y: auto !important; }
 
   /* Value-change flash. A permanent square is noise on 15 rows; an animation fires only on the
      render where the number actually moved, then fades. The whole table is re-rendered each
