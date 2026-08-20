@@ -66,8 +66,13 @@ def route(path, query):
         out = {}
         for name in tables.BOARDS:
             t = tables.read(name)
+            # session_unknown travels too. Without it every consumer of THIS route sees
+            # stale=false for an undated board and badges it "synced" — the same collapse of
+            # "unknown" into "current" that the flag was added to stop, one layer up.
             out[name] = {"rows": len(t["rows"]), "session": t["session"],
-                         "stale": t["stale"], "missing": t.get("missing", False)}
+                         "stale": t["stale"],
+                         "session_unknown": t.get("session_unknown", False),
+                         "missing": t.get("missing", False)}
         return 200, {"archive_session": tables.newest_bar(), "boards": out}
 
     if head == "board" and arg:

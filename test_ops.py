@@ -418,7 +418,7 @@ def test_money_calls_never_auto_retry():
     accepted an order, so retrying a place would DUPLICATE it. Both money paths must opt out —
     and the flag has to gate the loop, not merely exist."""
     tree = ast.parse(Path("naasa.py").read_text(encoding="utf-8"))
-    for name in ("x_place_order", "x_cancel_order"):
+    for name in ("x_place_order", "x_cancel_order", "x_modify_order"):
         fn = next((n for n in ast.walk(tree)
                    if isinstance(n, ast.FunctionDef) and n.name == name), None)
         assert fn is not None, "%s is gone from naasa.py" % name
@@ -485,8 +485,8 @@ def test_one_price_loader():
 
 def test_order_ticket_is_not_on_a_timer():
     """The NAASA page re-runs fragments every second. A money call reachable from one could be
-    sent by a timer tick instead of a click, so no run_every fragment may reach x_place_order or
-    x_cancel_order — directly OR through any chain of helpers in this file.
+    sent by a timer tick instead of a click, so no run_every fragment may reach x_place_order,
+    x_cancel_order or x_modify_order — directly OR through any chain of helpers in this file.
 
     The first version of this test checked direct containment only and said so in its own
     docstring: "a fragment calling a helper that trades would still slip through". That is the
@@ -494,7 +494,7 @@ def test_order_ticket_is_not_on_a_timer():
     """
     src = Path(__file__).parent / "ui.py"
     tree = ast.parse(src.read_text(encoding="utf-8"))
-    money = {"x_place_order", "x_cancel_order"}
+    money = {"x_place_order", "x_cancel_order", "x_modify_order"}
 
     def called_names(node):
         out = set()

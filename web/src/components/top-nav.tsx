@@ -122,7 +122,9 @@ function StaleDot({ board }: { board?: string }) {
   });
   if (!board) return null;
   const info = data?.boards?.[board as keyof NonNullable<typeof data>["boards"]];
-  if (!info || (!info.stale && !info.missing)) return null;
+  // undated counts as "not known to be current" — a board that cannot say which session
+  // it holds must not render as a clean one.
+  if (!info || (!info.stale && !info.missing && !info.session_unknown)) return null;
   return (
     <span
       className={cn(
@@ -169,7 +171,7 @@ function ArchivePill() {
   }
 
   const behind = Object.entries(data.boards)
-    .filter(([, b]) => b.stale)
+    .filter(([, b]) => b.stale || b.session_unknown)
     .map(([n]) => n);
 
   return (

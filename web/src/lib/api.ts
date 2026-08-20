@@ -115,7 +115,14 @@ export type BoardsIndex = {
   archive_session: string | null;
   boards: Record<
     BoardName,
-    { rows: number; session: string | null; stale: boolean; missing: boolean }
+    {
+      rows: number;
+      session: string | null;
+      stale: boolean;
+      /** undated: freshness cannot be determined. NOT the same as fresh — see Board above. */
+      session_unknown?: boolean;
+      missing: boolean;
+    }
   >;
 };
 

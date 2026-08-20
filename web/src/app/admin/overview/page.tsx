@@ -56,7 +56,9 @@ export default function OverviewPage() {
   const buys = (signals.data?.rows ?? []).filter((r) =>
     String(r.verdict ?? "").startsWith("BUY"),
   );
-  const behind = Object.entries(boards.data?.boards ?? {}).filter(([, b]) => b.stale);
+  const behind = Object.entries(boards.data?.boards ?? {}).filter(
+    ([, b]) => b.stale || b.session_unknown,
+  );
 
   return (
     <div className="space-y-5 p-4 md:p-6">
