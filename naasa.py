@@ -465,7 +465,8 @@ def subscribe_frame(symbols):
     return "ADD^%d^%s" % (len(keys), "^".join(keys))
 
 
-_X_TTL = 540  # re-login the X-app session after ~9 min
+_X_TTL = 540          # re-login the X-app session after ~9 min
+_X_RELOGIN_GAP = 20   # ...but never mint two sessions within this many seconds
 _x_sess = {"op": None, "user_id": None, "session": None, "ts": 0.0, "lock": threading.Lock()}
 
 
@@ -477,7 +478,17 @@ def _x_login(email, password, force=False):
     single-active-session-per-account. Returns the cached {op, user_id, session}; re-logs in on
     `force` or once the TTL lapses."""
     with _x_sess["lock"]:
-        if not force and _x_sess["op"] and (time.time() - _x_sess["ts"] < _X_TTL):
+        age = time.time() - _x_sess["ts"]
+        if _x_sess["op"] and age < _X_TTL and not force:
+            return _x_sess
+        # A re-login mints a NEW session, and NAASA allows exactly ONE per account — so every
+        # forced re-login EVICTS the live socket. Order book, holdings, collateral and the index
+        # table all poll every 1-3s through x_report, which force-relogins on a stale session; a
+        # burst of those mints sessions faster than the feed can adopt one, so the socket never
+        # survives long enough to deliver a tick. The reports win, the feed starves, and the page
+        # reads "connecting" forever while the thread sits healthy in recv(). Coalesce: honour at
+        # most one re-login per _X_RELOGIN_GAP so a burst SHARES a session instead of racing.
+        if force and _x_sess["op"] and age < _X_RELOGIN_GAP:
             return _x_sess
         jar = http.cookiejar.CookieJar()
         op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))

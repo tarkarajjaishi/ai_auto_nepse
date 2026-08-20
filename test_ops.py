@@ -24,6 +24,7 @@ import ast
 import re
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import backtest
@@ -334,6 +335,30 @@ def test_order_ticket_is_not_on_a_timer():
     print("  order ticket        outside every run_every fragment (%d checked)" % len(timed))
 
 
+def test_forced_relogin_is_coalesced():
+    """NAASA allows ONE session per account, so every re-login evicts the live socket. The order
+    book, holdings, collateral and index panels all poll every few seconds through x_report, which
+    force-relogins on a stale session — un-coalesced, a burst of those mints sessions faster than
+    the feed can adopt one and the socket NEVER lives long enough to deliver a tick. That is not
+    hypothetical: it starved the feed for twenty minutes while the thread sat healthy in recv()
+    and the page read "connecting". A burst inside the gap must share one session."""
+    saved = dict(naasa._x_sess)
+    try:
+        sentinel = object()                       # if the guard fails this is replaced by a real
+        naasa._x_sess.update(op=sentinel, user_id="u", session="s",  # login attempt (or a hang)
+                             ip="1.2.3.4", ts=time.time())
+        for _ in range(5):
+            got = naasa._x_login("e", "p", force=True)
+            assert got["op"] is sentinel, "a forced re-login inside the gap minted a new session"
+        # ...but a session older than the gap must still be replaceable, or a genuinely dead
+        # session could never be refreshed and every account call would fail forever.
+        naasa._x_sess["ts"] = time.time() - naasa._X_RELOGIN_GAP - 1
+        assert naasa._X_RELOGIN_GAP < naasa._X_TTL, "the gap must be shorter than the TTL"
+    finally:
+        naasa._x_sess.update(saved)
+    print("  relogin coalesce    a burst of forced re-logins shares one session")
+
+
 def main():
     print("ops safety:")
     test_rewrite()
@@ -348,6 +373,7 @@ def main():
     test_order_body_is_exactly_what_the_screen_sends()
     test_money_calls_never_auto_retry()
     test_order_ticket_is_not_on_a_timer()
+    test_forced_relogin_is_coalesced()
     print("ok")
     return 0
 

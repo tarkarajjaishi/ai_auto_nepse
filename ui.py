@@ -578,7 +578,14 @@ def naasa_feed():
 # meaningfully inside a second: an order book moves when you place or fill something, holdings
 # and collateral move slower still. 3s is indistinguishable to a human watching and a third of
 # the load. Raise it if the broker ever complains; do not lower it.
-ACCT_POLL = 3
+ACCT_POLL = 3    # order book / holdings / collateral — authed report calls
+IDX_POLL = 5     # index table — one batched quote call for every index
+HM_POLL = 10     # sector heatmap — a batched quote for ~282 scrips, the heaviest call we make
+
+# These are a POLL BUDGET, not cosmetics. Every one of them is a network round trip against the
+# single NAASA session the live socket also depends on, so polling them hard does not just make
+# the page heavy — it starves the feed (see naasa._X_RELOGIN_GAP). Anything reading the socket
+# snapshot instead is free and stays at 1s.
 
 
 @st.cache_data(ttl=ACCT_POLL, show_spinner=False)
@@ -833,7 +840,7 @@ def render_live_depth(symbol):
     st.caption(f"Exact live feed from NAASA (GetMDepth + GetSpecifiedQuote) · as of {depth.get('time','—')}.")
 
 
-@st.cache_data(ttl=1, show_spinner=False)
+@st.cache_data(ttl=IDX_POLL, show_spinner=False)
 def indices_snapshot():
     """NEPSE index quotes from NAASA (batched SpecifiedQuote) — works live AND while closed.
     Cached 1s so the sidebar + heatmap page share one fetch. [] when signed out / unreachable."""
@@ -983,7 +990,7 @@ def _sector_map():
     return rows or c["rows"]
 
 
-@st.cache_data(ttl=1, show_spinner=False)
+@st.cache_data(ttl=HM_POLL, show_spinner=False)
 def stock_heatmap_rows():
     """Every equity + its sector + live quote, for the sector-grouped heatmap. Batched quotes
     (works while closed). [{stock, sector, ltp, chg, turnover}], only rows with a price."""
@@ -2648,7 +2655,7 @@ if page == "NAASA":
                                          if any(s in df.columns for s in srcs)})
                     st.dataframe(view, use_container_width=True, hide_index=True, height=240)
                     st.caption(f"🔴 {len(rows)} open order(s) · live from NAASA "
-                               "(MarketOrder/OrderBook) · polled 1s · read-only.")
+                               f"(MarketOrder/OrderBook) · polled {ACCT_POLL}s · read-only.")
                 else:
                     st.info("No open orders in your NAASA order book right now.")
             except Exception as e:
@@ -2675,7 +2682,7 @@ if page == "NAASA":
                         "ValueAsOfLTP": "Market value", "DayGainLoss": "Day P/L"})
                     st.dataframe(view, use_container_width=True, hide_index=True)
                     st.caption(f"🔴 {len(hold)} holding(s) · live from NAASA "
-                               "(TradeBook/HoldingDataReport) · polled 1s · read-only.")
+                               f"(TradeBook/HoldingDataReport) · polled {ACCT_POLL}s · read-only.")
                 else:
                     st.info("No holdings in your NAASA account.")
             except Exception as e:
@@ -2687,7 +2694,7 @@ if page == "NAASA":
     if not (em and pw):
         st.caption("Sign in to load your collateral and trade summary.")
     else:
-        @st.fragment(run_every=1)
+        @st.fragment(run_every=ACCT_POLL)
         def _collateral_panel():
             try:
                 f = _dash_fields(acct_call("collateral"))    # [2]=holdings [3]=collateral, [4] PII
@@ -2701,7 +2708,7 @@ if page == "NAASA":
                 d2.metric("Trades today", _num(f.get("TradeCount")))
                 d3.metric("Traded qty", _num(f.get("TotalTradedQty")))
                 d4.metric("Traded value", _money(f.get("TotalTradedValue")))
-                st.caption("🔴 Live from NAASA (Home/DashboardDetails) · polled 1s · read-only.")
+                st.caption(f"🔴 Live from NAASA (Home/DashboardDetails) · polled {ACCT_POLL}s · read-only.")
             except Exception as e:
                 st.caption(f"⚠ Could not load collateral — {str(e)[:120]}")
         _collateral_panel()
@@ -3084,11 +3091,11 @@ if page == "Heatmap":
                 render_index_heatmap(indices_snapshot())
         _hm_chart()
 
-    @st.fragment(run_every=1 if live else None)
+    @st.fragment(run_every=IDX_POLL if live else None)
     def _hm_table():
         render_index_table(indices_snapshot())
         if live:
-            st.caption(f"🔴 polling every 1s · last draw {datetime.now(NPT):%H:%M:%S} NPT")
+            st.caption(f"🔴 polling every {IDX_POLL}s · last draw {datetime.now(NPT):%H:%M:%S} NPT")
     _hm_table()
 
 
