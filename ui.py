@@ -571,17 +571,37 @@ def naasa_feed():
     return state
 
 
-@st.cache_data(ttl=1, show_spinner=False)
+# Public quotes poll at 1s; these do NOT. Three of these panels are open at once (orders,
+# holdings, collateral), so a 1s clock is three AUTHENTICATED calls per second against a live
+# brokerage account — and NAASA allows only one session at a time, so this competes with the
+# socket feed and with any browser tab signed in as the same user. None of these change
+# meaningfully inside a second: an order book moves when you place or fill something, holdings
+# and collateral move slower still. 3s is indistinguishable to a human watching and a third of
+# the load. Raise it if the broker ever complains; do not lower it.
+ACCT_POLL = 3
+
+
+@st.cache_data(ttl=ACCT_POLL, show_spinner=False)
 def acct_call(kind):
-    """One NAASA account report, cached 1s. The panels below poll on 1s fragments like the indices
-    do; without this every redraw would hit the report API, so the cache TTL and the fragments'
-    run_every are deliberately equal — one call per second, no more."""
+    """One NAASA account report, cached for ACCT_POLL seconds — the same clock the panels poll
+    on, so a redraw never costs an extra call. One constant, because the cache and the fragments
+    drifting apart is how you get a refetch on every redraw (or a poll that shows stale data)."""
     em, pw = naasa.load_credentials()
     if kind == "orders":
         return naasa.x_orderbook(em, pw)
     if kind == "holdings":
         return naasa.x_holdings(em, pw)
     return naasa.x_collateral(em, pw)
+
+
+def _broker_reply(resp):
+    """(ErrorCode, Message) out of a NAASA order reply, which answers in either casing. Returns
+    code None when the shape is unrecognised — for a money call that is "unknown", NOT "failed",
+    and the caller must say so rather than invite a retry that could double the order."""
+    if not isinstance(resp, dict):
+        return None, str(resp)[:200]
+    code = resp.get("ErrorCode", resp.get("errorCode"))
+    return code, str(resp.get("Message") or resp.get("message") or "")
 
 
 def render_socket_depth(symbol, feed):
@@ -2531,11 +2551,101 @@ if page == "NAASA":
         try: return f"Rs {float(x):,.2f}"
         except (TypeError, ValueError): return "—"
 
+    # -- Order ticket — REAL money ---------------------------------------------------------------
+    # Deliberately OUTSIDE every run_every fragment. The panels here re-run on a 1s timer, and a
+    # timer must never be able to re-enter a path that spends money; st.fragment reruns are
+    # fragment-scoped, so keeping the ticket in the main body means only a click can reach it.
+    # Sending is two-step: the form STAGES a validated draft, a separate button sends it, and the
+    # draft is popped BEFORE the call so no rerun or refresh can replay an order.
+    # test_ops.py enforces the "not on a timer" half of this.
+    st.markdown("<div class='section'>Place order</div>", unsafe_allow_html=True)
+    if not (em and pw):
+        st.caption("Sign in under 🔐 **NAASA account** in the sidebar (with Remember me) to place orders.")
+    else:
+        with st.form("order_ticket"):
+            q1, q2, q3, q4, q5 = st.columns([2, 1, 1, 1.4, 1])
+            t_scrip = q1.text_input("Symbol", value=sym)
+            t_side = q2.selectbox("Side", ("BUY", "SELL"))
+            t_qty = q3.number_input("Qty", min_value=1, max_value=99999999, value=10, step=1)
+            t_price = q4.number_input("Limit price (0 = market)", min_value=0.0, value=0.0,
+                                      step=0.10, format="%.2f")
+            t_terms = q5.selectbox("Validity", naasa.ORDER_TERMS)
+            t_valid = st.text_input("GTD date (DD-MMM-YY)", value="",
+                                    help="Only for GTD orders — leave blank for the rest.")
+            review = st.form_submit_button("Review order →", use_container_width=True)
+        if review:
+            try:                       # validate now so the confirm step shows a real order
+                st.session_state["order_draft"] = naasa.order_body(
+                    t_scrip, t_side, t_qty, t_price, t_terms, t_valid.strip())
+            except ValueError as e:
+                st.session_state.pop("order_draft", None)
+                st.error(f"Not a valid order — {e}")
+
+        draft = st.session_state.get("order_draft")
+        if draft:
+            is_mkt = draft["Market"] == "1"
+            d_px = 0.0 if is_mkt else float(draft["Price"])
+            d_qty = int(draft["Quantity"])
+            kind = "MARKET order" if is_mkt else f"LIMIT @ Rs {d_px:,.2f}"
+            worth = "filled at whatever the market offers" if is_mkt else f"Rs {d_qty * d_px:,.2f}"
+            st.warning(f"**{draft['BuySellType'].upper()} {d_qty:,} × {draft['Scrip']}** — {kind}, "
+                       f"{draft['OrderTerms']}. Order value: {worth}.\n\n"
+                       "Sending this places a **real order on NEPSE** through your NAASA account.")
+            ltp = live_price(draft["Scrip"])
+            if ltp and not is_mkt and abs(d_px - ltp) / ltp > 0.05:
+                st.info(f"Heads up: your limit is {abs(d_px - ltp) / ltp * 100:.1f}% away from the "
+                        f"last traded price of Rs {ltp:,.2f}.")
+            g1, g2 = st.columns(2)
+            if g1.button(f"✅ Send this {draft['BuySellType'].upper()} order", type="primary",
+                         use_container_width=True):
+                st.session_state.pop("order_draft", None)    # consume FIRST — no replay on rerun
+                try:
+                    resp = naasa.x_place_order(em, pw, draft["Scrip"], draft["BuySellType"],
+                                               draft["Quantity"], d_px, draft["OrderTerms"],
+                                               draft["TermValidity"])
+                    code, msg = _broker_reply(resp)
+                    if code == 0:
+                        st.success(f"Order accepted by the broker. {msg}".strip())
+                    elif code is None:
+                        st.warning("The broker replied in an unexpected shape — check the order "
+                                   f"book below before you retry, so you do not double up. {msg}")
+                    else:
+                        st.error(f"Broker REJECTED the order (code {code}) — {msg}")
+                except Exception as e:
+                    st.error(f"Order was NOT sent — {e}")
+            if g2.button("Discard", use_container_width=True):
+                st.session_state.pop("order_draft", None)
+                st.rerun()
+
+        # Being able to place without being able to pull is a trap, so cancel lives right here.
+        try:
+            open_rows = [r for r in acct_call("orders")
+                         if isinstance(r, dict) and (r.get("BrokerTranID") or r.get("LatestOrderID"))]
+        except Exception:
+            open_rows = []
+        if open_rows:
+            def _order_label(r):
+                return (f"{r.get('Scrip')} · {r.get('BuySellType') or r.get('B/S')} "
+                        f"{r.get('RemainingQty')} @ {r.get('Price')} · {r.get('OrderStatus')} "
+                        f"· #{r.get('BrokerTranID') or r.get('LatestOrderID')}")
+            pick = st.selectbox("Cancel an open order", range(len(open_rows)),
+                                format_func=lambda i: _order_label(open_rows[i]),
+                                index=None, placeholder="Choose an open order…")
+            if pick is not None and st.button("🚫 Cancel this order", use_container_width=True):
+                try:
+                    code, msg = _broker_reply(naasa.x_cancel_order(em, pw, open_rows[pick]))
+                    if code == 0:
+                        st.success(f"Cancellation accepted. {msg}".strip())
+                    else:
+                        st.error(f"Cancellation rejected (code {code}) — {msg}")
+                except Exception as e:
+                    st.error(f"Cancellation was NOT sent — {e}")
+
     st.markdown("<div class='section'>Order Book</div>", unsafe_allow_html=True)
     if not (em and pw):
         st.caption("Sign in under 🔐 **NAASA account** in the sidebar (with Remember me) to load your live order book.")
     else:
-        @st.fragment(run_every=1)
+        @st.fragment(run_every=ACCT_POLL)
         def _orderbook_panel():
             try:
                 rows = acct_call("orders")
@@ -2563,7 +2673,7 @@ if page == "NAASA":
     if not (em and pw):
         st.caption("Sign in to load your holdings.")
     else:
-        @st.fragment(run_every=1)
+        @st.fragment(run_every=ACCT_POLL)
         def _holdings_panel():
             try:
                 hold = acct_call("holdings")

@@ -357,8 +357,9 @@ def market_quote(cookie, symbol, exchange="NEPSE"):
 # The working endpoint is the OLD NAASA X app's socket, `wss://x.naasasecurities.com.np:8006/
 # WebSocket/Connect`, authed by `?UserId=<hdnLogin>&Password=<hdnSession>&protocol=WSS&
 # ClientIP=<ip>&Source=1`. hdnLogin/hdnSession are hidden fields the OLD app renders after an
-# OAuth login — hdnSession is a feed token, NOT the account password. feed_auth() logs in and
-# scrapes them. (The nx app's `serverx` variant needs a routing key we can't reconstruct — 503.)
+# OAuth login — hdnSession is a feed token, NOT the account password. _x_login() logs in, scrapes
+# them, and activates the session (see there); _client_ip() supplies the ClientIP, which must be
+# the real one. (The nx app's `serverx` variant needs a routing key we can't reconstruct — 503.)
 # Needs `websocket-client`.
 
 X_APP = "https://x.naasasecurities.com.np"
@@ -559,12 +560,15 @@ def _decode_report(data):
     return data
 
 
-def x_report(email, password, controller, action, body=None):
+def x_report(email, password, controller, action, body=None, retry=True):
     """POST `/<controller>/<action>` on the X app (shared feed session) → decoded report. The app's
     `ExecuteAPI(POST, action, controller, body)` helper: JSON body, `{errorCode, data}` envelope
-    where `data` is base64(JSON). Re-logs in once on failure (stale session)."""
+    where `data` is base64(JSON). Re-logs in once on failure (stale session).
+
+    `retry=False` disables that second attempt. Order placement MUST use it: a transport error can
+    fire after the exchange already accepted the order, so a retry would place a duplicate."""
     err = None
-    for attempt in (0, 1):
+    for attempt in ((0, 1) if retry else (0,)):
         s = _x_login(email, password, force=(attempt == 1))
         req = urllib.request.Request(
             X_APP + "/" + controller + "/" + action,
@@ -594,7 +598,7 @@ def x_report(email, password, controller, action, body=None):
             stale = ("session" in note.lower() or "login again" in note.lower()
                      or code == -1006001)
             if stale:
-                if attempt == 0:
+                if attempt == 0 and retry:
                     err = RuntimeError(note or "session expired")
                     continue                 # re-login with force=True and try once more
                 raise RuntimeError(f"NAASA session rejected: {note or 'session expired'}")
@@ -669,6 +673,94 @@ def x_collateral(email, password):
         except Exception:
             return {}
     return resp if isinstance(resp, dict) else {}
+
+
+# ------------------------------------------------------------------ orders (REAL money)
+# Placement is POST /MarketOrder/Order — the SAME url that GETs the order screen (the app's
+# ExecuteOrderRequest posts `Order` on the `MarketOrder` controller). Read off the order screen's
+# own PlaceOrder()/Cancel_Orders() builders, so our payload is field-for-field what the broker's
+# web client sends. Deliberately no modify: place and cancel cover the need without a third
+# money path to keep correct.
+ORDER_TERMS = ("DAY", "GTD", "GTC", "IOC", "FOK")
+
+# The constant leg of every order object. The backend answers "-102 Wrong Request Object" when a
+# key is missing, so these ride along even though they never vary.
+_ORDER_FIXED = {"DeliveryTerms": "D", "MarketSegment": "RL", "OrderCategory": "NORMAL",
+                "OrderType": "NORMAL", "AccRefCode": "SELF", "ProductType": "CASH",
+                "DisclosedQuantity": ""}
+
+
+def order_body(scrip, side, quantity, price, terms="DAY", term_validity="", exchange="NEPSE"):
+    """Build and validate the payload for ONE new order. Pure and side-effect free on purpose —
+    the field set is what decides whether the right trade happens, so it must be testable without
+    sending anything.
+
+    A `price` of 0 is the screen's MARKET-order flag (it flips `Market` to "1"); any other price
+    is a limit. Quantity rules are the screen's own ValidatePlaceOrder(): a whole number, 1..1e8-1.
+    """
+    side = str(side).upper().strip()
+    if side not in ("BUY", "SELL"):
+        raise ValueError("side must be BUY or SELL, got %r" % (side,))
+    if float(quantity) != int(float(quantity)):
+        raise ValueError("quantity must be a whole number, got %r" % (quantity,))
+    qty = int(float(quantity))
+    if not 1 <= qty <= 99999999:
+        raise ValueError("quantity must be 1..99999999, got %r" % (quantity,))
+    px = float(price)
+    if px < 0:
+        raise ValueError("price cannot be negative, got %r" % (price,))
+    if terms not in ORDER_TERMS:
+        raise ValueError("terms must be one of %s, got %r" % (ORDER_TERMS, terms))
+    if terms == "GTD" and not term_validity:
+        raise ValueError("a GTD order needs a term_validity date")
+    body = dict(_ORDER_FIXED)
+    body.update({
+        "TradingAccount": "CNC", "Exchange": exchange, "Scrip": str(scrip).upper().strip(),
+        "Quantity": str(qty), "Price": "0" if px == 0 else ("%g" % px),
+        "Market": "1" if px == 0 else "0",
+        "OrderTerms": terms, "TermValidity": term_validity,
+        "BuySellIndicator": "B" if side == "BUY" else "S",
+        "BuySellType": "Buy" if side == "BUY" else "Sell",
+        "isSquareOff": 0,
+    })
+    return body
+
+
+def cancel_body(row):
+    """Payload to cancel ONE open order, built from its order-book row. The screen rebuilds the
+    whole order object and adds OrderId/TranId (both = BrokerTranID); note TradingAccount is BLANK
+    here, unlike a new order."""
+    tran = row.get("BrokerTranID") or row.get("LatestOrderID")
+    if not tran:
+        raise ValueError("order row carries no BrokerTranID — nothing to cancel")
+    side = str(row.get("B/S") or row.get("BuySellIndicator") or row.get("BuySellType") or "").upper()
+    if not side.startswith(("B", "S")):
+        raise ValueError("order row has no readable buy/sell side: %r" % (side,))
+    body = dict(_ORDER_FIXED)
+    body.update({
+        "TradingAccount": "", "Exchange": row.get("Exchange") or "NEPSE",
+        "Scrip": row.get("Scrip"), "Quantity": row.get("RemainingQty"),
+        "Price": row.get("Price"), "Market": "0", "OrderTerms": "", "TermValidity": "",
+        "BuySellIndicator": "B" if side.startswith("B") else "S",
+        "BuySellType": "Buy" if side.startswith("B") else "Sell",
+        "OrderId": tran, "TranId": tran, "AMOBulkIndicator": row.get("OrderStatus"),
+    })
+    return body
+
+
+def x_place_order(email, password, scrip, side, quantity, price, terms="DAY", term_validity=""):
+    """PLACE A REAL ORDER on the signed-in NAASA account. This commits real money on NEPSE.
+
+    Returns the broker's envelope — `ErrorCode` 0 means accepted. Never auto-retries (see
+    x_report's `retry`): a duplicate order is far worse than a failed one the caller can repeat.
+    """
+    body = order_body(scrip, side, quantity, price, terms, term_validity)
+    return x_report(email, password, "MarketOrder", "Order", body, retry=False)
+
+
+def x_cancel_order(email, password, row):
+    """Cancel one open order, given its order-book row. No auto-retry, as for x_place_order."""
+    return x_report(email, password, "MarketOrder", "CancelOrder", cancel_body(row), retry=False)
 
 
 def feed_ws_url(user_id, session, client_ip):

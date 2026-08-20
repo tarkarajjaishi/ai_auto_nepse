@@ -14,6 +14,9 @@ Master_data. Every one of these guards a run that goes GREEN while something is 
                         raises and the page dies — this shipped once), and a sidebar entry whose
                         `if page ==` body was renamed with it, which draws a BLANK page with no
                         error because every branch simply falls through.
+  naasa orders        — the order payload decides what actually gets traded, a retried place is a
+                        DUPLICATE order, and a money call reachable from a 1s fragment could be
+                        sent by a timer instead of a click. None of the three raises anything.
 
     python test_ops.py
 """
@@ -27,6 +30,7 @@ import backtest
 import fetch_swp
 import indicators
 import master_signal
+import naasa
 import prices
 import swing_master
 
@@ -214,6 +218,122 @@ def test_every_page_has_a_body():
     print(f"  ui pages            {len(pages)} sidebar entries, {len(guards)} bodies, all matched")
 
 
+def test_order_body_is_exactly_what_the_screen_sends():
+    """A missing or renamed key is rejected as "-102 Wrong Request Object"; a wrong VALUE trades
+    the wrong thing, silently and for real. So pin the whole payload, not a sample of it."""
+    b = naasa.order_body(" nabil ", "buy", 10, 549.5)
+    assert set(b) == {
+        "TradingAccount", "Exchange", "Scrip", "Quantity", "Price", "Market", "OrderTerms",
+        "TermValidity", "BuySellIndicator", "BuySellType", "DeliveryTerms", "MarketSegment",
+        "OrderCategory", "OrderType", "AccRefCode", "ProductType", "DisclosedQuantity",
+        "isSquareOff"}, sorted(b)
+    assert b["Scrip"] == "NABIL" and b["Exchange"] == "NEPSE"
+    assert b["Quantity"] == "10" and b["Price"] == "549.5"
+    assert b["BuySellIndicator"] == "B" and b["BuySellType"] == "Buy"
+    assert b["Market"] == "0", "a priced order must go as a LIMIT order"
+    assert b["TradingAccount"] == "CNC"
+
+    # price 0 IS the screen's market-order flag — the two must never drift apart
+    m = naasa.order_body("NABIL", "SELL", 5, 0)
+    assert m["Market"] == "1" and m["Price"] == "0"
+    assert m["BuySellIndicator"] == "S" and m["BuySellType"] == "Sell"
+
+    for bad in (0, -1, 2.5, 100000000):
+        try:
+            naasa.order_body("NABIL", "BUY", bad, 100)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("quantity %r should have been rejected" % (bad,))
+    for bad in ("", "b", "LONG", "SHORT"):
+        try:
+            naasa.order_body("NABIL", bad, 1, 100)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("side %r should have been rejected" % (bad,))
+    try:
+        naasa.order_body("NABIL", "BUY", 1, -1)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a negative price should have been rejected")
+
+    # cancel rebuilds the order and identifies it by BrokerTranID; TradingAccount is BLANK here
+    c = naasa.cancel_body({"Scrip": "NABIL", "B/S": "B", "RemainingQty": "10", "Price": "549.5",
+                           "BrokerTranID": "77123", "OrderStatus": "OPEN", "Exchange": "NEPSE"})
+    assert c["OrderId"] == "77123" and c["TranId"] == "77123"
+    assert c["TradingAccount"] == "" and c["BuySellIndicator"] == "B"
+    try:
+        naasa.cancel_body({"Scrip": "NABIL", "B/S": "B"})
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a row with no BrokerTranID must not produce a cancel")
+    print("  naasa.order_body    full payload pinned; qty/side/price rules enforced")
+
+
+def test_money_calls_never_auto_retry():
+    """x_report retries once on a stale session. A transport error can fire AFTER the exchange has
+    accepted an order, so retrying a place would DUPLICATE it. Both money paths must opt out —
+    and the flag has to gate the loop, not merely exist."""
+    tree = ast.parse(Path("naasa.py").read_text(encoding="utf-8"))
+    for name in ("x_place_order", "x_cancel_order"):
+        fn = next((n for n in ast.walk(tree)
+                   if isinstance(n, ast.FunctionDef) and n.name == name), None)
+        assert fn is not None, "%s is gone from naasa.py" % name
+        calls = [c for c in ast.walk(fn) if isinstance(c, ast.Call)
+                 and getattr(c.func, "id", getattr(c.func, "attr", "")) == "x_report"]
+        assert calls, "%s no longer goes through x_report" % name
+        for c in calls:
+            kw = {k.arg: k.value for k in c.keywords}
+            assert "retry" in kw and getattr(kw["retry"], "value", None) is False, \
+                "%s must call x_report(..., retry=False)" % name
+
+    class _Dead:                        # every attempt dies in transport, the duplicate-risk case
+        def __init__(self, log):
+            self.log = log
+
+        def open(self, req, timeout=None):
+            self.log.append(1)
+            raise OSError("connection reset")
+
+    log, real = [], naasa._x_login
+    naasa._x_login = lambda e, p, force=False: {"op": _Dead(log)}
+    try:
+        for retry, expected in ((False, 1), (True, 2)):
+            del log[:]
+            try:
+                naasa.x_report("e", "p", "MarketOrder", "Order", {"q": 1}, retry=retry)
+            except Exception:
+                pass
+            assert len(log) == expected, \
+                "retry=%s made %d POST(s), expected %d" % (retry, len(log), expected)
+    finally:
+        naasa._x_login = real
+    print("  money calls         place and cancel never auto-retry (1 POST, not 2)")
+
+
+def test_order_ticket_is_not_on_a_timer():
+    """The NAASA page re-runs fragments every second. A money call inside one would be reachable
+    by a timer tick rather than only by a click, so no run_every fragment may contain one. Catches
+    direct containment only — a fragment calling a helper that trades would still slip through."""
+    tree = ast.parse(Path("ui.py").read_text(encoding="utf-8"))
+    money = {"x_place_order", "x_cancel_order"}
+    timed = [n for n in ast.walk(tree)
+             if isinstance(n, ast.FunctionDef)
+             and any(isinstance(d, ast.Call) and getattr(d.func, "attr", "") == "fragment"
+                     and any(k.arg == "run_every" for k in d.keywords)
+                     for d in n.decorator_list)]
+    assert timed, "no run_every fragments found — this test no longer matches ui.py"
+    for fn in timed:
+        for call in ast.walk(fn):
+            if isinstance(call, ast.Call) and getattr(call.func, "attr", "") in money:
+                raise AssertionError("%s() is on a run_every timer and calls %s()"
+                                     % (fn.name, call.func.attr))
+    print("  order ticket        outside every run_every fragment (%d checked)" % len(timed))
+
+
 def main():
     print("ops safety:")
     test_rewrite()
@@ -225,6 +345,9 @@ def main():
     test_no_pivot_lookahead()
     test_no_nested_expanders()
     test_every_page_has_a_body()
+    test_order_body_is_exactly_what_the_screen_sends()
+    test_money_calls_never_auto_retry()
+    test_order_ticket_is_not_on_a_timer()
     print("ok")
     return 0
 
