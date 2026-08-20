@@ -497,6 +497,21 @@ def _x_login(email, password, force=False):
         user_id, session = field("hdnLogin"), field("hdnSession")
         if not (user_id and session):
             raise RuntimeError("X-app login failed — could not scrape hdnLogin/hdnSession")
+        # The scraped hdnSession is NOT yet usable. The order screen always POSTs
+        # Login/ValidateSessionNo and swaps the answer in before it opens the socket
+        # ($("#hdnSession").val(response.sessionNo); WS_connect()). Skip that and the backend
+        # rejects every account-scoped report with -1006001 "Invalid sessionid" while the WSS
+        # still connects but never sends a tick — a live-looking feed with no data. Activate it
+        # here, once, so the socket and the reports share one working session.
+        try:
+            req = urllib.request.Request(
+                X_APP + "/Login/ValidateSessionNo", data=b"{}", method="POST",
+                headers={"Content-Type": "application/json; charset=utf-8",
+                         "X-Requested-With": "XMLHttpRequest"})
+            session = (json.loads(op.open(req, timeout=30).read().decode("utf-8", "replace"))
+                       .get("sessionNo") or session)
+        except (OSError, ValueError):
+            pass                       # keep the scraped value; account calls fail loudly anyway
         _x_sess.update(op=op, user_id=user_id, session=session, ts=time.time())
         return _x_sess
 
@@ -511,6 +526,18 @@ def _decode_report(data):
     """An X-app report `data` field is either plain JSON (a `[`/`{`-string, e.g. Indices) or
     base64(JSON) (the order-book/holdings grids), or an already-parsed value. Return the useful
     part — a list/dict of rows where possible, else the raw value."""
+    if isinstance(data, dict) and "reportTable" in data:
+        # Nested report envelope: {errorCode, message, reportName, isCompressed, reportTable}.
+        # The rows live in `reportTable` (base64 JSON). Returning the envelope itself makes every
+        # caller's `isinstance(rows, list)` test fail, so a populated order book reads as empty.
+        rows = data.get("reportTable")
+        if rows is None:
+            code = data.get("errorCode")
+            if code not in (0, -5001001, None):   # -5001001 = "No Record found" = an empty grid
+                raise RuntimeError("NAASA report %s: %s"
+                                   % (data.get("reportName") or "?", data.get("message") or code))
+            return []
+        return _decode_report(rows)
     if isinstance(data, str):
         s = data.strip()
         if not s:
@@ -560,9 +587,10 @@ def x_report(email, password, controller, action, body=None):
             # NAASA reports an expired session as HTTP 200 with an in-body error, so the transport
             # `except` above never sees it. Left unhandled the caller gets Data:[] and renders it
             # as "no open orders" / "no holdings" — a dead session that reads like a flat account.
-            note = str(resp.get("Message") or "")
+            note = str(resp.get("Message") or resp.get("message") or "")
+            code = resp.get("ErrorCode", resp.get("errorCode"))
             stale = ("session" in note.lower() or "login again" in note.lower()
-                     or resp.get("ErrorCode") == -1006001)
+                     or code == -1006001)
             if stale:
                 if attempt == 0:
                     err = RuntimeError(note or "session expired")
