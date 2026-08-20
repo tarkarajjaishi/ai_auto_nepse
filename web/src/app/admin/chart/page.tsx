@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import ReactECharts from "echarts-for-react";
 import { motion } from "motion/react";
 import { Activity, CandlestickChart, CircleAlert, TrendingUp } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -11,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { api, qk, type Heatmap, type Questions, type Report, type Scorecard } from "@/lib/api";
 import { compact, decisionTone, gradeTone, num, pct, price, TONE_CLASS } from "@/lib/format";
 import { useRail } from "@/store/rail";
+import { useTheme } from "@/store/theme";
 import { cn } from "@/lib/utils";
 
 /**
@@ -112,8 +114,11 @@ function ChartInner() {
               onKeyDown={(e) => e.key === "Enter" && go(draft)}
               onBlur={() => go(draft)}
               list="symbols"
-              // text-lg / font-bold — their instrument heading, measured at 18px / 700
-              className="h-8 w-32 rounded-md border border-transparent bg-transparent px-1 text-lg font-bold tracking-tight outline-none hover:border-border focus:border-primary/60"
+              // text-lg / font-bold — their instrument heading, measured at 18px / 700.
+              // Width in ch, not px: 128px truncated MANUFACTUREIND to "MANUFACT". Index names
+              // run to 14 characters where a scrip is 3-5, and ch scales with the face so this
+              // cannot re-break if the font changes.
+              className="h-8 w-[15ch] rounded-md border border-transparent bg-transparent px-1 text-lg font-bold tracking-tight outline-none hover:border-border focus:border-primary/60"
             />
             <datalist id="symbols">
               {[...(symbols.data?.indices ?? []), ...(symbols.data?.symbols ?? [])].map((s) => (
@@ -334,28 +339,38 @@ function BottomDrawer({
   const tabs = isIndex ? ["Sectors"] : ["Sectors", "Brokers", "Read"];
 
   return (
-    <div className="h-[168px] shrink-0 border-t border-border">
-      <div className="flex items-center gap-1 border-b border-border px-3">
-        {/* Underline tabs, not filled pills: theirs are `border-b-2 px-3 py-2 text-sm`, brass
-            border + semibold when active, transparent border + muted when not. */}
-        {tabs.map((t, i) => (
-          <button
-            key={t}
-            onClick={() => setTab(i)}
-            className={cn(
-              "relative border-b-2 px-3 py-2 text-sm transition-colors",
-              i === tab
-                ? "border-primary font-semibold text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {t}
-          </button>
-        ))}
-        <span className="ml-auto font-mono text-xs text-muted-foreground">{symbol}</span>
-      </div>
+    // Flex column with the body on flex-1, not a hardcoded 132px: the tab bar is conditional
+    // now, so the content has to take whatever is actually left rather than a number that only
+    // happens to be right when the bar is present.
+    // 200px, up from 168: a treemap needs vertical room to pack into rectangles rather than a
+    // row of slivers, and the tab bar's removal was to give it exactly that.
+    <div className="flex h-[200px] shrink-0 flex-col border-t border-border">
+      {/* Only worth a row when there is something to switch between. On an index there is one
+          tab, and a whole 38px band holding a single label is space the heatmap should have.
+          The symbol that used to sit on the right of this bar is gone too — it is already in
+          the instrument strip above, at 18px bold. */}
+      {tabs.length > 1 && (
+        <div className="flex shrink-0 items-center gap-1 border-b border-border px-3">
+          {/* Underline tabs, not filled pills: theirs are `border-b-2 px-3 py-2 text-sm`, brass
+              border + semibold when active, transparent border + muted when not. */}
+          {tabs.map((t, i) => (
+            <button
+              key={t}
+              onClick={() => setTab(i)}
+              className={cn(
+                "relative border-b-2 px-3 py-2 text-sm transition-colors",
+                i === tab
+                  ? "border-primary font-semibold text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      )}
 
-      <div className="h-[132px] overflow-auto">
+      <div className="min-h-0 flex-1 overflow-auto">
         {tab === 0 ? (
           <SectorStrip q={heat} />
         ) : isIndex ? (
@@ -713,79 +728,108 @@ function ChecksPanel({ q }: { q: UseQueryResult<Questions> }) {
   );
 }
 
+
 /**
- * The market under the chart: every sector, sized by turnover, coloured by today's move.
+ * The market under the chart as a real treemap: every sector packed into the full rectangle,
+ * area by turnover, colour by today's move.
  *
- * Clicking a tile loads that sector's INDEX into the chart and opens its constituents in the
- * rail — one click from "banks are up" to the bank index charted with every bank beside it.
+ * A single row of equal-height tiles wasted the drawer's vertical space and made a 2.2B sector
+ * and a 7M one look the same height. ECharts does the squarified packing — the same renderer the
+ * /admin/heatmap page uses, so the two cannot drift apart in look or in numbers.
+ *
+ * Clicking a rectangle loads that sector's INDEX into the chart and opens its constituents in
+ * the rail: one click from "banks are up" to the bank index charted with every bank beside it.
  */
 function SectorStrip({ q }: { q: UseQueryResult<Heatmap> }) {
   const router = useRouter();
   const setDrill = useRail((s) => s.setDrill);
-
-  if (q.isPending) {
-    return (
-      <div className="flex h-full gap-1 p-2">
-        {Array.from({ length: 9 }).map((_, i) => (
-          <Skeleton key={i} className="h-full flex-1" />
-        ))}
-      </div>
-    );
-  }
+  const theme = useTheme((s) => s.theme);
   const sectors = q.data?.sectors ?? [];
+
+  const option = useMemo(() => {
+    // Saturate at ±3%. NEPSE's circuit is ±15%, but a sector INDEX rarely moves more than a few
+    // percent, so ramping to 15 would paint every ordinary day the same flat grey.
+    const colour = (p: number) => {
+      const k = Math.min(Math.abs(p) / 3, 1);
+      const [r, g, b] = p >= 0 ? [63, 182, 139] : [224, 86, 78];
+      return `rgba(${r},${g},${b},${(0.25 + k * 0.65).toFixed(3)})`;
+    };
+    return {
+      backgroundColor: "transparent",
+      tooltip: {
+        formatter: (p: { name: string }) => {
+          const s = sectors.find((x) => x.sector === p.name);
+          if (!s) return p.name;
+          return `<b>${s.sector}</b><br/>${pct(s.pct)} ${
+            s.official ? "(published index)" : "(turnover-weighted)"
+          }<br/>${s.count} scrip · turnover ${compact(s.turnover)}${
+            s.index ? `<br/><i>click to open ${s.index}</i>` : ""
+          }`;
+        },
+      },
+      series: [
+        {
+          type: "treemap",
+          // Square-root the area so Hydro Power's 2.2B cannot swallow the rectangle — it is
+          // ~5x the next sector by turnover and would leave the rest unreadable slivers.
+          data: sectors.map((s) => ({
+            name: s.sector,
+            value: Math.sqrt(Math.max(s.turnover, 1e4)),
+            itemStyle: { color: colour(s.pct) },
+          })),
+          roam: false,
+          nodeClick: false,
+          breadcrumb: { show: false },
+          animationDuration: 300,
+          width: "100%",
+          height: "100%",
+          top: 0,
+          left: 0,
+          label: {
+            show: true,
+            position: "inside",
+            color: theme === "dark" ? "#e8ebed" : "#16202b",
+            fontSize: 11,
+            lineHeight: 14,
+            overflow: "truncate",
+            formatter: (p: { name: string }) => {
+              const s = sectors.find((x) => x.sector === p.name);
+              return s ? `{n|${s.sector}}\n{v|${pct(s.pct)}}` : p.name;
+            },
+            rich: {
+              n: { fontSize: 11, fontWeight: 500 },
+              v: { fontSize: 12, fontWeight: 700, fontFamily: "monospace" },
+            },
+          },
+          itemStyle: {
+            borderColor: theme === "dark" ? "#0e1419" : "#f4f6f9",
+            borderWidth: 2,
+            gapWidth: 2,
+          },
+        },
+      ],
+    };
+  }, [sectors, theme]);
+
+  if (q.isPending) return <Skeleton className="m-2 h-[calc(100%-1rem)]" />;
   if (!sectors.length) {
     return <p className="p-3 text-xs text-muted-foreground">Sector data unavailable.</p>;
   }
 
-  // Square-root the turnover so one heavy sector cannot swallow the strip — Hydro Power alone
-  // carries 110 of the ~280 scrips. Floored so a quiet sector stays clickable, not a sliver.
-  const weight = (t: number) => Math.max(Math.sqrt(Math.max(t, 1e4)), 1);
-
   return (
-    <div className="flex h-full gap-1 p-2">
-      {sectors.map((sec) => {
-        const up = sec.pct >= 0;
-        // Saturate at ±3%. NEPSE's circuit is ±15%, but a sector INDEX rarely moves more than a
-        // few percent, so ramping to 15 would paint every ordinary day the same flat grey.
-        const k = Math.min(Math.abs(sec.pct) / 3, 1);
-        const alpha = (0.12 + k * 0.5).toFixed(3);
-        return (
-          <button
-            key={sec.sector}
-            disabled={!sec.index}
-            style={{
-              flexGrow: weight(sec.turnover),
-              backgroundColor: up
-                ? `rgba(63,182,139,${alpha})`
-                : `rgba(224,86,78,${alpha})`,
-            }}
-            onClick={() => {
-              if (!sec.index) return;
-              setDrill(sec.index);
-              router.push(`/admin/chart?symbol=${encodeURIComponent(sec.index)}`);
-            }}
-            title={`${sec.sector} · ${sec.count} scrip · turnover ${compact(sec.turnover)}${
-              sec.index ? ` · opens ${sec.index}` : ""
-            }${sec.official ? "" : " · turnover-weighted, no published index"}`}
-            // min-w floor: flex-grow alone let the quiet sectors collapse to unreadable slivers
-            // you could not hit. Turnover still sets the relative size above this width.
-            className="flex min-w-[76px] basis-0 flex-col justify-center overflow-hidden rounded px-2 py-1 text-left transition-[filter] hover:brightness-125 disabled:cursor-default"
-          >
-            <span className="truncate text-[11px] font-medium leading-tight">{sec.sector}</span>
-            <span
-              className={cn(
-                "font-mono text-xs font-semibold tabular-nums",
-                up ? "text-up" : "text-down",
-              )}
-            >
-              {pct(sec.pct)}
-            </span>
-            <span className="truncate text-[10px] text-muted-foreground">
-              {sec.count} · {compact(sec.turnover)}
-            </span>
-          </button>
-        );
-      })}
-    </div>
+    <ReactECharts
+      option={option}
+      style={{ height: "100%", width: "100%" }}
+      opts={{ renderer: "canvas" }}
+      notMerge
+      onEvents={{
+        click: (e: { name: string }) => {
+          const s = sectors.find((x) => x.sector === e.name);
+          if (!s?.index) return;
+          setDrill(s.index);
+          router.push(`/admin/chart?symbol=${encodeURIComponent(s.index)}`);
+        },
+      }}
+    />
   );
 }
