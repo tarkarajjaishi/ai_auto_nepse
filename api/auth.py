@@ -36,12 +36,32 @@ def _files(login_name, session_name):
 
 
 def _probe_swp():
-    """Cheap validity call — swp.session_info raises when the cookie has lapsed."""
+    """Does SWP work — following the same path the real code does, not a stricter one.
+
+    fetch_swp._session() reuses the cached cookie and, when it has lapsed, **re-logs in from the
+    saved credentials**. Testing only the cached cookie therefore reports "not working" for a
+    system that heals itself on the next run, which is a false alarm dressed as a diagnosis. So
+    this mirrors that path: stale cookie plus saved credentials is a working integration, and it
+    says which of the two answered.
+    """
     cookie = swp.load_session()
-    if not cookie:
-        return False, "No saved session cookie."
+    if cookie:
+        try:
+            info = swp.session_info(cookie)
+            return True, "Session valid — %s companies visible." % info.get("companies", "?")
+        except Exception:
+            pass                       # lapsed cookie is normal; the real code re-logins here too
+    email, password = swp.load_credentials()
+    if not (email and password):
+        return False, ("The cached session has lapsed and no credentials are saved, so nothing "
+                       "can renew it. Sign in on the Streamlit app under SmartWealthPro with "
+                       "Remember me.")
+    cookie = swp.login_password(email, password)
+    swp.save_session(cookie)
     info = swp.session_info(cookie)
-    return True, "Session valid — %s companies visible." % info.get("companies", "?")
+    return True, ("The cached session had lapsed; re-logged in from the saved credentials — %s "
+                  "companies visible. The daily jobs do exactly this, so it needed no action."
+                  % info.get("companies", "?"))
 
 
 def _probe_naasa():
