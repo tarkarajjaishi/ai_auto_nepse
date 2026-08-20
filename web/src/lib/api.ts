@@ -82,6 +82,12 @@ export type Board = {
   archive_session: string | null;
   /** the board was computed before bars now on disk: say so, loudly */
   stale: boolean;
+  /**
+   * the board has rows but carries no date at all, so its freshness is UNKNOWN — which is not
+   * the same as fresh. `stale` is false in both cases, which is exactly how four boards came to
+   * report themselves current forever. Render this as a warning, never as silence.
+   */
+  session_unknown?: boolean;
   missing: boolean;
 };
 

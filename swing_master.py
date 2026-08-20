@@ -28,8 +28,10 @@ from trade_setup import LIQUID_MIN, setup
 OUT = MASTER / "swing_master.txt"
 # cost_rs is appended at the END on purpose: ui.py reads this file positionally
 # (`int(r[9])` for risk_rs), so inserting a column mid-header would silently shift it.
+# `date` is LAST on purpose — ui.py reads r[9] for risk_rs, so nothing may shift. cost_rs went
+# on the end for the same reason; test_ops pins both indices.
 HEADER = ("symbol\tverdict\tclose\tvol_x\tentry\tstop\ttarget1\ttarget2\tqty\trisk_rs"
-          "\trisk_pct\trr\tedge_oos\thold_bars\tcost_rs")
+          "\trisk_pct\trr\tedge_oos\thold_bars\tcost_rs\tdate")
 
 HOLD_BARS = 20
 BASE_WIN = 44                                       # NEPSE base rate, from 212k observations
@@ -120,7 +122,7 @@ def main():
     lines = [HEADER] + ["\t".join(str(x) for x in (
         r["symbol"], r["verdict"], r["close"], round(r["vol_ratio"], 2), r["entry"], r["stop"],
         r["target1"], r["target2"], r["qty"], r["risk_rs"], r["risk_pct"], r["rr"],
-        r["edge"], HOLD_BARS, r["cost_rs"])) for r in rows]
+        r["edge"], HOLD_BARS, r["cost_rs"], r["date"])) for r in rows]
     OUT.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     buys = [r for r in rows if r["verdict"] == "BUY"]

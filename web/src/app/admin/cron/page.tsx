@@ -37,7 +37,10 @@ export default function PipelinePage() {
         once, whether that is still true. The archive is at{" "}
         <span className="font-mono text-foreground">{q.data?.archive_session ?? "—"}</span>. Before
         the 15:00 NPT close the newest bar is a <strong>partial</strong> session, so rebuilding
-        mid-day scores an unfinished candle — which is why nothing here rebuilds on its own.
+        mid-day scores an unfinished candle. Rebuilds are not triggered from this page — but
+        they do happen on their own: <span className="font-mono">chukul-update.timer</span> runs
+        the pipeline on the server daily, after the close. This page reports freshness; it does not
+        control it.
       </p>
 
       <div className="overflow-hidden rounded-lg border border-border bg-card">

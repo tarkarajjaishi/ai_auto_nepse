@@ -676,6 +676,53 @@ def test_forced_relogin_is_coalesced():
     print("  relogin coalesce    a burst of forced re-logins shares one session")
 
 
+def test_board_writers_emit_exactly_their_header():
+    """A board row with the wrong number of fields is dropped SILENTLY, every one of them.
+
+    api/tables.py `read()` skips any line where `len(f) != len(cols)` — deliberately, because a
+    short row is corrupt rather than blank. The consequence is that adding a column to a HEADER
+    and forgetting the writer (or the reverse) does not raise, does not warn, and does not show a
+    partial table: the board goes completely EMPTY while the file on disk looks fine and every
+    script still exits 0. That is the whole failure class this file exists for.
+
+    Counted from the source, not from the produced .txt, so a stale file cannot make it pass.
+    """
+    import ast as _ast
+
+    def header_cols(tree, name):
+        for node in _ast.walk(tree):
+            if isinstance(node, _ast.Assign) and getattr(node.targets[0], "id", "") == name:
+                return len(_ast.literal_eval(node.value).split("\t"))
+        raise AssertionError("no %s in this module" % name)
+
+    here = Path(__file__).parent
+    # writers that build a row as `"\t".join(str(x) for x in (...))`
+    for fname, hname in (("master_signal.py", "HEADER"), ("swing_master.py", "HEADER"),
+                         ("operator_scan.py", "HEADER")):
+        tree = _ast.parse((here / fname).read_text(encoding="utf-8"))
+        cols = header_cols(tree, hname)
+        tuples = [len(n.generators[0].iter.elts) for n in _ast.walk(tree)
+                  if isinstance(n, _ast.GeneratorExp)
+                  and isinstance(n.generators[0].iter, _ast.Tuple)]
+        assert cols in tuples, \
+            f"{fname}: {hname} has {cols} columns but the writer emits {tuples} fields — " \
+            "every row would be dropped and the board would render empty"
+
+    # backtest builds its row from f-strings, not a tuple, so count separators across save()
+    # as a whole: every field boundary is one tab and the tail splices into the head, so
+    # fields = tabs + 1. Do NOT slice the tail out by parenthesis — len(trades) closes the
+    # first bracket, so you count zero and the check passes while measuring nothing.
+    bt = (here / "backtest.py").read_text(encoding="utf-8")
+    cols = header_cols(_ast.parse(bt), "OUT_HEADER")
+    save = next(n for n in _ast.walk(_ast.parse(bt))
+                if isinstance(n, _ast.FunctionDef) and n.name == "save")
+    fields = (_ast.get_source_segment(bt, save) or "").count("\\t") + 1
+    assert fields == cols, \
+        f"backtest.py: OUT_HEADER has {cols} columns but save() emits {fields} fields"
+
+    print("  board writers       header width == fields written (4 boards)")
+
+
 def main():
     print("ops safety:")
     test_rewrite()
@@ -694,6 +741,7 @@ def main():
     test_order_body_is_exactly_what_the_screen_sends()
     test_money_calls_never_auto_retry()
     test_order_ticket_is_not_on_a_timer()
+    test_board_writers_emit_exactly_their_header()
     test_api_can_never_place_an_order()
     test_collateral_never_returns_client_pii()
     test_forced_relogin_is_coalesced()

@@ -29,8 +29,10 @@ from indicators import sma
 from trade_setup import LIQUID_MIN, setup
 
 OUT = MASTER / "master_signal.txt"
+# `date` is LAST on purpose — ui.py reads this sheet positionally (r[1] == "BUY"), so a column
+# inserted mid-header changes what the page reads with no error at all. test_ops pins the indices.
 HEADER = ("symbol\tverdict\tclose\tvol_x\tentry\tstop\ttarget1\ttarget2\trisk_pct\trr"
-          "\tadx\trsi\tscore\tedge_oos")
+          "\tadx\trsi\tscore\tedge_oos\tdate")
 
 def edge_for(vol_x):
     """The measured OOS average (~20 bars) for the volume band this candidate falls in.
@@ -97,7 +99,7 @@ def main():
         lines.append("\t".join(str(x) for x in (
             r["symbol"], r["verdict"], r["close"], round(r["vol_ratio"], 2), r["entry"],
             r["stop"], r["target1"], r["target2"], r["risk_pct"], r["rr"],
-            r["adx"], r["rsi"], r["score"], r["edge"])))
+            r["adx"], r["rsi"], r["score"], r["edge"], r["date"])))
     OUT.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M")

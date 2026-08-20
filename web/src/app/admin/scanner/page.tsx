@@ -20,11 +20,13 @@ export default function ScannerPage() {
       ]}
       blurb={
         <>
-          Every stock scanned with your current personal-indicator settings — ALMA wave, structure
-          break, and swing confirmation. A swing is only confirmed a number of bars <em>after</em>
-          it happens, so these are historical marks rather than live calls. Mutual funds and
-          debentures are excluded: they trade on NAV and coupons, not on the structure this reads.
-          Click a row to chart it.
+          Every instrument in the archive, scanned with the settings frozen into{" "}
+          <span className="font-mono">scan.py</span> — ALMA wave, structure break, and swing
+          confirmation. Those are fixed here; the sliders that tune them live in the Streamlit app.
+          A swing is only confirmed a number of bars <em>after</em> it happens, so these are
+          historical marks rather than live calls. Note the universe is <em>not</em> filtered:
+          debentures and mutual funds appear, and their structure means little because they trade
+          on NAV and coupons. Click a row to chart it.
         </>
       }
     />

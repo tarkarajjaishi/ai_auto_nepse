@@ -357,14 +357,19 @@ def by_year(trades, name):
 
 
 OUT = MASTER / "backtest.txt"
+# `date` is LAST on purpose — ui.py reads thirteen indices into this sheet and test_ops pins
+# every one of them. It repeats `to` (the newest replayed session) because api/tables.read() looks
+# for a column literally named `date`; without it this board reports no session at all and then
+# reads as current forever.
 OUT_HEADER = ("variant\tis_n\tis_win\tis_avg\toos_n\toos_win\toos_avg\ttrades\tsplit"
-              "\tfrom\tto\tcost_pct\tmax_hold")
+              "\tfrom\tto\tcost_pct\tmax_hold\tdate")
 
 
 def save(trades, split, rows):
     """Persist the table so the Backtest page reads a file instead of re-replaying 7k trades."""
     dates = sorted(t["date"] for t in trades)
-    tail = f"{len(trades)}\t{split}\t{dates[0]}\t{dates[-1]}\t{COST*100}\t{MAX_HOLD}"
+    tail = (f"{len(trades)}\t{split}\t{dates[0]}\t{dates[-1]}\t{COST*100}\t{MAX_HOLD}"
+            f"\t{dates[-1]}")
     lines = [OUT_HEADER] + [
         f"{name}\t{a['n']}\t{a['win']:.1f}\t{a['avg']:.2f}\t{o['n']}\t{o['win']:.1f}\t{o['avg']:.2f}\t{tail}"
         for name, a, o in rows]

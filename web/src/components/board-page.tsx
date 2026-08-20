@@ -76,6 +76,14 @@ export function BoardPage({
         </Banner>
       )}
 
+      {q.data?.session_unknown && (
+        <Banner tone="primary" icon={AlertTriangle}>
+          This board carries no date, so there is no way to tell which session it was computed on
+          — it may be today&apos;s or it may be weeks old. Treat every number below as undated
+          until the script that writes it emits a <span className="font-mono">date</span> column.
+        </Banner>
+      )}
+
       {q.data?.stale && (
         <Banner tone="primary" icon={AlertTriangle}>
           Computed on <span className="font-mono text-foreground">{q.data.session}</span>, but the

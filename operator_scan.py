@@ -37,7 +37,7 @@ HEADER = ("symbol\tside\tverdict\tproof\tfloat_pct\tbroker\tbreadth\tnet_1m\tnet
           "\tnet_3m\tpct_3m\tcoord2_pct\tlockin_expiry\tlockin_days"
           "\tsector\tsector_chg\trel_str\taccum_days\tprofit_yoy\teps_yoy\tearn_period"
           "\tnet_half1\tnet_half2"
-          "\tpub_shares\tbroker_buy\ttape_vol\tactive_days\tsame_days")
+          "\tpub_shares\tbroker_buy\ttape_vol\tactive_days\tsame_days\tdate")
 
 
 def load_float():
@@ -369,6 +369,9 @@ def main():
                 # raw building blocks so the UI can show the actual arithmetic behind each claim
                 "pub_shares": pub[sym], "broker_buy": gross, "tape_vol": total_vol,
                 "active_days": len(active), "same_days": len(same),
+                # the newest floorsheet session this symbol was scanned on — without it the
+                # board reports no session and the UI can never call it stale
+                "date": rows[-1][0],
             })
             breadth[broker] += 1
 
@@ -392,7 +395,7 @@ def main():
             f"{r['accum_days']:.1f}", r["profit_yoy"], r["eps_yoy"], r["earn_period"],
             f"{r['h1']:.0f}", f"{r['h2']:.0f}",
             f"{r['pub_shares']:.0f}", f"{r['broker_buy']:.0f}", f"{r['tape_vol']:.0f}",
-            r["active_days"], r["same_days"])))
+            r["active_days"], r["same_days"], r["date"])))
     OUT.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     proven = [r for r in rows_out if r["proof"] == 3]

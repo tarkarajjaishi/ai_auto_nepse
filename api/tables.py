@@ -62,8 +62,14 @@ def read(board):
         rows.append({c: (f[i] if c in _TEXT else _num(f[i])) for i, c in enumerate(cols)})
     session = max((r["date"] for r in rows if r.get("date")), default=None)
     newest = newest_bar()
+    # `stale` is False when the session is UNKNOWN as well as when the board is current, and
+    # those are not the same thing. Four boards shipped without a `date` column and every one of
+    # them reported itself fresh forever — CLAUDE.md's named failure mode, four times over. The
+    # producing scripts now emit `date`; this flag is here so the next board that forgets says
+    # "I cannot tell" on screen instead of quietly claiming to be up to date.
     return {"rows": rows, "columns": cols, "session": session,
             "stale": bool(session and newest and session < newest),
+            "session_unknown": bool(rows) and session is None,
             "archive_session": newest, "missing": False}
 
 

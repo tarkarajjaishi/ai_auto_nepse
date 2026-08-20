@@ -8,8 +8,9 @@ import { redirect } from "next/navigation";
  * route at `/admin/overview` and its own nav entry, so nothing is lost; only the front door moved.
  *
  * A redirect rather than rendering the chart here, so there is exactly ONE chart route. Rendering
- * it in both places would mean two URLs for the same view, and the symbol/timeframe query params
- * the chart reads would silently do nothing on this one.
+ * it in both places would mean two URLs for the same view, and the ?symbol query param the chart
+ * reads would silently do nothing on this one. (It reads ?symbol only — there is no timeframe
+ * param; an earlier version of this comment claimed one and no such feature exists.)
  */
 export default function AdminIndexPage() {
   redirect("/admin/chart");

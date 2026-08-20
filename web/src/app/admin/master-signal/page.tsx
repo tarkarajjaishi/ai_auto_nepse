@@ -11,8 +11,11 @@ export default function MasterSignalPage() {
       emptyMessage="Nothing qualifies today. The rule only fires on volume confirmation, and cash is a position."
       blurb={
         <>
-          Volume-confirmed continuation — the one filter that held out of sample across 7,722
-          replayed trades. <strong>edge_oos</strong> is the measured out-of-sample average for that
+          Volume-confirmed continuation — the one filter that held out of sample across the
+          whole replay. The trade count is deliberately not quoted here: it changes with every
+          rebuild, and this blurb had drifted to a figure the archive no longer matched. Read it
+          off the <span className="font-mono">trades</span> column on the Backtest page instead.{" "}
+          <strong>edge_oos</strong> is the measured out-of-sample average for that
           volume band, read from <span className="font-mono">backtest.txt</span> rather than
           transcribed: the two sheets and the backtest once carried three different values for the
           same &ldquo;measured&rdquo; number. Base rate for context: a random NEPSE 20-day hold
