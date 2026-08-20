@@ -41,18 +41,31 @@ def bollinger(values, n=20, mult=2.0):
 
 
 def rsi(values, n=14):
-    """Wilder smoothing."""
+    """Wilder smoothing.
+
+    Zero average loss has two meanings and they are not the same answer. With a positive
+    average gain the move is all upside and RSI 100 is right. With BOTH zero the price has not
+    moved at all and RSI is undefined — returning 100 there labelled a frozen series as maximum
+    overbought. NEPSE has plenty of those: on the intraday archive 12,750 RSI values sat at 100
+    on a window whose last 15 closes were identical, which reads as a screaming overbought
+    signal on a stock that simply did not trade. The series is already None-padded, so callers
+    that guard the warm-up handle this case too.
+    """
     out = [None] * len(values)
     if len(values) <= n:
         return out
     gains = [max(values[i] - values[i - 1], 0) for i in range(1, len(values))]
     losses = [max(values[i - 1] - values[i], 0) for i in range(1, len(values))]
+
+    def level(up, down):
+        return 100 - 100 / (1 + up / down) if down else (None if up == 0 else 100)
+
     up, down = sum(gains[:n]) / n, sum(losses[:n]) / n
-    out[n] = 100 - 100 / (1 + up / down) if down else 100
+    out[n] = level(up, down)
     for i in range(n, len(gains)):
         up = (up * (n - 1) + gains[i]) / n
         down = (down * (n - 1) + losses[i]) / n
-        out[i + 1] = 100 - 100 / (1 + up / down) if down else 100
+        out[i + 1] = level(up, down)
     return out
 
 

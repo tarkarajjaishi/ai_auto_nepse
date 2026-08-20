@@ -25,6 +25,7 @@ from pathlib import Path
 
 import backtest
 import fetch_swp
+import indicators
 import master_signal
 import prices
 import swing_master
@@ -130,6 +131,18 @@ def test_edge_is_read_not_transcribed():
     print(f"  edge                both sheets read backtest.txt ({len(measured)} bands agree)")
 
 
+def test_rsi_undefined_on_a_frozen_series():
+    """Zero average loss has two meanings. All-upside is RSI 100; a price that has not moved at
+    all is undefined. Collapsing them labelled 12,750 frozen intraday windows as maximum
+    overbought — a screaming signal on a stock that simply did not trade."""
+    assert indicators.rsi([100.0] * 40)[-1] is None, "a frozen series is not overbought"
+    assert indicators.rsi([100.0 + i for i in range(40)])[-1] == 100, "all-upside is still 100"
+    assert indicators.rsi([100.0 - i for i in range(40)])[-1] == 0, "all-downside is still 0"
+    mid = indicators.rsi([100 + ((-1) ** i) * i * 0.5 for i in range(60)])[-1]
+    assert mid is not None and 0 < mid < 100, f"a normal series must score in between, got {mid}"
+    print("  indicators.rsi      undefined on a frozen series; 100 and 0 still reachable")
+
+
 def test_no_pivot_lookahead():
     """A 5/5 pivot is confirmed five bars after it prints, so any HISTORICAL replay may only
     use pivots up to k-5. backtest.py has always applied that guard and says so in a comment;
@@ -200,6 +213,7 @@ def main():
     test_ex_date_detection()
     test_position_never_exceeds_the_book()
     test_edge_is_read_not_transcribed()
+    test_rsi_undefined_on_a_frozen_series()
     test_no_pivot_lookahead()
     test_no_nested_expanders()
     test_every_page_has_a_body()
