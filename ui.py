@@ -1849,6 +1849,44 @@ def _naasa_auto_login():
 if "naasa_who" not in st.session_state:
     _naasa_auto_login()
 
+# -- Trading days ------------------------------------------------------------------------------
+# The single switch for "is the market open". Which weekdays trade used to be hardcoded as
+# `weekday() in (4, 5)` in three separate places, so a schedule change meant finding all three.
+# Everything reads market_hours now: the session banner, the cron scheduler's is-anything-due
+# check, the archive-freshness counter and the live socket. It lives in the sidebar rather than
+# on one page because it governs all of them — and it can only live in ONE place, since a second
+# copy would collide on the widget keys.
+with st.sidebar.expander("📅  Trading days", expanded=False):
+    _open_now = market_hours.open_days()
+    _pills = st.columns(7)
+    for _i, (_wd, _lbl) in enumerate(market_hours.WEEK):
+        _is_open = _wd in _open_now
+        if _pills[_i].button(_lbl[0], key=f"mh_day_{_wd}", width="stretch",
+                             type="primary" if _is_open else "secondary",
+                             help=f"{_lbl} — " + ("open, click to close" if _is_open
+                                                  else "closed, click to open")):
+            market_hours.toggle_day(_wd)
+            st.rerun()
+    _n_open, _n_tot, _feed_armed = market_hours.summary()
+    if _n_open:
+        st.caption(f"🟢 **{_n_open} / {_n_tot} days open** — honoured by every cron, by the "
+                   "session banner and by the live feed.")
+    else:
+        st.caption("🔴 **Every day closed** — no cron will fire, the banner reads CLOSED and the "
+                   "live feed stays off until a day is open.")
+
+    _want_feed = st.toggle(
+        "NAASA live feed (WSS)", value=_feed_armed, key="mh_feed",
+        help="Master switch for the websocket. Off stops the live ladder, the live prices on the "
+             "account panels, and the live 1D archive updater — the archive then only moves when "
+             "the daily fetch runs.")
+    if _want_feed != _feed_armed:
+        market_hours.set_feed_on(_want_feed)
+        st.rerun()
+    st.caption("🟢 Feed armed — runs while the market is open on the days above." if _want_feed
+               else "⚪ Feed off — no socket, no live prices, today's 1D bar stops updating.")
+
+
 with st.sidebar.expander("🔐  NAASA account", expanded=False):
     who = st.session_state.get("naasa_who")
     if who:
@@ -3779,49 +3817,6 @@ if page == "Supply Demand":
 
 if page == "Cron":
     sched_state = cron_scheduler()          # start / reuse the background scheduler thread
-
-    # -- Market Open Hours ----------------------------------------------------------------------
-    # The single switch. Which weekdays the market trades used to be hardcoded as
-    # `weekday() in (4, 5)` in three separate places, so a schedule change meant finding all
-    # three. Everything now reads market_hours: the session banner, the scheduler's "is anything
-    # due", the archive-freshness counter, and the live socket.
-    st.markdown("<div class='section'>Market Open Hours</div>", unsafe_allow_html=True)
-    st.caption("Click a day to toggle. Honoured by every cron, by the session banner and by the "
-               "live feed.")
-    _open_now = market_hours.open_days()
-    _cols = st.columns([1, 1, 1, 1, 1, 1, 1, 3])
-    for _i, (_wd, _lbl) in enumerate(market_hours.WEEK):
-        _is_open = _wd in _open_now
-        if _cols[_i].button(_lbl, key=f"mh_day_{_wd}", width="stretch",
-                            type="primary" if _is_open else "secondary",
-                            help="Open — click to close" if _is_open else "Closed — click to open"):
-            market_hours.toggle_day(_wd)
-            st.rerun()
-    _n_open, _n_tot, _feed_armed = market_hours.summary()
-    _cols[7].markdown(
-        f"<div style='padding-top:8px;color:#8a93a5;font-weight:600'>{_n_open} / {_n_tot} "
-        "days open</div>", unsafe_allow_html=True)
-
-    if _n_open:
-        st.success(f"**Market Schedule ACTIVE** — the {_n_open} day(s) above are honoured by every "
-                   "cron, by the session banner and by the live feed.")
-    else:
-        st.warning("**Market Schedule — every day closed.** No cron will fire, the banner reads "
-                   "CLOSED and the live feed stays off until at least one day is open.")
-
-    _want_feed = st.toggle(
-        "NAASA live feed (WSS)", value=_feed_armed, key="mh_feed",
-        help="Master switch for the websocket. Off stops the live ladder, the account panels' "
-             "live prices and the live 1D archive updater — the archive then only moves when the "
-             "daily fetch runs.")
-    if _want_feed != _feed_armed:
-        market_hours.set_feed_on(_want_feed)
-        st.rerun()
-    st.caption(("🟢 Feed armed — it runs while the market is open on the days above."
-                if _want_feed else
-                "⚪ Feed off — no socket, no live prices, and today's 1D bar stops updating."))
-    st.markdown("<hr style='margin:14px 0;border:none;border-top:1px solid #2b3240'>",
-                unsafe_allow_html=True)
 
     # Live banner — shows whichever is running now: an auto-fired scheduled job, a manual run, or
     # the older systemd service. Polls every few seconds and clears itself when idle.
