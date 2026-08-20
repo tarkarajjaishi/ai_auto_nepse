@@ -2901,7 +2901,7 @@ if page == "Backtest":
 # ---------------------------------------------------------------- heatmap
 
 if page == "Heatmap":
-    hc1, hc2, hc3, hc4 = st.columns([2, 3, 1, 1])
+    hc1, hc2, hc3, hc4, hc5 = st.columns([2, 3, 1, 1, 1])
     view = hc1.segmented_control("Heatmap", ["Stocks by sector", "Indices"],
                                  default="Stocks by sector", key="hm_view",
                                  label_visibility="collapsed") or "Stocks by sector"
@@ -2912,10 +2912,15 @@ if page == "Heatmap":
     # exists because re-rendering a Plotly treemap resets a sector drill-down — pause it to
     # explore, leave it on to watch.
     live = hc3.toggle("Live", value=True, key="hm_live",
-                      help="Re-poll every 2s. Turn off to drill into a sector without the "
-                           "treemap resetting under you.")
+                      help="Table ticks every 1s. The treemap redraws on the slower clock in "
+                           "the box beside this — Streamlit re-mounts a Plotly chart on every "
+                           "redraw, and that teardown is the flash, so redrawing it once a "
+                           "second is all cost and no information.")
+    st.session_state.setdefault("hm_secs", 20)
+    hc4.selectbox("Map redraw", [10, 20, 30, 60], key="hm_secs",
+                  format_func=lambda v: f"map {v}s", label_visibility="collapsed")
     status, scol = market_status()
-    hc4.markdown(f"<div style='text-align:right'><span style='background:{scol};color:#0d1117;"
+    hc5.markdown(f"<div style='text-align:right'><span style='background:{scol};color:#0d1117;"
                  f"font-weight:700;padding:2px 10px;border-radius:5px;font-size:0.82em'>{status}"
                  f"</span></div>", unsafe_allow_html=True)
 
@@ -2924,8 +2929,14 @@ if page == "Heatmap":
     # The fragment goes INSIDE the container, not around it. Wrapping st.container(height=
     # "stretch") in a fragment inserts a DOM level that breaks the `.st-key-mainchart{flex:1 1 0}`
     # chain, and the container resolves to 0px — the treemap renders into the DOM and is invisible.
+    # The treemap redraws on a SLOWER clock than the table, deliberately. Streamlit re-mounts a
+    # Plotly component every time its fragment re-runs — key= and uirevision do not prevent it
+    # (verified: a data-attribute tagged on the chart node is gone after one poll) — and that
+    # teardown is the black flash. Sector aggregates move slowly, so a 1s redraw bought nothing
+    # and cost a blink every second. The table beside it still ticks at 1s where it matters.
+    hm_every = st.session_state.get("hm_secs", 20)
     with st.container(key="mainchart", height="stretch"):
-        @st.fragment(run_every=1 if live else None)
+        @st.fragment(run_every=hm_every if live else None)
         def _hm_chart():
             if view == "Stocks by sector":
                 render_stock_heatmap(stock_heatmap_rows())
