@@ -183,6 +183,9 @@ st.markdown("""
       padding-bottom: .3rem !important; }
   .st-key-mainchart { height: 366px !important; flex: 0 0 auto !important;
       overflow: hidden !important; }          /* mirrors HM_H in ui.py — keep the two in step */
+  /* the index table scrolls inside itself: the page is pinned to 100dvh with overflow hidden,
+     so without this the last rows are clipped away with no scrollbar to reach them */
+  .idxtbl { overflow: auto; max-height: calc(100dvh - 500px); min-height: 120px; }
   .st-key-mainchart [data-testid="stVerticalBlock"],
   .st-key-mainchart [data-testid="stElementContainer"] { min-height: 0 !important; }
   /* whatever the map leaves goes to the table, and only the TABLE scrolls if a screen is short */
@@ -860,7 +863,7 @@ def render_index_table(rows, compact=False):
             f"<td style='padding:{pad}'>{n(r.get('Low'))}</td><td style='padding:{pad}'>{n(r.get('Open'))}</td>"
             f"<td style='padding:{pad}'>{n(r.get('Close'))}</td>"
             f"<td style='padding:{pad};color:{col};font-weight:600'>{chg:+.2f}%</td></tr>")
-    st.markdown(f"<div style='overflow-x:auto'><table style='width:100%;border-collapse:collapse;"
+    st.markdown(f"<div class='idxtbl'><table style='width:100%;border-collapse:collapse;"
                 f"font-size:{fs};white-space:nowrap'>{head}{''.join(body)}</table></div>",
                 unsafe_allow_html=True)
 
