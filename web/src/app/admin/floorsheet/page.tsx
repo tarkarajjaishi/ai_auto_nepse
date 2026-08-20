@@ -20,8 +20,16 @@ function FloorsheetInner() {
   const params = useSearchParams();
   const router = useRouter();
   const symbol = (params.get("symbol") ?? "NABIL").toUpperCase();
-  const [draft, setDraft] = useState(symbol);
   const [window, setWindow] = useState(20);
+
+  // Re-seed from the URL when the rail changes the symbol — see the same note on the chart page.
+  // Without it the input keeps the old symbol while the tape below belongs to the new one.
+  const [draft, setDraft] = useState(symbol);
+  const [seenSymbol, setSeenSymbol] = useState(symbol);
+  if (symbol !== seenSymbol) {
+    setSeenSymbol(symbol);
+    setDraft(symbol);
+  }
 
   const symbols = useQuery({ queryKey: qk.symbols, queryFn: ({ signal }) => api.symbols(signal) });
   const dates = useQuery({

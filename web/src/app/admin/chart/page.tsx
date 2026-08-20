@@ -36,8 +36,21 @@ function ChartInner() {
   const params = useSearchParams();
   const router = useRouter();
   const symbol = (params.get("symbol") ?? "NABIL").toUpperCase();
-  const [draft, setDraft] = useState(symbol);
   const [range, setRange] = useState(2);
+
+  // The input is seeded from the URL and must RE-seed when the URL changes underneath it.
+  //
+  // useState(symbol) alone initialises once and never again, so picking a scrip in the rail left
+  // the header reading NABIL above SAHAS's open, high, low and close — the label disagreeing with
+  // the data, which is the exact failure this project keeps finding in other forms. Adjusting
+  // state during render (React's documented pattern) rather than an effect: an effect would paint
+  // one frame with the stale symbol first.
+  const [draft, setDraft] = useState(symbol);
+  const [seenSymbol, setSeenSymbol] = useState(symbol);
+  if (symbol !== seenSymbol) {
+    setSeenSymbol(symbol);
+    setDraft(symbol);
+  }
 
   const limit = RANGES[range].bars;
   const symbols = useQuery({ queryKey: qk.symbols, queryFn: ({ signal }) => api.symbols(signal) });

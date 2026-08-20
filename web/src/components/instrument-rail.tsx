@@ -1,26 +1,27 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, LineChart, Search } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useDeferredValue, useMemo, useState } from "react";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, qk, type HeatSymbol } from "@/lib/api";
 import { pct, price } from "@/lib/format";
+import { useRail } from "@/store/rail";
 import { cn } from "@/lib/utils";
 
 /**
- * The instrument rail: every listed scrip, its last close and today's move.
+ * The instrument rail, two levels deep: indices first, then the scrips inside one.
  *
- * One `/api/heatmap` call feeds it — that endpoint already tail-reads the final bar of every
- * symbol and groups them by sector, which is exactly this list plus the grouping. Reusing it
- * means the rail costs nothing extra and can never disagree with the heatmap page about what a
- * symbol did today.
+ * A flat list of 295 symbols is a scroll, not a navigation — you cannot see the market in it.
+ * The sector indices ARE the market's own summary, so the top level is the fourteen of them and
+ * clicking one opens the constituents of that sector. Search cuts across both levels, because
+ * when you know the symbol you should not have to know its sector first.
  *
- * Clicking a row keeps you on the page you are on and swaps the symbol, rather than always
- * jumping to the chart: on Floorsheet you want that symbol's floorsheet. Pages that are not
- * symbol-scoped fall through to the chart.
+ * Both levels come from /api/heatmap and /api/indices, which already tail-read the last bar of
+ * every symbol and group them by sector — the same numbers the heatmap page draws, so the rail
+ * cannot disagree with it about what anything did today.
  */
 
 /** Which pages take a symbol, and under which query key. */
@@ -29,8 +30,14 @@ const SYMBOL_PARAM: Record<string, string> = {
   "/admin/floorsheet": "symbol",
 };
 
-/** Its own bucket, not a sector — an index is not a scrip you can hold. */
-const INDICES = "Indices";
+/**
+ * The rail only exists on screens where picking an instrument means something.
+ *
+ * The reference does the same and it is worth copying: its rail is on Terminal and nowhere else
+ * — Portfolio, Tools and Wallet are full-width. A permanent rail beside a backtest table or the
+ * pipeline page is 180px of decoration that pushes the actual content sideways.
+ */
+const SYMBOL_PAGES = ["/admin/chart", "/admin/floorsheet", "/admin/swing-pro"];
 
 type Row = HeatSymbol & { sector: string };
 
@@ -39,70 +46,83 @@ export function InstrumentRail() {
   const pathname = usePathname();
   const params = useSearchParams();
   const [query, setQuery] = useState("");
-  const [sector, setSector] = useState<string>("All");
-  // Typing filters ~300 rows on every keystroke. Deferring keeps the input itself responsive
-  // and lets React drop intermediate renders instead of queueing all of them.
+  // Outside the component: this boundary remounts on navigation — see store/rail.ts.
+  const drill = useRail((s) => s.drill);
+  const setDrill = useRail((s) => s.setDrill);
+  // Typing filters ~300 rows per keystroke. Deferring keeps the input responsive and lets React
+  // drop intermediate renders instead of queueing all of them.
   const deferred = useDeferredValue(query);
+  const searching = deferred.trim().length > 0;
+
+  const wanted = SYMBOL_PAGES.some((p) => pathname.startsWith(p));
 
   const hm = useQuery({
     queryKey: qk.heatmap,
     queryFn: ({ signal }) => api.heatmap(signal),
     staleTime: 60_000,
+    enabled: wanted,
   });
   const idx = useQuery({
     queryKey: qk.indices,
     queryFn: ({ signal }) => api.indices(signal),
     staleTime: 60_000,
+    enabled: wanted,
   });
 
-  // Indices first, the way the reference rail leads with its own index bucket. NEPSE is the
-  // number you check before any individual scrip means anything.
-  const sectors = useMemo(
-    () => ["All", INDICES, ...(hm.data?.sectors ?? []).map((s) => s.sector)],
+  /** index ticker -> the sector it heads. NEPSE heads nothing; it is the whole market. */
+  const sectorOfIndex = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const s of hm.data?.sectors ?? []) if (s.index) m[s.index] = s.sector;
+    return m;
+  }, [hm.data]);
+
+  const allSymbols = useMemo<Row[]>(
+    () =>
+      (hm.data?.sectors ?? []).flatMap((s) =>
+        s.symbols.map((m) => ({ ...m, sector: s.sector })),
+      ),
     [hm.data],
   );
 
-  const rows = useMemo(() => {
-    const indexRows: Row[] =
-      sector === "All" || sector === INDICES
-        ? (idx.data?.rows ?? []).map((r) => ({ ...r, symbol: r.index, sector: INDICES }))
-        : [];
-    const stockRows: Row[] =
-      sector === INDICES
-        ? []
-        : (hm.data?.sectors ?? []).flatMap((s) =>
-            sector === "All" || s.sector === sector
-              ? s.symbols.map((m) => ({ ...m, sector: s.sector }))
-              : [],
-          );
+  const openSector = drill ? sectorOfIndex[drill] : null;
 
-    const q = deferred.trim().toUpperCase();
-    const keep = (r: Row) => !q || r.symbol.includes(q);
-    // Turnover order within each block, not alphabetical: what traded today is what you are
-    // looking for. Indices stay pinned above the stocks rather than competing on turnover —
-    // NEPSE's turnover is the sum of the market's and would swamp the sort.
+  const rows = useMemo<Row[]>(() => {
     const byTurnover = (a: Row, b: Row) => (b.turnover ?? 0) - (a.turnover ?? 0);
-    return [
-      ...indexRows.filter(keep).sort(byTurnover),
-      ...stockRows.filter(keep).sort(byTurnover),
-    ];
-  }, [hm.data, idx.data, sector, deferred]);
 
-  const loading = hm.isPending || idx.isPending;
+    // Search cuts across everything — indices included — and ignores which level you are on.
+    if (searching) {
+      const q = deferred.trim().toUpperCase();
+      const indexHits: Row[] = (idx.data?.rows ?? [])
+        .filter((r) => r.index.includes(q))
+        .map((r) => ({ ...r, symbol: r.index, sector: "index" }));
+      return [...indexHits, ...allSymbols.filter((r) => r.symbol.includes(q)).sort(byTurnover)];
+    }
+
+    if (openSector) {
+      return allSymbols.filter((r) => r.sector === openSector).sort(byTurnover);
+    }
+
+    // Top level: the indices themselves. NEPSE first — it is the number that decides whether any
+    // sector's move means anything — then the rest by turnover.
+    return (idx.data?.rows ?? [])
+      .map<Row>((r) => ({ ...r, symbol: r.index, sector: "index" }))
+      .sort((a, b) =>
+        a.symbol === "NEPSE" ? -1 : b.symbol === "NEPSE" ? 1 : (b.turnover ?? 0) - (a.turnover ?? 0),
+      );
+  }, [searching, deferred, openSector, allSymbols, idx.data]);
 
   const activeSymbol = (
     params.get(SYMBOL_PARAM[pathname] ?? "symbol") ??
     (pathname.startsWith("/admin/swing-pro/") ? decodeURIComponent(pathname.split("/").pop()!) : "")
   ).toUpperCase();
 
-  function open(symbol: string, isIndex: boolean) {
-    // An index has no floorsheet and no swing_pro row — there is no broker tape for a synthetic
-    // series and the framework scores instruments you can actually buy. Send it to the chart,
-    // which does serve indices, instead of to a page that would answer 404.
-    if (isIndex) {
-      router.push(`/admin/chart?symbol=${encodeURIComponent(symbol)}`);
-      return;
-    }
+  const loading = hm.isPending || idx.isPending;
+
+  function openChart(symbol: string) {
+    router.push(`/admin/chart?symbol=${encodeURIComponent(symbol)}`);
+  }
+
+  function openSymbol(symbol: string) {
     const key = SYMBOL_PARAM[pathname];
     if (key) {
       const next = new URLSearchParams(params.toString());
@@ -114,44 +134,68 @@ export function InstrumentRail() {
       router.push(`/admin/swing-pro/${encodeURIComponent(symbol)}`);
       return;
     }
-    router.push(`/admin/chart?symbol=${encodeURIComponent(symbol)}`);
+    openChart(symbol);
   }
 
+  function onRow(r: Row) {
+    if (r.sector !== "index") return openSymbol(r.symbol);
+    // An index that heads a sector drills in. NEPSE heads no sector, so it can only be charted.
+    const sec = sectorOfIndex[r.symbol];
+    if (sec && !searching) {
+      setDrill(r.symbol);
+      return;
+    }
+    openChart(r.symbol);
+  }
+
+  if (!wanted) return null;
+
   return (
-    <aside className="hidden w-56 shrink-0 flex-col border-r border-border bg-sidebar lg:flex">
+    <aside className="hidden w-[190px] shrink-0 flex-col border-r border-border bg-sidebar lg:flex">
       <div className="p-2">
         <div className="relative">
           <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search"
+            placeholder="Search all"
             className="h-8 w-full rounded-md border border-border bg-background pl-7 pr-2 text-[13px] outline-none placeholder:text-muted-foreground focus:border-primary/60"
           />
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-1 px-2 pb-2">
-        {sectors.map((s) => (
-          <button
-            key={s}
-            onClick={() => setSector(s)}
-            className={cn(
-              "rounded px-1.5 py-0.5 text-[11px] transition-colors",
-              s === sector
-                ? "bg-primary/15 text-primary"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-            // Sector names run long ("Manufacturing and Processing"); the chip shows the first
-            // word, the title shows all of it.
-            title={s}
-          >
-            {s === "All" ? "All" : s.split(" ")[0]}
-          </button>
-        ))}
+      {/* level indicator / back */}
+      <div className="flex items-center gap-1 border-b border-border px-2 pb-2">
+        {searching ? (
+          <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            {rows.length} match{rows.length === 1 ? "" : "es"}
+          </span>
+        ) : openSector ? (
+          <>
+            <button
+              onClick={() => setDrill(null)}
+              className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <ChevronLeft className="size-3" />
+              Indices
+            </button>
+            <span className="truncate text-[11px] text-foreground">{openSector}</span>
+            <button
+              onClick={() => openChart(drill!)}
+              title={`Chart ${drill}`}
+              className="ml-auto rounded p-0.5 text-muted-foreground transition-colors hover:text-primary"
+            >
+              <LineChart className="size-3.5" />
+            </button>
+          </>
+        ) : (
+          <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            Indices
+          </span>
+        )}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto border-t border-border">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {loading
           ? Array.from({ length: 14 }).map((_, i) => (
               <div key={i} className="px-2 py-1.5">
@@ -159,11 +203,12 @@ export function InstrumentRail() {
               </div>
             ))
           : rows.map((r) => (
-              <InstrumentRow
+              <RailRow
                 key={`${r.sector}:${r.symbol}`}
                 row={r}
                 active={r.symbol === activeSymbol}
-                onClick={() => open(r.symbol, r.sector === INDICES)}
+                drillable={r.sector === "index" && !searching && Boolean(sectorOfIndex[r.symbol])}
+                onClick={() => onRow(r)}
               />
             ))}
         {!loading && !rows.length && (
@@ -175,32 +220,33 @@ export function InstrumentRail() {
 
       <div className="border-t border-border px-2.5 py-2">
         <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-          {rows.length} scrip · {hm.data?.session ?? "—"}
+          {openSector || searching ? `${rows.length} scrip` : `${rows.length} indices`} ·{" "}
+          {hm.data?.session ?? idx.data?.session ?? "—"}
         </div>
       </div>
     </aside>
   );
 }
 
-function InstrumentRow({
+function RailRow({
   row,
   active,
+  drillable,
   onClick,
 }: {
   row: Row;
   active: boolean;
+  drillable: boolean;
   onClick: () => void;
 }) {
   const up = (row.pct ?? 0) >= 0;
-  const isIndex = row.sector === INDICES;
+  const isIndex = row.sector === "index";
   return (
     <button
       onClick={onClick}
       className={cn(
-        "flex w-full items-center gap-2 border-l-2 px-2.5 py-1.5 text-left transition-colors",
-        active
-          ? "border-primary bg-accent"
-          : "border-transparent hover:bg-accent/50",
+        "flex w-full items-center gap-1.5 border-l-2 px-2.5 py-1.5 text-left transition-colors",
+        active ? "border-primary bg-accent" : "border-transparent hover:bg-accent/50",
       )}
     >
       <div className="min-w-0 flex-1">
@@ -222,6 +268,7 @@ function InstrumentRow({
           {pct(row.pct)}
         </div>
       </div>
+      {drillable && <ChevronRight className="size-3 shrink-0 text-muted-foreground" />}
     </button>
   );
 }
