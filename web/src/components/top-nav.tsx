@@ -31,7 +31,11 @@ export function TopNav() {
   const pathname = usePathname();
 
   return (
-    <header className="flex h-12 shrink-0 items-center gap-1 border-b border-border bg-card px-3">
+    // 56px and bg-background, both measured off the reference: its chrome is TRANSPARENT over
+    // one flat #0e1419 ground, separated only by rules. Panels here were bg-card (#161e26),
+    // which lifts the header and rail out of the page and is the single biggest reason the two
+    // did not look alike. #161e26 belongs to cards, not to chrome.
+    <header className="flex h-14 shrink-0 items-center gap-1 border-b border-border bg-background px-3">
       <Link href="/admin" className="mr-2 flex shrink-0 items-center gap-2">
         <span className="grid size-6 place-items-center rounded-md bg-primary font-mono text-[12px] font-bold text-primary-foreground">
           N
@@ -50,9 +54,10 @@ export function TopNav() {
                 render={
                   <button
                     className={cn(
-                      "relative flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[13px] transition-colors",
+                      // text-sm / px-3 / py-1.5 / rounded-md — their exact tab metrics (32px tall)
+                      "relative flex items-center gap-1 rounded-md px-3 py-1.5 text-sm transition-colors",
                       active
-                        ? "text-primary"
+                        ? "font-semibold text-primary"
                         : "text-muted-foreground hover:text-foreground",
                     )}
                   />
@@ -62,7 +67,9 @@ export function TopNav() {
                   <motion.span
                     layoutId="topnav-active"
                     transition={{ type: "spring", stiffness: 500, damping: 40 }}
-                    className="absolute inset-0 -z-10 rounded-md bg-accent"
+                    // brass at 15%, not a neutral accent — the active tab reads as the accent
+                    // colour on theirs, and a grey pill was the wrong signal entirely
+                    className="absolute inset-0 -z-10 rounded-md bg-primary/15"
                   />
                 )}
                 {group.group}

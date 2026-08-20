@@ -103,7 +103,8 @@ function ChartInner() {
               onKeyDown={(e) => e.key === "Enter" && go(draft)}
               onBlur={() => go(draft)}
               list="symbols"
-              className="h-7 w-28 rounded-md border border-transparent bg-transparent px-1 font-mono text-[17px] font-semibold tracking-tight outline-none hover:border-border focus:border-primary/60"
+              // text-lg / font-bold — their instrument heading, measured at 18px / 700
+              className="h-8 w-32 rounded-md border border-transparent bg-transparent px-1 text-lg font-bold tracking-tight outline-none hover:border-border focus:border-primary/60"
             />
             <datalist id="symbols">
               {[...(symbols.data?.indices ?? []), ...(symbols.data?.symbols ?? [])].map((s) => (
@@ -199,17 +200,18 @@ function Field({
   tone?: "up" | "down";
   loading?: boolean;
 }) {
+  // Label 10px uppercase muted with NO extra tracking; value 14px semibold mono. Measured off
+  // the reference's CHANGE / BID / ASK / SPREAD pairs — the tracking-widest here was mine, and
+  // it made the labels read as small-caps signage rather than field names.
   return (
     <div className="leading-tight">
-      <div className="font-mono text-[9.5px] uppercase tracking-widest text-muted-foreground">
-        {label}
-      </div>
+      <div className="text-[10px] uppercase text-muted-foreground">{label}</div>
       {loading ? (
-        <Skeleton className="mt-0.5 h-3.5 w-14" />
+        <Skeleton className="mt-0.5 h-5 w-16" />
       ) : (
         <div
           className={cn(
-            "font-mono text-[12.5px] tabular-nums",
+            "font-mono text-sm font-semibold tabular-nums",
             tone === "up" && "text-up",
             tone === "down" && "text-down",
           )}
@@ -247,27 +249,24 @@ function BottomDrawer({
 
   return (
     <div className="h-[168px] shrink-0 border-t border-border">
-      <div className="flex items-center gap-1 border-b border-border px-3 py-1.5">
+      <div className="flex items-center gap-1 border-b border-border px-3">
+        {/* Underline tabs, not filled pills: theirs are `border-b-2 px-3 py-2 text-sm`, brass
+            border + semibold when active, transparent border + muted when not. */}
         {tabs.map((t, i) => (
           <button
             key={t}
             onClick={() => setTab(i)}
             className={cn(
-              "relative rounded px-2 py-0.5 text-[12px] transition-colors",
-              i === tab ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+              "relative border-b-2 px-3 py-2 text-sm transition-colors",
+              i === tab
+                ? "border-primary font-semibold text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground",
             )}
           >
-            {i === tab && (
-              <motion.span
-                layoutId="drawer-tab"
-                transition={{ type: "spring", stiffness: 500, damping: 40 }}
-                className="absolute inset-0 -z-10 rounded bg-accent"
-              />
-            )}
             {t}
           </button>
         ))}
-        <span className="ml-auto font-mono text-[11px] text-muted-foreground">{symbol}</span>
+        <span className="ml-auto font-mono text-xs text-muted-foreground">{symbol}</span>
       </div>
 
       <div className="h-[132px] overflow-auto">
@@ -386,7 +385,7 @@ function TradePlan({
 
   if (isIndex) {
     return (
-      <aside className="hidden w-[300px] shrink-0 flex-col border-l border-border bg-card p-4 xl:flex">
+      <aside className="hidden w-[312px] shrink-0 flex-col border-l border-border bg-background p-4 xl:flex">
         <div className="text-[13px] font-semibold tracking-tight">{symbol}</div>
         <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
           Indices are not scored. The 22-section framework rates instruments you can buy, size and
@@ -398,7 +397,7 @@ function TradePlan({
   }
 
   return (
-    <aside className="hidden w-[300px] shrink-0 flex-col overflow-y-auto border-l border-border bg-card xl:flex">
+    <aside className="hidden w-[312px] shrink-0 flex-col overflow-y-auto border-l border-border bg-background xl:flex">
       <div className="border-b border-border px-4 py-2.5">
         <div className="flex items-baseline justify-between gap-2">
           <span className="text-[13px] font-semibold tracking-tight">Trade plan</span>

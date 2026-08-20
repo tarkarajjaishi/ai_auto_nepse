@@ -151,15 +151,16 @@ export function InstrumentRail() {
   if (!wanted) return null;
 
   return (
-    <aside className="hidden w-[190px] shrink-0 flex-col border-r border-border bg-sidebar lg:flex">
+    // 224px and bg-background — both measured off the reference rail.
+    <aside className="hidden w-56 shrink-0 flex-col border-r border-border bg-background lg:flex">
       <div className="p-2">
         <div className="relative">
-          <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search all"
-            className="h-8 w-full rounded-md border border-border bg-background pl-7 pr-2 text-[13px] outline-none placeholder:text-muted-foreground focus:border-primary/60"
+            className="h-[34px] w-full rounded-md border border-border bg-background pl-8 pr-2.5 text-sm outline-none placeholder:text-muted-foreground focus:border-primary/60"
           />
         </div>
       </div>
@@ -242,29 +243,27 @@ function RailRow({
   const up = (row.pct ?? 0) >= 0;
   const isIndex = row.sector === "index";
   return (
+    // 48px rows divided by a rule, which is how theirs are built — not a left accent bar. The
+    // active row keeps a brass left edge because unlike theirs, this rail marks the symbol the
+    // page is actually showing.
     <button
       onClick={onClick}
       className={cn(
-        "flex w-full items-center gap-1.5 border-l-2 px-2.5 py-1.5 text-left transition-colors",
-        active ? "border-primary bg-accent" : "border-transparent hover:bg-accent/50",
+        "flex h-12 w-full items-center gap-1.5 border-b border-border/50 border-l-2 px-3 text-left transition-colors",
+        active ? "border-l-primary bg-accent/60" : "border-l-transparent hover:bg-accent/40",
       )}
     >
       <div className="min-w-0 flex-1">
-        <div
-          className={cn(
-            "truncate font-mono text-[12px] font-medium",
-            isIndex && "text-primary",
-          )}
-        >
+        <div className={cn("truncate text-xs font-semibold", isIndex && "text-primary")}>
           {row.symbol}
         </div>
-        <div className="truncate text-[10px] text-muted-foreground">
+        <div className="truncate text-[11px] text-muted-foreground">
           {isIndex ? "index" : row.sector}
         </div>
       </div>
       <div className="shrink-0 text-right">
-        <div className="font-mono text-[12px] tabular-nums">{price(row.close)}</div>
-        <div className={cn("font-mono text-[10px] tabular-nums", up ? "text-up" : "text-down")}>
+        <div className="font-mono text-xs tabular-nums">{price(row.close)}</div>
+        <div className={cn("font-mono text-[11px] tabular-nums", up ? "text-up" : "text-down")}>
           {pct(row.pct)}
         </div>
       </div>
