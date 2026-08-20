@@ -843,16 +843,33 @@ _HM_EXCLUDE = {"", "Promotor Share", "Corporate Debenture", "Government Bond", "
 _SECTOR_NAME = {"Development Bank Limited": "Development Banks"}
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_resource(show_spinner=False)
+def _sector_cache():
+    return {"rows": [], "who": "", "t": 0.0}
+
+
 def _sector_map():
-    """Stock→sector membership (static-ish) — cached an hour."""
+    """Stock->sector membership (static-ish), cached an hour — but NEVER cache a failure.
+
+    This used to be a plain @st.cache_data(ttl=3600). One call before sign-in, or one API blip,
+    pinned an empty list for an hour; signing in does not invalidate a TTL cache, so the heatmap
+    told a signed-in user to sign in while the Indices tab beside it streamed live. Now only a
+    non-empty result is stored, it is keyed on WHO is signed in, and a later failure falls back
+    to the last good list instead of erasing it.
+    """
     em, pw = naasa.load_credentials()
     if not (em and pw):
         return []
+    c = _sector_cache()
+    if c["rows"] and c["who"] == em and time.time() - c["t"] < 3600:
+        return c["rows"]
     try:
-        return naasa.heatmap_sectors(em, pw)
+        rows = naasa.heatmap_sectors(em, pw)
     except Exception:
-        return []
+        return c["rows"]                       # keep serving the last good map
+    if rows:
+        c.update(rows=rows, who=em, t=time.time())
+    return rows or c["rows"]
 
 
 @st.cache_data(ttl=20, show_spinner=False)
@@ -950,7 +967,11 @@ def render_stock_heatmap(rows):
     (coloured by each sector's index move); click a sector to reveal its symbols; symbols are
     leaves (no further click). Symbol tiles are sized by turnover, coloured by today's %change."""
     if not rows:
-        st.info("Sign in under 🔐 NAASA account (with Remember me) to load the heatmap.")
+        em, _pw = naasa.load_credentials()
+        st.info("Sign in under 🔐 NAASA account (with Remember me) to load the heatmap."
+                if not em else
+                "Signed in, but NAASA returned no sector quotes just now. The feed may be "
+                "between updates — this retries every 20s. Indices below are unaffected.")
         return
     idx_chg = {r.get("ticker"): _idx_change(r)[0] for r in indices_snapshot()}
     sectors = sorted({r["sector"] for r in rows})
