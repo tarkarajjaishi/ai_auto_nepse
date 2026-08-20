@@ -125,7 +125,13 @@ def dashboard(o, h, l, c):
     live = []
     for z in zones(o, h, l, c):
         z["state"], z["visits"] = classify(z, h, l, c)
-        if z["state"] != "turncoat":
+        # A supply zone's target is tp_coef risk-legs BELOW entry, and the risk leg is at least
+        # (sl_shift + fuzz) ATR wide, so on a volatile name the vendor's fixed 1:3 geometry puts
+        # it under zero — an impossible price. Two rows shipped that way: CREST tp -64.08 and
+        # CORBL tp -146.56, a "target" 113% below entry, which sd_ticket then costed a trade
+        # from. The geometry is the vendor's and stays untouched; the zone is simply not
+        # tradeable, so the board falls through to the next-nearest one.
+        if z["state"] != "turncoat" and z["tp"] > 0:
             live.append(z)
     if not live:
         return None
@@ -340,6 +346,23 @@ def selftest():
     assert abs(abs(r["tp"] - r["entry"]) / abs(r["sl"] - r["entry"]) - TP_COEF) < 1e-6
     assert (r["sl"] < r["entry"] < r["tp"]) if r["direction"] == "Bullish" else \
            (r["sl"] > r["entry"] > r["tp"]), r
+
+    # A negative price is never a target. The vendor's risk leg is at least (SL_SHIFT + FUZZ)
+    # ATR, so at TP_COEF=3 a supply zone targets ~8.25 ATR below entry — under zero whenever ATR
+    # exceeds about an eighth of the price. Two rows shipped that way (CORBL tp -146.56).
+    #
+    # The fixture matters: dashboard() returns the zone NEAREST the last close, so a series that
+    # merely CONTAINS an impossible zone proves nothing — the first version of this check passed
+    # with the filter removed. These parameters put the impossible one nearest, so removing the
+    # `z["tp"] > 0` filter turns this assertion red.
+    c = [60 + 25 * math.sin(i / 1.5) for i in range(200)]
+    o = c[:]
+    h = [x + 8 for x in c]
+    l = [x - 8 for x in c]
+    assert any(z["tp"] <= 0 for z in zones(o, h, l, c)), \
+        "this fixture is meant to produce an impossible target; it no longer does"
+    rv = dashboard(o, h, l, c)
+    assert rv is None or rv["tp"] > 0, f"an impossible target reached the board: {rv}"
     print("selftest ok —", dict(states))
     return 0
 
