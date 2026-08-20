@@ -171,6 +171,17 @@ st.markdown("""
      column gaps above it are never subtracted, so it overshoots the fold. */
   .st-key-mainchart { flex: 1 1 0 !important;
       border: none !important; background: transparent !important; padding: 0 !important; }
+  /* A fragment inside this container adds its own wrappers, and each one broke the flex chain
+     that height="stretch" walks — the treemap collapsed to a thin strip of tiles with dead
+     space under it. Re-establish the chain through whatever Streamlit nests in here. */
+  .st-key-mainchart > div,
+  .st-key-mainchart [data-testid="stVerticalBlockBorderWrapper"],
+  .st-key-mainchart [data-testid="stVerticalBlock"],
+  .st-key-mainchart [data-testid="stElementContainer"] {
+      display: flex !important; flex-direction: column !important;
+      flex: 1 1 0 !important; min-height: 0 !important; }
+  .st-key-mainchart .stPlotlyChart,
+  .st-key-mainchart .js-plotly-plot { flex: 1 1 0 !important; min-height: 0 !important; }
 
   /* Cron "job running" animation — an indeterminate sliding bar + pulsing label */
   .cron-run { position: relative; height: 7px; border-radius: 4px; overflow: hidden;
@@ -799,14 +810,19 @@ def tick_mark(key, value, pad="4px 10px"):
         v = float(value)
     except (TypeError, ValueError):
         return ""
-    prev = mem.get(key)
-    mem[key] = v
-    if prev is None or v == prev:
-        return ("<span title='unchanged since last poll' style='display:inline-block;width:9px;"
+    last, up, since = mem.get(key, (None, None, ""))
+    if last is None:
+        mem[key] = (v, None, "")                       # first sight: nothing to compare against
+    elif v != last:
+        up, since = v > last, f"{last:,.2f}"
+        mem[key] = (v, up, since)                      # a REAL move — remember its direction
+    # else: unchanged this poll, so keep whatever direction we last recorded. Resetting to grey
+    # here is what made every marker flash green for one second and then vanish.
+    if up is None:
+        return ("<span title='no move yet this session' style='display:inline-block;width:9px;"
                 "height:9px;border-radius:2px;background:#3a4150;margin-right:6px'></span>")
-    up = v > prev
     col, arrow = ("#3fb950", "▲") if up else ("#f85149", "▼")
-    return (f"<span title='{'up' if up else 'down'} from {prev:,.2f} on the last poll' "
+    return (f"<span title='last move was {'up' if up else 'down'} from {since}' "
             f"style='display:inline-block;width:9px;height:9px;border-radius:2px;"
             f"background:{col};margin-right:6px'></span>"
             f"<span style='color:{col};font-size:.8em'>{arrow}</span> ")
