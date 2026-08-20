@@ -1,5 +1,6 @@
 import {
   Activity,
+  ArrowLeftRight,
   BarChart3,
   Boxes,
   CandlestickChart,
@@ -106,6 +107,12 @@ export const NAV: NavGroup[] = [
   {
     group: "Flow",
     items: [
+      {
+        href: "/admin/broker-flow",
+        label: "Broker flow",
+        icon: ArrowLeftRight,
+        hint: "Who accumulated or distributed, over a window",
+      },
       {
         href: "/admin/volume-spike",
         label: "Volume spike",
