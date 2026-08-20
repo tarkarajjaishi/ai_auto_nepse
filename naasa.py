@@ -465,9 +465,11 @@ def subscribe_frame(symbols):
     return "ADD^%d^%s" % (len(keys), "^".join(keys))
 
 
-_X_TTL = 540          # re-login the X-app session after ~9 min
+_X_TTL = 1800         # re-login on a schedule only every 30 min: each one re-mints the
+                      # session and so interrupts the socket. Staleness is caught on demand.
 _X_RELOGIN_GAP = 20   # ...but never mint two sessions within this many seconds
-_x_sess = {"op": None, "user_id": None, "session": None, "ts": 0.0, "lock": threading.Lock()}
+_x_sess = {"op": None, "user_id": None, "session": None, "ts": 0.0, "gen": 0,
+           "lock": threading.Lock()}
 
 
 def _x_login(email, password, force=False):
@@ -524,7 +526,11 @@ def _x_login(email, password, force=False):
                        .get("sessionNo") or session)
         except (OSError, ValueError):
             pass                       # keep the scraped value; account calls fail loudly anyway
-        _x_sess.update(op=op, user_id=user_id, session=session, ts=time.time())
+        # `gen` bumps on every successful login. Login/ValidateSessionNo above is NOT
+        # idempotent — the new session number it mints INVALIDATES the previous one — so
+        # anything holding the old session (the live socket) must notice and re-establish.
+        _x_sess.update(op=op, user_id=user_id, session=session, ts=time.time(),
+                       gen=_x_sess["gen"] + 1)
         return _x_sess
 
 
@@ -780,6 +786,10 @@ def feed_ws_url(user_id, session, client_ip):
             + "&protocol=WSS&ClientIP=" + q(client_ip) + "&Source=1")
 
 
+FEED_POLL = 5      # socket read timeout — how often the loop re-checks stop() and the session
+FEED_SILENCE = 45  # ...and how long a connected-but-silent feed is tolerated before reconnecting
+
+
 def stream_ticks(email, password, symbols, on_tick, stop=None):
     """Full live feed: log in to NAASA X, open the socket, subscribe to `symbols`, call
     on_tick(decoded) for each frame. Blocks — run in a thread. One NAASA session per account is
@@ -787,13 +797,26 @@ def stream_ticks(email, password, symbols, on_tick, stop=None):
     import ssl
     import websocket
     s = _x_login(email, password)
+    gen = s["gen"]
     ws = websocket.create_connection(
-        feed_ws_url(s["user_id"], s["session"], _client_ip(s["op"])), timeout=15,
+        feed_ws_url(s["user_id"], s["session"], _client_ip(s["op"])), timeout=FEED_POLL,
         sslopt={"cert_reqs": ssl.CERT_NONE})
     try:
         ws.send(subscribe_frame(symbols))
-        while stop is None or not stop():
-            for record in parse_records(ws.recv()):
+        last = time.time()
+        while (stop is None or not stop()) and _x_sess["gen"] == gen:
+            try:
+                frame = ws.recv()
+            except websocket.WebSocketTimeoutException:
+                # NAASA only pushes on change, so a quiet book really does go seconds without a
+                # frame. Treating that as death is what made the feed reconnect in a loop. Keep
+                # waiting, but give up if the silence outlasts FEED_SILENCE: a session superseded
+                # elsewhere goes quiet with no error at all, and only a reconnect recovers it.
+                if time.time() - last > FEED_SILENCE:
+                    break
+                continue
+            last = time.time()
+            for record in parse_records(frame):
                 on_tick(record)
     finally:
         ws.close()
