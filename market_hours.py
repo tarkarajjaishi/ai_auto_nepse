@@ -14,8 +14,19 @@ from pathlib import Path
 MASTER = Path(__file__).parent / "Master_data"
 PATH = MASTER / "market_hours.txt"
 
-# Python's weekday(): Mon=0 … Sun=6. NEPSE trades Sunday to Thursday and is shut Fri/Sat.
-DEFAULT_OPEN = (6, 0, 1, 2, 3)
+# Python's weekday(): Mon=0 … Sun=6.
+#
+# NEPSE trades **Monday to Friday**. It used to be Sunday to Thursday and much of this codebase
+# still assumes that, but the archive disagrees and the archive wins: NABIL's last Sunday session
+# is 2026-04-05, and since 2026-06-01 four independent liquid symbols each show Mon=12 Tue=12
+# Wed=11 Thu=11 Fri=11 and Sun=0. Check the data before changing this back --
+#   python -c "import collections,datetime,pathlib;DAY=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+#   c=collections.Counter(DAY[datetime.date.fromisoformat(l.split(chr(9))[0]).weekday()]
+#   for l in pathlib.Path('Master_data/symbols/NABIL/1D.txt').read_text().splitlines()[1:]
+#   if l[:4]=='2026');print(c)"
+# Getting this wrong is not cosmetic: a real trading day marked closed stops the crons and the
+# archiver, and a non-trading day marked open lets a stale snapshot be written as a real session.
+DEFAULT_OPEN = (0, 1, 2, 3, 4)
 # Display order, Sunday first, as the pills read left to right.
 WEEK = ((6, "Sun"), (0, "Mon"), (1, "Tue"), (2, "Wed"), (3, "Thu"), (4, "Fri"), (5, "Sat"))
 
@@ -92,26 +103,28 @@ def demo():
         with tempfile.TemporaryDirectory() as d:
             PATH = Path(d) / "market_hours.txt"
 
-            # nothing saved yet -> NEPSE's real week, and the feed armed
-            assert open_days() == frozenset({6, 0, 1, 2, 3}), open_days()
-            assert 4 not in open_days() and 5 not in open_days(), "Fri/Sat are shut by default"
+            # nothing saved yet -> NEPSE's real week (Mon-Fri), and the feed armed
+            assert open_days() == frozenset({0, 1, 2, 3, 4}), open_days()
+            assert 5 not in open_days() and 6 not in open_days(), "Sat/Sun are shut by default"
             assert feed_on() is True
             assert summary() == (5, 7, True), summary()
 
-            assert 4 in toggle_day(4), "toggling Friday should open it"
-            assert open_days() == frozenset({6, 0, 1, 2, 3, 4})
-            assert 4 not in toggle_day(4), "toggling again should close it"
+            assert 6 in toggle_day(6), "toggling Sunday should open it"
+            assert open_days() == frozenset({0, 1, 2, 3, 4, 6})
+            assert 6 not in toggle_day(6), "toggling again should close it"
 
             set_feed_on(False)
             assert feed_on() is False
-            assert open_days() == frozenset({6, 0, 1, 2, 3}), "feed toggle must not touch the days"
+            assert open_days() == frozenset({0, 1, 2, 3, 4}), "feed toggle must not touch the days"
             set_feed_on(True)
             assert feed_on() is True
 
             # a date lands on the right side of the switch
             from datetime import date
             assert is_trading_day(date(2026, 8, 20)) is True, "Thursday trades"
-            assert is_trading_day(date(2026, 8, 21)) is False, "Friday does not"
+            assert is_trading_day(date(2026, 8, 21)) is True, "Friday trades too, since 2026"
+            assert is_trading_day(date(2026, 8, 22)) is False, "Saturday does not"
+            assert is_trading_day(date(2026, 8, 23)) is False, "nor Sunday, any more"
 
             # every day off is a legal configuration, not a crash
             set_open_days([])

@@ -77,6 +77,23 @@ def today(now=None):
     return (now or datetime.now(NPT)).date().isoformat()
 
 
+def _same_day(stamp, day):
+    """Is this quote's own timestamp from `day`? True / False / None when it cannot be told.
+
+    The feed stamps `DD/MM/YYYY HH:MM:SS`, NOT ISO. Comparing the raw first ten characters to an
+    ISO date never matches, so a guard written that way would reject every quote and silently
+    stop the archiver dead — a failure that looks exactly like a quiet market.
+    """
+    head = (stamp or "").strip()[:10]
+    if not head:
+        return None
+    try:
+        d, m, y = head.split("/")
+        return "%s-%s-%s" % (y, m, d) == day
+    except ValueError:
+        return None
+
+
 def row(quote, day):
     """The archive's 9 columns for one instrument's live quote, or None if it cannot be trusted.
 
@@ -86,6 +103,14 @@ def row(quote, day):
     """
     ltp, opn = _num(quote.get("LTP")), _num(quote.get("Open"))
     if not ltp or opn is None:
+        return None
+    # The socket snapshot lives for the life of the process and is never cleared, so yesterday's
+    # quote survives into today. Stamping that with today() writes a bar for a session that did
+    # not happen — into ~364 files at once, on any day the clock says LIVE. Trust the feed's own
+    # timestamp over our clock. Only a POSITIVE mismatch blocks: a quote with no readable stamp
+    # is written as before, so a format change degrades to the old behaviour instead of silently
+    # archiving nothing.
+    if _same_day(quote.get("_t"), day) is False:
         return None
     high, low = _num(quote.get("High")), _num(quote.get("Low"))
     prev = _num(quote.get("Close"))              # the feed's `Close` is the PREVIOUS close
@@ -191,6 +216,16 @@ def demo():
 
     # an instrument that has not traded must produce nothing, not a row of zeros
     assert row({"LTP": "0", "Open": "0"}, "2026-08-20") is None
+
+    # a quote the FEED dates to another session must never be stamped with today
+    stale = dict(q, _t="19/08/2026 14:59:31")
+    assert row(stale, "2026-08-20") is None, "yesterday's snapshot must not become today's bar"
+    fresh = dict(q, _t="20/08/2026 11:55:35")
+    assert row(fresh, "2026-08-20") is not None, "today's own quote must still be written"
+    assert _same_day("20/08/2026 11:55:35", "2026-08-20") is True
+    assert _same_day("19/08/2026 14:59:31", "2026-08-20") is False
+    assert _same_day("", "2026-08-20") is None and _same_day(None, "2026-08-20") is None
+    assert _same_day("2026-08-20 11:00:00", "2026-08-20") is None,         "ISO in, ISO out would silently pass — the feed sends DD/MM/YYYY"
     assert row({"Open": "100"}, "2026-08-20") is None
 
     with tempfile.TemporaryDirectory() as d:
