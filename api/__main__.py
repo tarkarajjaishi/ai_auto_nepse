@@ -186,6 +186,12 @@ def route(path, query):
             "session": d.session,
             "archive_session": newest,
             "stale": bool(d.session and newest and d.session < newest),
+            # `stale` is False when the session is UNKNOWN as well as when it is current, and
+            # those are not the same fact. Without this flag a detail file that lost its session
+            # line takes the fresh branch and the page reports week-old numbers as today's --
+            # the exact collapse of "cannot tell" into "current" that /api/boards carries a flag
+            # to prevent.
+            "session_unknown": not d.session,
             "signal": d.signal,
             "score": d.score,
             "confidence": d.confidence,

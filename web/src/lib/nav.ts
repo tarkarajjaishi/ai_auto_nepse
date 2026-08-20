@@ -12,6 +12,7 @@ import {
   LineChart,
   Radar,
   ScrollText,
+  Sigma,
   Sparkles,
   Timer,
   Users,
@@ -67,6 +68,13 @@ export const NAV: NavGroup[] = [
   {
     group: "Signals",
     items: [
+      {
+        href: "/admin/swing-quantam",
+        label: "swing_quantam",
+        icon: Sigma,
+        board: "swing_quantam",
+        hint: "Floorsheet only — 3D/7D/15D/30D, zones, and what survived backtest",
+      },
       {
         href: "/admin/swing-pro",
         label: "Swing Trader Pro",

@@ -13,6 +13,7 @@ const LABEL: Record<string, string> = Object.fromEntries(
 );
 
 const REBUILD: Record<string, string> = {
+  swing_quantam: "python -m swing_quantam",
   swing_pro: "python swing_pro.py",
   supply_demand: "python supply_demand.py",
   scan: "python scan.py",

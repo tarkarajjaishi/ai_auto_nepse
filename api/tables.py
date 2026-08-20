@@ -18,6 +18,9 @@ BOARDS = {
     "master_signal": "master_signal.txt",
     "swing_master": "swing_master.txt",
     "backtest": "backtest.txt",
+    # Its own folder rather than a top-level .txt: the floorsheet engine writes a
+    # board plus one detail file per symbol, and they belong together.
+    "swing_quantam": "swing_quantam/board.txt",
 }
 
 # columns that are numbers, so the frontend never parses strings into floats itself

@@ -886,6 +886,82 @@ def test_board_writers_emit_exactly_their_header():
           "no positional column reads" % len(writers))
 
 
+def test_every_registered_rebuild_script_exists():
+    """A board whose rebuild script is not on disk fails only when somebody presses the button.
+
+    `jobs.SCRIPTS` and `ui.CRON_JOBS` are both allow-lists of FILENAMES. Nothing imports them, so
+    a typo, a rename, or a script that was planned and never written sits there indefinitely:
+    every test passes, the Pipeline page renders the row, and the failure arrives at 15:15 on the
+    box -- or the first time a human clicks Rebuild -- as a non-zero exit nobody is watching.
+
+    swing_quantam is the live example: it is a PACKAGE, so its registered script has to be the
+    `build_swing_quantam.py` shim (jobs runs `[python, <script>]` and cannot spell `-m`). Name the
+    package directory there instead and it would import as a directory, fail, and be invisible
+    until the cron fired.
+    """
+    import jobs
+    here = Path(__file__).parent
+
+    missing = []
+    for board, scripts in jobs.SCRIPTS.items():
+        for s in scripts:
+            if not (here / s).is_file():
+                missing.append(f"jobs.SCRIPTS[{board!r}] -> {s}")
+    assert not missing, "registered rebuild scripts that do not exist: " + ", ".join(missing)
+
+    # ui.py holds the daily scheduler's own registry. Parsed, not imported: importing ui.py pulls
+    # in streamlit and starts its cache machinery.
+    import ast as _ast
+    tree = _ast.parse((here / "ui.py").read_text(encoding="utf-8"))
+    cron_scripts = []
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.Assign) and getattr(node.targets[0], "id", "") in (
+                "CRON_JOBS", "HIST_JOBS"):
+            for job in _ast.literal_eval(node.value).values():
+                cron_scripts += job["scripts"]
+    assert cron_scripts, "no CRON_JOBS/HIST_JOBS scripts found -- did the registry move?"
+    gone = [s for s in cron_scripts if not (here / s).is_file()]
+    assert not gone, "ui.py cron scripts that do not exist: " + ", ".join(gone)
+
+    # Every board the API will serve must be rebuildable, or the Pipeline page offers no way out
+    # of a stale board. `pipeline` is the whole chain and is not itself a board.
+    from api import tables
+    unbuildable = [b for b in tables.BOARDS if b not in jobs.SCRIPTS]
+    assert not unbuildable, "boards with no rebuild script: " + ", ".join(unbuildable)
+
+    print("  rebuild scripts     %d jobs.SCRIPTS + %d cron scripts all exist, "
+          "%d boards all rebuildable" % (len(jobs.SCRIPTS), len(cron_scripts), len(tables.BOARDS)))
+
+
+def test_swing_quantam_board_carries_its_date():
+    """A board with no `date` column reports itself fresh forever.
+
+    api/tables.read() sets `stale = session and newest and session < newest`, so a board whose rows
+    carry no date gets session=None and stale=False -- indistinguishable from current. Four boards
+    have already shipped that way here. `store.write_board` refuses a dateless row; this pins that
+    the refusal is real, because a writer that silently stopped refusing would look identical.
+    """
+    from swing_quantam import store
+
+    try:
+        store.write_board(["symbol", "date"], [{"symbol": "X"}])
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("write_board accepted a row with no date -- the board would claim "
+                             "to be current forever")
+
+    # date must be LAST, so appending a column later cannot push it out of the position readers
+    # of the older boards hand-count.
+    path = Path(store.board_path())
+    if path.is_file():
+        cols = path.read_text(encoding="utf-8").splitlines()[0].split("\t")
+        assert cols[-1] == "date", f"swing_quantam board.txt columns end {cols[-3:]}, not 'date'"
+        print("  swing_quantam       board.txt has date last; dateless rows refused")
+    else:
+        print("  swing_quantam       dateless rows refused (board not built yet)")
+
+
 def main():
     print("ops safety:")
     test_rewrite()
@@ -909,6 +985,8 @@ def main():
     test_api_can_never_place_an_order()
     test_collateral_never_returns_client_pii()
     test_forced_relogin_is_coalesced()
+    test_every_registered_rebuild_script_exists()
+    test_swing_quantam_board_carries_its_date()
     live_1d.demo()          # today's bar maths + the archive-never-shrinks rule
     market_hours.demo()     # the one open/closed switch: defaults, toggles, bad file
     jobs.demo()             # the cross-process rebuild lock: exclusive, breakable, safe

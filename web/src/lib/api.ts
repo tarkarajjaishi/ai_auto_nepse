@@ -79,6 +79,7 @@ export type AuthStatus = {
 };
 
 export type BoardName =
+  | "swing_quantam"
   | "swing_pro"
   | "supply_demand"
   | "scan"
@@ -292,6 +293,42 @@ export type Order = {
 
 export type Collateral = { configured: boolean; fields: Record<string, number | null> };
 
+/** One numbered section of the swing_quantam spec, already rendered to label/value pairs by
+ *  Python. The frontend does not know what §19 means and must not learn — it prints what it is
+ *  handed, so a change to the maths never needs a matching change here. */
+export type SqSection = {
+  n: number;
+  title: string;
+  /** one-line caveat, may be absent */
+  note?: string;
+  rows: { metric: string; value: string | number | null; note?: string }[];
+};
+
+export type SwingQuantam = {
+  symbol: string;
+  /** the session these numbers are FROM — not necessarily the newest one on disk */
+  session: string;
+  archive_session: string;
+  stale: boolean;
+  /**
+   * the detail file carries no session at all, so its freshness is UNKNOWN — which is not the
+   * same as fresh. `stale` is false in both cases. Check this FIRST or an undated file renders
+   * as current.
+   */
+  session_unknown: boolean;
+  /** STRONG BUY ZONE | BUY ZONE | WATCH / BUILDING | NEUTRAL | HOLD / MONITOR |
+   *  DISTRIBUTION WATCH | SELL / REDUCE ZONE | STRONG EXIT / INVALIDATION */
+  signal: string;
+  /** 0-100, null when not computed */
+  score: number | null;
+  confidence: string;
+  /** why this signal — always populated */
+  reasons: string[];
+  /** contradictions and caveats. Render them; never collapse them behind the verdict. */
+  warnings: string[];
+  sections: SqSection[];
+};
+
 /* ── calls ──────────────────────────────────────────────────────────────────────────────── */
 
 export const api = {
@@ -323,6 +360,10 @@ export const api = {
     get<Scorecard>(`/api/scorecard/${encodeURIComponent(symbol)}`, signal),
   questions: (symbol: string, signal?: AbortSignal) =>
     get<Questions>(`/api/questions/${encodeURIComponent(symbol)}`, signal),
+  /** A 404 here is a legitimate answer — the symbol has not been computed yet — so callers pass
+   *  `retry: false` rather than hammering a route that is correctly saying "nothing built". */
+  swingQuantam: (symbol: string, signal?: AbortSignal) =>
+    get<SwingQuantam>(`/api/swingquantam/${encodeURIComponent(symbol)}`, signal),
 
   floorsheetDates: (symbol: string, signal?: AbortSignal) =>
     get<FloorsheetDates>(`/api/floorsheet/${encodeURIComponent(symbol)}`, signal),
@@ -357,6 +398,7 @@ export const qk = {
   report: (s: string) => ["report", s] as const,
   scorecard: (s: string) => ["scorecard", s] as const,
   questions: (s: string) => ["questions", s] as const,
+  swingQuantam: (s: string) => ["swing-quantam", s] as const,
   floorsheetDates: (s: string) => ["floorsheet-dates", s] as const,
   floorsheet: (s: string, d: string) => ["floorsheet", s, d] as const,
   brokerFlow: (s: string, n: number) => ["brokerflow", s, n] as const,
