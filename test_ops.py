@@ -130,6 +130,26 @@ def test_edge_is_read_not_transcribed():
     print(f"  edge                both sheets read backtest.txt ({len(measured)} bands agree)")
 
 
+def test_no_pivot_lookahead():
+    """A 5/5 pivot is confirmed five bars after it prints, so any HISTORICAL replay may only
+    use pivots up to k-5. backtest.py has always applied that guard and says so in a comment;
+    trade_setup's post-mortem did not, and walked back from the trigger bar itself.
+
+    Over 200,928 replayed trigger bars it picked a pivot that had not printed on 25.3%, and the
+    stop differed on every one — ACLBSL 2021-02-14 was judged against a stop of 1,170.01 when
+    the honest level was 547.42. The verdict shown under the chart was scoring a trade nobody
+    could have placed. Both files must carry the same guard.
+    """
+    here = Path(__file__).parent
+    ts = (here / "trade_setup.py").read_text(encoding="utf-8")
+    bt = (here / "backtest.py").read_text(encoding="utf-8")
+    assert "range(buy_idx - 5, -1, -1)" in ts, \
+        "trade_setup's post-mortem is walking pivots back from the trigger bar again"
+    assert "range(buy_idx, -1, -1)" not in ts, "the peeking walk-back is back in trade_setup"
+    assert "range(k - 5, -1, -1)" in bt, "backtest lost its pivot-confirmation guard"
+    print("  pivot look-ahead    both replays start five bars behind the trigger")
+
+
 def _ui_src():
     return (Path(__file__).parent / "ui.py").read_text(encoding="utf-8")
 
@@ -180,6 +200,7 @@ def main():
     test_ex_date_detection()
     test_position_never_exceeds_the_book()
     test_edge_is_read_not_transcribed()
+    test_no_pivot_lookahead()
     test_no_nested_expanders()
     test_every_page_has_a_body()
     print("ok")

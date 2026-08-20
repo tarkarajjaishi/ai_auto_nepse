@@ -169,7 +169,14 @@ def setup(symbol):
     outcome = None
     if is_long and buy_idx is not None and buy_idx < i:
         se = c[buy_idx]
-        s_pl = next((pl[k] for k in range(buy_idx, -1, -1) if pl[k] is not None and pl[k] < se), None)
+        # A 5/5 pivot low is only CONFIRMED five bars after it prints, so on the trigger bar we
+        # may only use pivots up to buy_idx-5 — the same guard backtest.py:107 already applies.
+        # Walking back from buy_idx itself peeks at bars the trade had not traded through: over
+        # 200,928 replayed trigger bars it picked an unprinted pivot on 25.3%, and the stop
+        # differed on every one of them (ACLBSL 2021-02-14: stop 1,170.01 vs an honest 547.42).
+        # The verdict printed under the chart was therefore judging a trade nobody could place.
+        s_pl = next((pl[k] for k in range(buy_idx - 5, -1, -1)
+                     if pl[k] is not None and pl[k] < se), None)
         s_stop, s_t1, s_t2, _ = trade_levels("BUY", se, s_pl, a[buy_idx] or av)
         fwd = range(buy_idx + 1, i + 1)
         t1_date = next((d[k] for k in fwd if s_t1 and h[k] >= s_t1), None)
