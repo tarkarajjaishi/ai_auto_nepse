@@ -115,6 +115,11 @@ def _table(name, key="symbol"):
 # the spec's closing rule is "never fabricate missing data".
 FUND_UNAVAILABLE = ["revenue growth", "debt", "cash flow"]
 
+# Section 14 asks for "bid/ask or execution conditions if available". NEPSE publishes no order
+# book we can reach, so it is declared rather than silently omitted — the spec's closing rule is
+# to state when required data is unavailable, and turnover is a proxy for fillability, not depth.
+EXEC_UNAVAILABLE = "bid/ask spread and market depth (no NEPSE order book is published)"
+
 
 def _num(d, key):
     try:
@@ -167,6 +172,43 @@ def _advances_declines(c, look=20):
     up = sum(c[i] - c[i - 1] for i in range(-look, 0) if c[i] > c[i - 1])
     dn = sum(c[i - 1] - c[i] for i in range(-look, 0) if c[i] < c[i - 1])
     return (up / dn) if dn else (float("inf") if up else 1.0)
+
+
+def _momentum_accel(c):
+    """Section 4 — "momentum acceleration or deterioration", which is a SEPARATE bullet from
+    "are recent advances stronger than recent declines" (_advances_declines). Per-day pace over
+    the last 5 sessions minus the same over 20: positive means the move is speeding up.
+    Returned in percentage points per day, so it is comparable across stocks."""
+    r5, r20 = _ret(c, 5), _ret(c, 20)
+    return None if r5 is None or r20 is None else r5 / 5 - r20 / 20
+
+
+def _ema_respected(l, c, e, look=60):
+    """Section 2 — "whether pullbacks respect the 20 EMA or 50 EMA". Not "is price above it
+    today", which is a different question the trend block already answers: of the dips that
+    actually reached the EMA in the window, what share closed back above it. None when price
+    has not tested that EMA at all, because 0-of-0 is not a failure."""
+    tests = held = 0
+    for i in range(max(0, len(c) - look), len(c)):
+        if e[i] is None:
+            continue
+        if l[i] <= e[i]:
+            tests += 1
+            held += c[i] >= e[i]
+    return None if not tests else held / tests * 100
+
+
+def _buyers_return(h, l, c, support, look=5):
+    """Section 9 — "buyers return near support", the one healthy-pullback trait that was never
+    implemented. Its daily footprint is a bar that traded down to the level and closed in the
+    upper half of its own range: sellers reached the level, buyers took it back."""
+    if not support:
+        return None
+    for i in range(max(0, len(c) - look), len(c)):
+        rng = h[i] - l[i]
+        if l[i] <= support and rng and (c[i] - l[i]) / rng >= 0.5:
+            return True
+    return False
 
 
 def _volume_regime(v, vsma):
@@ -719,6 +761,11 @@ def analyse(symbol, funds=None, calendar=None):
         e20=_at(e20), e50=_at(e50), e200=_at(e200),
         e20_slope=_slope(e20), e50_slope=_slope(e50), e200_slope=_slope(e200),
         ext_atr=ext_atr, rsi=_at(r), rsi_slope=_slope(r, 3),
+        # Section 6 lists RSI direction and momentum acceleration as separate bullets; only
+        # direction was implemented. This is the change in that slope — is momentum still
+        # building, or merely still positive while flattening out.
+        rsi_accel=(None if _slope(r, 3) is None or _slope(r[:-3], 3) is None
+                   else _slope(r, 3) - _slope(r[:-3], 3)),
         macd=_at(mline), macd_sig=_at(msig), macd_hist=_at(mhist),
         hist_slope=(None if _at(mhist) is None or _at(mhist, -4) is None
                     else _at(mhist) - _at(mhist, -4)),
@@ -738,6 +785,8 @@ def analyse(symbol, funds=None, calendar=None):
         crossovers=_crossovers(e20, e50, e200),
         separation=_separation(c[-1], _at(e20), _at(e50), _at(e200)),
         accum=_accum_dist(o, c, v), adv_decl=_advances_declines(c),
+        mom_accel=_momentum_accel(c),                 # section 4, its own bullet
+        e20_respect=_ema_respected(l, c, e20), e50_respect=_ema_respected(l, c, e50),
         off_20d_high=((max(c[-20:]) - c[-1]) / max(c[-20:]) * 100) if len(c) >= 20 else None,
         avg_vol=(sum(v[-20:]) / 20) if len(v) >= 20 else None,
         gap_flag=_gaps(o, c),
@@ -811,6 +860,12 @@ def analyse(symbol, funds=None, calendar=None):
     # Section 14 — thin float plus an abnormal print is the manipulation shape
     f["confirmed_candle"] = _confirmed(o, c)
     f["selling_weakens"] = _selling_weakens(o, c)
+    # Section 9's seventh healthy trait, previously the only one with no implementation.
+    # "Support" is the highest level actually beneath price — the swing low or either EMA,
+    # whichever a dip would meet first.
+    _sup = [x for x in (f["near_support"], f["e20"], f["e50"])
+            if x is not None and x < f["close"]]
+    f["buyers_return"] = _buyers_return(h, l, c, max(_sup) if _sup else None)
     f["trade_freq"] = _frequency(d, calendar)
     f["thin_calendar"] = f["trade_freq"] is not None and f["trade_freq"] < 80
     f["manip"] = bool(f["abnormal"] and (f["float_pct"] or 100) < 25) or f["gap_flag"] >= 4
@@ -1020,6 +1075,12 @@ def report(f):
          f"EMA separation:        {_n(f['separation'], 2, '%')} of price"
          + ("   (compressed — trend unclear)" if (f["separation"] or 9) < 1.5 else "")
          + f"   |  crossovers: {', '.join(f['crossovers'][:3]) if f['crossovers'] else 'none in 25d'}",
+         f"Pullbacks respect:     20 EMA "
+         + ("not tested in 60d" if f["e20_respect"] is None
+            else f"{f['e20_respect']:.0f}% of dips held")
+         + "   50 EMA "
+         + ("not tested in 60d" if f["e50_respect"] is None
+            else f"{f['e50_respect']:.0f}% of dips held"),
          f"Volume Ratio:          {_n(f['vol_x'])}x of its 20-day average — {f['vol_label']}"
          f"   (20d volume regime: {f['vol_regime']}"
          + (", ABNORMAL print today" if f["abnormal"] else "") + ")",
@@ -1028,6 +1089,8 @@ def report(f):
          f"RSI 14:                {_n(f['rsi'], 1)}   {'rising' if (f['rsi_slope'] or 0) > 0 else 'falling'}"
          + ("   OVEREXTENDED >70 (not a sell on its own — a strong trend can hold it)"
             if f["rsi_overext"] else "")
+         + ("" if f["rsi_accel"] is None else
+            ", momentum accelerating" if f["rsi_accel"] > 0 else ", momentum decelerating")
          + ("   BEARISH DIVERGENCE" if f["rsi_div"] else "")
          + ("   bullish divergence" if f["rsi_bull_div"] else ""),
          f"MACD 12/26/9:          {_n(f['macd'], 3)} vs signal {_n(f['macd_sig'], 3)}, "
@@ -1043,7 +1106,10 @@ def report(f):
          + ("   bullish daily confirmation" if f["confirmed_candle"] else "   NO bullish confirmation")
          + ("" if f["selling_weakens"] is None
             else ", selling candles weakening" if f["selling_weakens"]
-            else ", selling candles still growing"),
+            else ", selling candles still growing")
+         + ("" if f["buyers_return"] is None
+            else ", buyers returned at support" if f["buyers_return"]
+            else ", no buyers stepping in at support"),
          f"                       level {_n(f['prev_breakout'])}, {f['res_tests']} prior tests, "
          f"{f['consol_days']}d base, candle {_n(f['bo_candle'], 2)} ATR closing "
          f"{_n(f['close_pos'], 0, '%')} up its range, {f['follow_through']}/3 follow-through",
@@ -1057,7 +1123,10 @@ def report(f):
          f"60d {_n(f['ret60'], 2, '%')}   {_n(f['off_20d_high'], 1, '%')} off 20d high, "
          f"{_n(f['off_60d_high'], 1, '%')} off 60d high",
          f"                       advances/declines {_n(f['adv_decl'], 2)}x over 20d "
-         f"({'advances dominate' if f['adv_decl'] > 1 else 'declines dominate'})",
+         f"({'advances dominate' if f['adv_decl'] > 1 else 'declines dominate'})"
+         + ("" if f["mom_accel"] is None else
+            f", momentum {'accelerating' if f['mom_accel'] > 0 else 'deteriorating'} "
+            f"({f['mom_accel']:+.2f}%/day, 5d pace vs 20d)"),
          f"Fundamental Quality:   " + ((
              f"ROE {_n(f['roe'], 1, '%')}  P/E {_n(f['pe'], 1)}  P/B {_n(f['pb'], 2)}  "
              f"EPS {_n(f['eps'], 2)}  BVPS {_n(f['bvps'])}  float {_n(f['float_pct'], 1, '%')}")
@@ -1083,6 +1152,7 @@ def report(f):
             if f["trade_freq"] is not None else "")
          + ("   POSSIBLE MANIPULATION SHAPE" if f["manip"] else "")
          + ("" if f["liquid"] else "   HIGH EXECUTION RISK"),
+         f"                       not published for NEPSE, so not scored: {EXEC_UNAVAILABLE}",
          f"False-Signal Risk:     {', '.join(f['flags']) if f['flags'] else 'none of the ten fired'}",
          "",
          f"Score:                 {f['score']}/100",

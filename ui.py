@@ -137,6 +137,9 @@ st.markdown("""
   .pill.up { background: rgba(18,184,134,.12); color: #12B886; }
   .pill.down { background: rgba(255,107,91,.12); color: #FF6B5B; }
   .section { font-size: .95rem; font-weight: 700; color: #F2F4F7; margin: .7rem 0 .35rem; }
+  .jump { font-size: .78rem; font-weight: 600; color: #6EA8FE; text-decoration: none;
+          margin-left: .5rem; white-space: nowrap; }
+  .jump:hover { text-decoration: underline; }
   /* sidebar nav: the menu radio reads as a list of pages, active one in coral */
   [data-testid="stSidebar"] [role="radiogroup"] { gap: .15rem; }
   [data-testid="stSidebar"] [role="radiogroup"] label {
@@ -1449,9 +1452,13 @@ if page in PER_SYMBOL:
     # Options stay bare tickers on purpose: Streamlit filters the box with a *fuzzy
     # subsequence* match, so putting company names in the label made "nabil" match "Nepal SBI
     # Bank Limited" and half the Laghubittas. The name is on the header line right below.
-    symbol = bar_sym.selectbox("Symbol", sorted(names), label_visibility="collapsed",
-                               placeholder="Search symbol",
-                               index=sorted(names).index("NABIL") if "NABIL" in names else 0)
+    opts = sorted(names)
+    _qp_sym = st.query_params.get("sym")
+    _seed = _qp_sym if _qp_sym in opts else ("NABIL" if "NABIL" in opts else opts[0])
+    symbol = bar_sym.selectbox("Symbol", opts, label_visibility="collapsed",
+                               placeholder="Search symbol", index=opts.index(_seed))
+    if st.query_params.get("sym") != symbol:      # mirror it, same as ?page= above
+        st.query_params["sym"] = symbol
 
     data = bars(symbol, timeframe, None)
     if not data:
@@ -2291,7 +2298,9 @@ if page == "NAASA":
     st.caption("Read-only monitor. PRE-OPEN 10:30–10:45 (queue orders), PRE-OPEN CLOSE 10:46–10:59, "
                "LIVE 11:00–15:00, CLOSED otherwise. Place actual orders in NAASA.")
 
-    sym = st.text_input("Scrip", value=(symbol or "NABIL"), key="naasa_sym").strip().upper() or "NABIL"
+    # `symbol` is always None here (this page is outside PER_SYMBOL), so seed from ?sym=
+    _nsym = st.query_params.get("sym") or "NABIL"
+    sym = st.text_input("Scrip", value=_nsym, key="naasa_sym").strip().upper() or "NABIL"
     q = live_snapshot(sym)
 
     side = st.radio("Side", ["BUY", "SELL"], horizontal=True, key="naasa_side")
@@ -2878,13 +2887,12 @@ def sd_chart(symbol, show, nbars=180):
                                xanchor="left", font=dict(color=colour, size=11))
 
     fig.update_layout(
-        template="plotly_dark", height=560, margin=dict(l=8, r=118, t=34, b=8),
+        # r=44, not 118: the y tick labels need ~31px and nothing else renders in that gutter.
+        # Every other Plotly layout in this file uses r=0; this one was 40% dead space on a phone.
+        template="plotly_dark", height=560, margin=dict(l=8, r=44, t=34, b=8),
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         xaxis_rangeslider_visible=False, dragmode="pan",
-        title=dict(text=f"{symbol} · Supply Demand Dashboard · fuzz {supply_demand.FUZZ} · "
-                        f"fractals {supply_demand.FAST}/{supply_demand.SLOW} · "
-                        f"ATR {supply_demand.ATR_N} · SL ×{supply_demand.SL_SHIFT:g} · "
-                        f"TP ×{supply_demand.TP_COEF:g}", font=dict(size=12)))
+        title=dict(text=f"{symbol} · Supply Demand", font=dict(size=12)))
     fig.update_xaxes(rangebreaks=hidden_periods(d[start:], False), showgrid=False)
     fig.update_yaxes(side="right", gridcolor="rgba(255,255,255,.06)")
     return fig, drawn
@@ -2959,8 +2967,10 @@ if page == "Swing Trader Pro":
                     st.info(f"{sym}: not enough daily history — the 200 EMA needs ~210 sessions, "
                             "and this framework will not fabricate it.")
                 else:
-                    st.markdown(f"<div class='section'>{sym} — {f['grade']} · {f['decision']}"
-                                "</div>", unsafe_allow_html=True)
+                    st.markdown(
+                        f"<div class='section'>{sym} — {f['grade']} · {f['decision']} "
+                        f"<a href='?page=Chart&sym={sym}' target='_self' class='jump'>"
+                        f"open chart ↗</a></div>", unsafe_allow_html=True)
                     st.code(swing_pro.report(f), wrap_lines=True)
                     c1, c2 = st.columns(2)
                     with c1:
@@ -3125,7 +3135,9 @@ if page == "Supply Demand":
             if picked:
                 r = block[picked[0]]
                 st.markdown(f"<div class='section'>{r['symbol']} — {r['direction']} "
-                            f"{r['state']} zone, {r['signal']}</div>", unsafe_allow_html=True)
+                            f"{r['state']} zone, {r['signal']} "
+                            f"<a href='?page=Chart&sym={r['symbol']}' target='_self' "
+                            f"class='jump'>open chart ↗</a></div>", unsafe_allow_html=True)
                 st.markdown(sd_ticket(r["symbol"], r), unsafe_allow_html=True)
                 st.caption(
                     "Their entry is the zone edge. Once price has run past it that level is a "
@@ -3142,7 +3154,7 @@ if page == "Supply Demand":
                     show.add("weak")
                 if t3.checkbox("Turncoat zones", value=False, key="sd_z_turn"):
                     show.add("turncoat")
-                nbars = t4.slider("Bars", 60, 400, 180, 20, key="sd_z_bars",
+                nbars = t4.slider("Bars", 60, 400, 120, 20, key="sd_z_bars",
                                   help="Window shown. Always widened to include this row's own "
                                        "zone, however old it is.")
                 # never crop out the zone the row is about — the chart would contradict the table

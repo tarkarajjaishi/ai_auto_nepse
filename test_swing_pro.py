@@ -46,21 +46,28 @@ SPEC_22 = [
 # (requirement name, a token that must appear in swing_pro.py's source if it is implemented)
 
 SPEC_SECTIONS = {
+    # NB: every probe here must point at the feature its own name describes. Two of them used
+    # to alias onto a DIFFERENT bullet's implementation — §4's "momentum acceleration" pointed
+    # at adv_decl, which is the separate "advances vs declines" bullet — so the section read
+    # fully covered while the named requirement had no code at all. Aliased probes are how a
+    # substring search reports 98/98 over a hole.
     "2 trend": [("price vs each EMA", "e20="), ("EMA slope", "_slope"),
                 ("EMA separation", "separation"), ("recent crossovers", "_crossovers"),
-                ("pullback respects EMA", "close >= e20"), ("extension", "ext_atr")],
+                ("pullbacks respect the 20/50 EMA", "_ema_respected"),
+                ("extension", "ext_atr")],
     "3 structure": [("HH/HL/LH/LL", "hh="), ("BOS", "BOS"), ("CHoCH", "CHoCH"),
                     ("consolidation", "Consolidation"), ("accumulation", "Accumulation"),
                     ("distribution", "Distribution")],
     "4 relative": [("5d", "ret5"), ("20d", "ret20"), ("60d", "ret60"),
                    ("vs 20-day high", "off_20d_high"), ("vs 60-day high", "off_60d_high"),
-                   ("momentum acceleration", "adv_decl"),
+                   ("momentum acceleration", "_momentum_accel"),
                    ("advances vs declines", "_advances_declines")],
     "5 volume": [("volume ratio", "vol_x"), ("breakout volume", "breakout-without-volume"),
                  ("pullback volume", "pullback_dry"), ("buying vs selling", "up_day"),
                  ("expansion/contraction", "_volume_regime"), ("abnormal volume", "abnormal")],
     "6 rsi": [("level", "rsi"), ("direction", "rsi_slope"), ("bearish divergence", "rsi_div"),
-              ("bullish divergence", "rsi_bull_div"), ("overextension", "rsi_overext")],
+              ("bullish divergence", "rsi_bull_div"), ("overextension", "rsi_overext"),
+              ("momentum acceleration", "rsi_accel")],
     "7 macd": [("vs signal", "macd_sig"), ("histogram direction", "hist_slope"),
                ("above/below zero", "macd_above_zero"), ("crossover", "macd_cross"),
                ("divergence", "macd_div")],
@@ -69,7 +76,10 @@ SPEC_SECTIONS = {
                    ("breakout candle size", "bo_candle"), ("close position", "close_pos"),
                    ("follow-through", "follow_through")],
     "9 pullback": [("five states", "TREND BREAKDOWN"), ("declining volume", "pullback_dry"),
-                   ("holds EMA", "close >= e20"), ("lower low", "broke_low")],
+                   ("holds EMA", "close >= e20"), ("lower low", "broke_low"),
+                   ("selling candles weaken", "_selling_weakens"),
+                   ("buyers return near support", "_buyers_return"),
+                   ("bullish confirmation", "_confirmed")],
     "10 s/r": [("near/major support", "major_support"), ("near/major resistance", "major_res"),
                ("previous breakout level", "prev_breakout")],
     "11 atr": [("value", "atr"), ("% of price", "atr_pct"),
