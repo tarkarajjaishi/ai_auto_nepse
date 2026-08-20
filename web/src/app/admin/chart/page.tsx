@@ -23,20 +23,29 @@ import { cn } from "@/lib/utils";
  * number in it came from Python rather than being recomputed here.
  */
 
+/**
+ * These move the VIEW, never the fetch.
+ *
+ * The whole 1D.txt is loaded every time — the archive runs to ~1,600 sessions and holding all of
+ * it costs nothing — so changing range is instant and panning past the left edge always finds
+ * more candles instead of a wall. Opening on 120 is the same default the Streamlit chart settled
+ * on: autoranging price over the full history squashes the last three months into a flat band.
+ */
 const RANGES = [
   { label: "3M", bars: 63 },
   { label: "6M", bars: 126 },
   { label: "1Y", bars: 252 },
   { label: "2Y", bars: 504 },
   { label: "5Y", bars: 1260 },
-  { label: "MAX", bars: 0 },
+  { label: "ALL", bars: 0 },
 ];
+const DEFAULT_RANGE = 1; // 126 sessions ~ the 120 the Streamlit chart opens on
 
 function ChartInner() {
   const params = useSearchParams();
   const router = useRouter();
   const symbol = (params.get("symbol") ?? "NABIL").toUpperCase();
-  const [range, setRange] = useState(2);
+  const [range, setRange] = useState(DEFAULT_RANGE);
 
   // The input is seeded from the URL and must RE-seed when the URL changes underneath it.
   //
@@ -52,11 +61,11 @@ function ChartInner() {
     setDraft(symbol);
   }
 
-  const limit = RANGES[range].bars;
   const symbols = useQuery({ queryKey: qk.symbols, queryFn: ({ signal }) => api.symbols(signal) });
+  // limit 0 = the entire 1D.txt, always. The range buttons below change only what is framed.
   const bars = useQuery({
-    queryKey: qk.bars(symbol, limit),
-    queryFn: ({ signal }) => api.bars(symbol, limit, signal),
+    queryKey: qk.bars(symbol, 0),
+    queryFn: ({ signal }) => api.bars(symbol, 0, signal),
   });
   const report = useQuery({
     queryKey: qk.report(symbol),
@@ -139,7 +148,11 @@ function ChartInner() {
             </button>
           ))}
           <span className="ml-auto font-mono text-[11px] text-muted-foreground">
-            {bars.data ? `${bars.data.bars.length} bars · ` : ""}
+            {bars.data
+              ? `${bars.data.bars.length.toLocaleString()} bars loaded · ${
+                  bars.data.bars[0]?.date ?? "—"
+                } → ${bars.data.bars.at(-1)?.date ?? "—"} · `
+              : ""}
             {isIndex ? (
               <span className="text-primary">unadjusted</span>
             ) : (
@@ -158,7 +171,7 @@ function ChartInner() {
           ) : bars.isPending ? (
             <Skeleton className="m-2 min-h-0 flex-1" />
           ) : (
-            <PriceChart bars={bars.data?.bars ?? []} fill />
+            <PriceChart bars={bars.data?.bars ?? []} fill visibleBars={RANGES[range].bars} />
           )}
         </div>
 

@@ -33,10 +33,10 @@ export function TopNav() {
   return (
     <header className="flex h-12 shrink-0 items-center gap-1 border-b border-border bg-card px-3">
       <Link href="/admin" className="mr-2 flex shrink-0 items-center gap-2">
-        <span className="grid size-6 place-items-center rounded-full bg-primary font-mono text-[12px] font-bold text-primary-foreground">
-          C
+        <span className="grid size-6 place-items-center rounded-md bg-primary font-mono text-[12px] font-bold text-primary-foreground">
+          N
         </span>
-        <span className="text-[14px] font-semibold tracking-tight">Chukul</span>
+        <span className="text-[14px] font-semibold tracking-tight">Nepse_ai</span>
       </Link>
 
       <nav className="flex items-center gap-0.5">

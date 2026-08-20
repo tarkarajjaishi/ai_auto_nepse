@@ -16,7 +16,7 @@ export type Theme = "dark" | "light";
  * Dark is the default and the fallback: this is a terminal, and a white flash at 6am is a
  * defect, not a preference.
  */
-export const STORAGE_KEY = "chukul-theme";
+export const STORAGE_KEY = "nepse-ai-theme";
 
 type ThemeState = {
   theme: Theme;

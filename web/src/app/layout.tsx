@@ -29,7 +29,7 @@ const mono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: { default: "Chukul Terminal", template: "%s · Chukul" },
+  title: { default: "Nepse_ai Terminal", template: "%s · Nepse_ai" },
   description: "NEPSE research terminal — deterministic analysis over the daily archive.",
 };
 

@@ -30,12 +30,22 @@ export function PriceChart({
   bars,
   height = 420,
   fill = false,
+  visibleBars = 120,
 }: {
   bars: Bar[];
   height?: number;
   /** take the parent's height instead of a fixed one — for the terminal layout, where the
    *  chart owns whatever is left between the toolbar and the bottom panel */
   fill?: boolean;
+  /**
+   * How many of the most recent sessions to OPEN on. The series always holds the entire
+   * archive; this only sets the window. 0 shows everything.
+   *
+   * Autoranging price across 1,600+ bars squashes the recent action into a flat band, which is
+   * why the Streamlit chart settled on 120 and why the range buttons here move this rather than
+   * refetch — panning back must always reveal the rest without a round trip.
+   */
+  visibleBars?: number;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
@@ -54,12 +64,25 @@ export function PriceChart({
         textColor: read("--muted-foreground", dark ? "#9aa4b2" : "#5b6472"),
         fontFamily: read("--font-geist-mono", "monospace"),
         attributionLogo: false,
+        // The pane divider defaults to a solid #2B2B43 rule across the full width, which reads
+        // as a chart artifact rather than a boundary — price and volume are obviously separate
+        // without a line drawn between them. Transparent, and not draggable: a stray drag
+        // resizing the volume pane is an accident, not a feature anyone wanted here.
+        panes: {
+          enableResize: false,
+          separatorColor: "transparent",
+          separatorHoverColor: "transparent",
+        },
       },
       grid: {
         vertLines: { color: dark ? "rgba(255,255,255,.05)" : "rgba(0,0,0,.05)" },
         horzLines: { color: dark ? "rgba(255,255,255,.05)" : "rgba(0,0,0,.05)" },
       },
-      rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.08, bottom: 0.26 } },
+      // No bottom reserve for volume any more — volume has its own pane now. Keeping the 0.26
+      // margin here is what put NEGATIVE prices on the axis: the scale maps the series into the
+      // top 74% of the pane and then labels the whole height, so a series ranging 50-1000 got
+      // ticks at -100 and -200. Prices cannot be negative and a chart must not imply they can.
+      rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.1, bottom: 0.08 } },
       timeScale: { borderVisible: false, rightOffset: 4 },
       crosshair: { mode: 0 },
       autoSize: false,
@@ -79,12 +102,14 @@ export function PriceChart({
       wickUpColor: up,
       wickDownColor: down,
     });
-    const volume = c.addSeries(HistogramSeries, {
-      priceFormat: { type: "volume" },
-      priceScaleId: "vol",
+    // Volume in its own pane (v5's third argument), not overlaid on the price scale. Separate
+    // panes mean neither series can rescale the other and each axis only ever shows values its
+    // own data actually takes.
+    const volume = c.addSeries(HistogramSeries, { priceFormat: { type: "volume" } }, 1);
+    c.priceScale("right", 1).applyOptions({
+      borderVisible: false,
+      scaleMargins: { top: 0.15, bottom: 0 },
     });
-    // volume sits in the bottom quarter on its own scale, so it never rescales price
-    c.priceScale("vol").applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
 
     candles.setData(
       bars.map((b) => ({
@@ -102,7 +127,24 @@ export function PriceChart({
         color: b.close >= b.open ? `${up}55` : `${down}55`,
       })),
     );
-    c.timeScale().fitContent();
+    // Volume takes a fixed slice of the height rather than an even split of the two panes.
+    const sizePanes = () => {
+      const total = fill ? (box.current?.clientHeight ?? height) : height;
+      const panes = c.panes();
+      if (panes.length > 1) panes[1].setHeight(Math.max(48, Math.round(total * 0.2)));
+    };
+    sizePanes();
+
+    // NOT fitContent(): that frames all 1,600 bars and flattens the last three months into a
+    // line. Open on the recent window; the whole series is loaded and one drag reaches it.
+    if (visibleBars > 0 && bars.length > visibleBars) {
+      c.timeScale().setVisibleLogicalRange({
+        from: bars.length - visibleBars,
+        to: bars.length + 2,
+      });
+    } else {
+      c.timeScale().fitContent();
+    }
 
     // The library measures once at creation. Without this, any layout change after mount — the
     // sidebar collapsing, a window resize — leaves the canvas at its old width.
@@ -111,6 +153,7 @@ export function PriceChart({
         width: Math.floor(e.contentRect.width),
         ...(fill ? { height: Math.max(160, Math.floor(e.contentRect.height)) } : {}),
       });
+      sizePanes();
     });
     ro.observe(box.current);
 
@@ -119,7 +162,7 @@ export function PriceChart({
       c.remove();
       chart.current = null;
     };
-  }, [bars, height, theme, fill]);
+  }, [bars, height, theme, fill, visibleBars]);
 
   // In fill mode the box must be a real flex child with min-h-0, or it reports its content
   // height (the canvas it is trying to size) and the two feed each other.
