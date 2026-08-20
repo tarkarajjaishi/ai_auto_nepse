@@ -2654,18 +2654,35 @@ if page == "NAASA":
     if not (em and pw):
         st.caption("Sign in under 🔐 **NAASA account** in the sidebar (with Remember me) to place orders.")
     else:
+        # Keys, not `value=`, so the Modify buttons below can prefill the ticket by writing
+        # session_state before it renders — passing both makes Streamlit ignore one of them.
+        mod_row = st.session_state.get("mod_row")
+        st.session_state.setdefault("ord_scrip", sym)
+        st.session_state.setdefault("ord_side", "BUY")
+        st.session_state.setdefault("ord_qty", 10)
+        st.session_state.setdefault("ord_price", 0.0)
+        if mod_row:
+            m1, m2 = st.columns([5, 1])
+            m1.info(f"**Modifying order #{mod_row.get('BrokerTranID') or mod_row.get('LatestOrderID')}** "
+                    f"— {mod_row.get('Scrip')} {mod_row.get('BuySellType') or mod_row.get('B/S')}. "
+                    "Change the quantity or price and send; symbol and side are fixed.")
+            if m2.button("Stop modifying", width="stretch"):
+                st.session_state.pop("mod_row", None)
+                st.session_state.pop("order_draft", None)
+                st.rerun()
         with st.form("order_ticket"):
             q1, q2, q3, q4, q5 = st.columns([2, 1, 1, 1.4, 1])
-            t_scrip = q1.text_input("Symbol", value=sym)
-            t_side = q2.selectbox("Side", ("BUY", "SELL"))
-            t_qty = q3.number_input("Qty", min_value=1, max_value=99999999, value=10, step=1)
-            t_price = q4.number_input("Limit price (0 = market)", min_value=0.0, value=0.0,
-                                      step=0.10, format="%.2f")
+            t_scrip = q1.text_input("Symbol", key="ord_scrip", disabled=bool(mod_row))
+            t_side = q2.selectbox("Side", ("BUY", "SELL"), key="ord_side", disabled=bool(mod_row))
+            t_qty = q3.number_input("Qty", min_value=1, max_value=99999999, step=1, key="ord_qty")
+            t_price = q4.number_input("Limit price (0 = market)", min_value=0.0, step=0.10,
+                                      format="%.2f", key="ord_price")
             # GTD is the one term needing a date, and the ticket carries no date field — so it
             # is not offered here rather than left as an option that can only fail validation.
             # naasa.ORDER_TERMS still lists it for API callers that supply term_validity.
             t_terms = q5.selectbox("Validity", [t for t in naasa.ORDER_TERMS if t != "GTD"])
-            review = st.form_submit_button("Review order →", width="stretch")
+            review = st.form_submit_button(
+                "Review change →" if mod_row else "Review order →", width="stretch")
         if review:
             try:                       # validate now so the confirm step shows a real order
                 st.session_state["order_draft"] = naasa.order_body(
@@ -2689,16 +2706,23 @@ if page == "NAASA":
                 st.info(f"Heads up: your limit is {abs(d_px - ltp) / ltp * 100:.1f}% away from the "
                         f"last traded price of Rs {ltp:,.2f}.")
             g1, g2 = st.columns(2)
-            if g1.button(f"✅ Send this {draft['BuySellType'].upper()} order", type="primary",
-                         width="stretch"):
+            _send_lbl = ("✅ Send this change" if mod_row
+                         else f"✅ Send this {draft['BuySellType'].upper()} order")
+            if g1.button(_send_lbl, type="primary", width="stretch"):
                 st.session_state.pop("order_draft", None)    # consume FIRST — no replay on rerun
+                _row = st.session_state.pop("mod_row", None)
                 try:
-                    resp = naasa.x_place_order(em, pw, draft["Scrip"], draft["BuySellType"],
-                                               draft["Quantity"], d_px, draft["OrderTerms"],
-                                               draft["TermValidity"])
+                    if _row:
+                        resp = naasa.x_modify_order(em, pw, _row, draft["Quantity"], d_px,
+                                                    draft["OrderTerms"], draft["TermValidity"])
+                    else:
+                        resp = naasa.x_place_order(em, pw, draft["Scrip"], draft["BuySellType"],
+                                                   draft["Quantity"], d_px, draft["OrderTerms"],
+                                                   draft["TermValidity"])
                     code, msg = _broker_reply(resp)
                     if code == 0:
-                        st.success(f"Order accepted by the broker. {msg}".strip())
+                        st.success(("Change accepted by the broker. " if _row
+                                    else "Order accepted by the broker. ") + msg)
                     elif code is None:
                         st.warning("The broker replied in an unexpected shape — check the order "
                                    f"book below before you retry, so you do not double up. {msg}")
@@ -2734,6 +2758,39 @@ if page == "NAASA":
                         st.error(f"Cancellation rejected (code {code}) — {msg}")
                 except Exception as e:
                     st.error(f"Cancellation was NOT sent — {e}")
+
+            # Per-row actions. Modify loads the order into the ticket above rather than opening a
+            # second form: one place to check qty/price before anything is sent.
+            st.caption("Working orders — Modify loads the order into the ticket above.")
+            for _i, _r in enumerate(open_rows):
+                a1, a2, a3 = st.columns([5, 1.1, 1.1])
+                a1.markdown(
+                    f"<div style='padding-top:6px'><b>{_r.get('Scrip')}</b> · "
+                    f"{_r.get('BuySellType') or _r.get('B/S')} {_r.get('RemainingQty')} @ "
+                    f"{_r.get('Price')} · {_r.get('OrderStatus')} · "
+                    f"#{_r.get('BrokerTranID') or _r.get('LatestOrderID')}</div>",
+                    unsafe_allow_html=True)
+                if a2.button("✏ Modify", key=f"ob_mod_{_i}", width="stretch"):
+                    _side = str(_r.get("BuySellType") or _r.get("B/S") or "B").upper()
+                    st.session_state["mod_row"] = _r
+                    st.session_state["ord_scrip"] = _r.get("Scrip")
+                    st.session_state["ord_side"] = "BUY" if _side.startswith("B") else "SELL"
+                    try:
+                        st.session_state["ord_qty"] = int(float(_r.get("RemainingQty")))
+                        st.session_state["ord_price"] = float(_r.get("Price"))
+                    except (TypeError, ValueError):
+                        pass
+                    st.session_state.pop("order_draft", None)
+                    st.rerun()
+                if a3.button("🚫 Cancel", key=f"ob_can_{_i}", width="stretch"):
+                    try:
+                        code, msg = _broker_reply(naasa.x_cancel_order(em, pw, _r))
+                        if code == 0:
+                            st.success(f"Cancellation accepted. {msg}".strip())
+                        else:
+                            st.error(f"Cancellation rejected (code {code}) — {msg}")
+                    except Exception as e:
+                        st.error(f"Cancellation was NOT sent — {e}")
 
     st.markdown("<div class='section'>Order Book</div>", unsafe_allow_html=True)
     if not (em and pw):

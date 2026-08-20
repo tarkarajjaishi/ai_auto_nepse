@@ -807,6 +807,36 @@ def cancel_body(row):
     return body
 
 
+def modify_body(row, quantity, price, terms="DAY", term_validity=""):
+    """Payload to change a working order's quantity/price (POST /MarketOrder/ModifyOrder).
+
+    The screen rebuilds the whole order object and adds the identifiers, so this is `order_body`
+    plus OrderId/TranId (both = BrokerTranID) and **OriginalRemainingQty**, which is what the
+    exchange matches the amendment against — send the new quantity there and the change is
+    rejected or, worse, applied to the wrong residue.
+    """
+    tran = row.get("BrokerTranID") or row.get("LatestOrderID")
+    if not tran:
+        raise ValueError("order row carries no BrokerTranID — nothing to modify")
+    if not order_is_working(row):
+        raise ValueError("order %s is %s — there is nothing left to modify"
+                         % (tran, row.get("OrderStatus") or "already finished"))
+    side = str(row.get("B/S") or row.get("BuySellIndicator") or row.get("BuySellType") or "")
+    body = order_body(row.get("Scrip"), "BUY" if side.upper().startswith("B") else "SELL",
+                      quantity, price, terms, term_validity,
+                      exchange=row.get("Exchange") or "NEPSE")
+    body.update({"OrderId": tran, "TranId": tran,
+                 "OriginalRemainingQty": row.get("RemainingQty"),
+                 "AMOBulkIndicator": row.get("OrderStatus")})
+    return body
+
+
+def x_modify_order(email, password, row, quantity, price, terms="DAY", term_validity=""):
+    """Amend a working order. No auto-retry, same reason as x_place_order."""
+    return x_report(email, password, "MarketOrder", "ModifyOrder",
+                    modify_body(row, quantity, price, terms, term_validity), retry=False)
+
+
 def x_place_order(email, password, scrip, side, quantity, price, terms="DAY", term_validity=""):
     """PLACE A REAL ORDER on the signed-in NAASA account. This commits real money on NEPSE.
 

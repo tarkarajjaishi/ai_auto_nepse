@@ -340,6 +340,22 @@ def test_order_body_is_exactly_what_the_screen_sends():
     assert naasa.order_is_working(dict(filled, OrderStatus="OPEN", RemainingQty="4")) is True
     assert naasa.order_is_working({"OrderStatus": "SOMETHING NEW"}) is True, \
         "an unknown status must stay cancellable — the broker decides, not us"
+
+    # A modify is matched against the RESIDUE, so OriginalRemainingQty must carry the OLD
+    # quantity — put the new figure there and the amendment is applied to the wrong amount.
+    working = dict(filled, OrderStatus="OPEN", RemainingQty="10")
+    m = naasa.modify_body(working, 4, 705.0)
+    assert m["OriginalRemainingQty"] == "10", m["OriginalRemainingQty"]
+    assert m["Quantity"] == "4" and m["Price"] == "705", (m["Quantity"], m["Price"])
+    assert m["OrderId"] == m["TranId"] == "9263601"
+    assert m["BuySellIndicator"] == "B", "side comes from the order, not from the caller"
+    try:
+        naasa.modify_body(filled, 4, 705.0)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a filled order must not produce a modify request")
+
     print("  naasa.order_body    full payload pinned; qty/side/price rules enforced")
 
 
