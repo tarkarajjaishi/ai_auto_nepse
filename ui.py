@@ -171,21 +171,11 @@ st.markdown("""
      column gaps above it are never subtracted, so it overshoots the fold. */
   .st-key-mainchart { flex: 1 1 0 !important;
       border: none !important; background: transparent !important; padding: 0 !important; }
-  /* A fragment inside this container adds its own wrappers, and each one broke the flex chain
-     that height="stretch" walks — the treemap collapsed to a thin strip of tiles with dead
-     space under it. Re-establish the chain through whatever Streamlit nests in here. */
-  .st-key-mainchart > div,
-  .st-key-mainchart [data-testid="stVerticalBlockBorderWrapper"],
-  .st-key-mainchart [data-testid="stVerticalBlock"] {
-      display: flex !important; flex-direction: column !important;
-      flex: 1 1 0 !important; min-height: 0 !important; }
-  /* only the chart element stretches — matching every stElementContainer made the legend and
-     the segmented control stretch too, and they spilled over the header */
-  .st-key-mainchart [data-testid="stElementContainer"]:has(.stPlotlyChart),
-  .st-key-mainchart .stPlotlyChart,
-  .st-key-mainchart .js-plotly-plot { flex: 1 1 0 !important; min-height: 0 !important; }
-  /* a repaint that still slips through fades rather than snapping to black */
-  .st-key-mainchart .stPlotlyChart { background: #0f1115; transition: opacity .2s ease; }
+  /* No flex hack here any more. Forcing flex on the fragment wrappers made Plotly measure a
+     height its container did not have (450px chart inside a 191px box) and the overspill was
+     painted straight over the index table. The chart now gets an explicit height and the
+     container simply clips — predictable, and it cannot overlap anything below it. */
+  .st-key-mainchart { overflow: hidden !important; }
 
   /* Value-change flash. A permanent square is noise on 15 rows; an animation fires only on the
      render where the number actually moved, then fades. The whole table is re-rendered each
@@ -893,7 +883,7 @@ def render_index_heatmap(rows):
                       paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
     # key= keeps ONE component across reruns: Plotly then animates tiles to their new
     # sizes and colours instead of the container going black while a fresh chart mounts.
-    st.plotly_chart(fig, height="stretch", key="hm_index",
+    st.plotly_chart(fig, height=HM_HEIGHT, key="hm_index",
                     config={"displayModeBar": False})
 
 
@@ -966,6 +956,7 @@ def stock_heatmap_rows():
     return out
 
 
+HM_HEIGHT = 430          # explicit, so the treemap can never outgrow its box
 _HM_BUCKETS = [("≤ -2%", "#8b1a1a"), ("-1%", "#c0392b"), ("-0%", "#e0736a"), ("0%", "#5b6472"),
                ("+0%", "#5bbf7a"), ("+1%", "#27ae60"), ("≥ +2%", "#1c8b45")]
 
@@ -1081,7 +1072,7 @@ def render_stock_heatmap(rows):
                       paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
     # key= keeps ONE component across reruns: Plotly then animates tiles to their new
     # sizes and colours instead of the container going black while a fresh chart mounts.
-    st.plotly_chart(fig, height="stretch", key="hm_stock",
+    st.plotly_chart(fig, height=HM_HEIGHT, key="hm_stock",
                     config={"displayModeBar": False})
 
 
@@ -2935,7 +2926,7 @@ if page == "Heatmap":
     # teardown is the black flash. Sector aggregates move slowly, so a 1s redraw bought nothing
     # and cost a blink every second. The table beside it still ticks at 1s where it matters.
     hm_every = st.session_state.get("hm_secs", 20)
-    with st.container(key="mainchart", height="stretch"):
+    with st.container(key="mainchart", height=HM_HEIGHT + 12):
         @st.fragment(run_every=hm_every if live else None)
         def _hm_chart():
             if view == "Stocks by sector":
