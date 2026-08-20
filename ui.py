@@ -754,7 +754,7 @@ def render_live_depth(symbol):
     st.caption(f"Exact live feed from NAASA (GetMDepth + GetSpecifiedQuote) · as of {depth.get('time','—')}.")
 
 
-@st.cache_data(ttl=8, show_spinner=False)
+@st.cache_data(ttl=2, show_spinner=False)
 def indices_snapshot():
     """NEPSE index quotes from NAASA (batched SpecifiedQuote) — works live AND while closed.
     Cached 8s so the sidebar + heatmap page share one fetch. [] when signed out / unreachable."""
@@ -872,7 +872,7 @@ def _sector_map():
     return rows or c["rows"]
 
 
-@st.cache_data(ttl=20, show_spinner=False)
+@st.cache_data(ttl=6, show_spinner=False)
 def stock_heatmap_rows():
     """Every equity + its sector + live quote, for the sector-grouped heatmap. Batched quotes
     (works while closed). [{stock, sector, ltp, chg, turnover}], only rows with a price."""
@@ -2837,25 +2837,38 @@ if page == "Backtest":
 # ---------------------------------------------------------------- heatmap
 
 if page == "Heatmap":
-    hc1, hc2, hc3 = st.columns([2, 3, 1])
+    hc1, hc2, hc3, hc4 = st.columns([2, 3, 1, 1])
     view = hc1.segmented_control("Heatmap", ["Stocks by sector", "Indices"],
                                  default="Stocks by sector", key="hm_view",
                                  label_visibility="collapsed") or "Stocks by sector"
     with hc2:
         heatmap_legend()
+    # This page had NO auto-refresh at all: it rendered once and then held whatever it had until
+    # the browser tab was reloaded by hand, which is what made a live feed look frozen. The toggle
+    # exists because re-rendering a Plotly treemap resets a sector drill-down — pause it to
+    # explore, leave it on to watch.
+    live = hc3.toggle("Live", value=True, key="hm_live",
+                      help="Re-poll every 2s. Turn off to drill into a sector without the "
+                           "treemap resetting under you.")
     status, scol = market_status()
-    hc3.markdown(f"<div style='text-align:right'><span style='background:{scol};color:#0d1117;"
+    hc4.markdown(f"<div style='text-align:right'><span style='background:{scol};color:#0d1117;"
                  f"font-weight:700;padding:2px 10px;border-radius:5px;font-size:0.82em'>{status}"
                  f"</span></div>", unsafe_allow_html=True)
 
     # Full-fit: the heatmap fills whatever height is left after the index table below it, so the
     # controls + heatmap + table exactly fill the screen — no gap, no scroll (flex chain does it).
-    with st.container(key="mainchart", height="stretch"):
-        if view == "Stocks by sector":
-            render_stock_heatmap(stock_heatmap_rows())
-        else:
-            render_index_heatmap(indices_snapshot())
-    render_index_table(indices_snapshot())
+    @st.fragment(run_every=2 if live else None)
+    def _heatmap_live():
+        with st.container(key="mainchart", height="stretch"):
+            if view == "Stocks by sector":
+                render_stock_heatmap(stock_heatmap_rows())
+            else:
+                render_index_heatmap(indices_snapshot())
+        render_index_table(indices_snapshot())
+        if live:
+            st.caption(f"🔴 polling every 2s · quotes cached {6 if view == 'Stocks by sector' else 2}s "
+                       f"· last draw {datetime.now(NPT):%H:%M:%S} NPT")
+    _heatmap_live()
 
 
 # ---------------------------------------------------------------- cron
