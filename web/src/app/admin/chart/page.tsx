@@ -28,7 +28,12 @@ function ChartInner() {
   const prev = bars.data?.bars.at(-2);
   const change = last && prev ? ((last.close / prev.close - 1) * 100) : null;
 
-  const known = useMemo(() => new Set(symbols.data?.symbols ?? []), [symbols.data]);
+  // Indices are navigable here too, so they have to pass the guard that stops a typo navigating
+  // to a 404. Without this the rail can link to NEPSE and the input refuses to.
+  const known = useMemo(
+    () => new Set([...(symbols.data?.symbols ?? []), ...(symbols.data?.indices ?? [])]),
+    [symbols.data],
+  );
 
   function go(next: string) {
     const s = next.trim().toUpperCase();
@@ -48,13 +53,18 @@ function ChartInner() {
           placeholder="Symbol"
         />
         <datalist id="symbols">
-          {(symbols.data?.symbols ?? []).map((s) => (
+          {[...(symbols.data?.indices ?? []), ...(symbols.data?.symbols ?? [])].map((s) => (
             <option key={s} value={s} />
           ))}
         </datalist>
         {bars.data && (
           <span className="font-mono text-[11px] text-muted-foreground">
-            {bars.data.bars.length} bars · corporate-action adjusted
+            {bars.data.bars.length} bars ·{" "}
+            {bars.data.kind === "index" ? (
+              <span className="text-primary">index · unadjusted</span>
+            ) : (
+              "corporate-action adjusted"
+            )}
           </span>
         )}
       </div>
@@ -93,6 +103,16 @@ function ChartInner() {
             )}
           </div>
         </>
+      )}
+
+      {bars.data?.kind === "index" && (
+        <p className="max-w-4xl text-[13px] leading-relaxed text-muted-foreground">
+          An index is shown <strong>unadjusted, and always will be</strong>. It has no corporate
+          actions — it is a continuous series by construction — so running one through the
+          adjuster could not correct anything, only invent a split factor out of an ordinary large
+          move. Volume on an index is the constituent total the exchange publishes, not a traded
+          quantity.
+        </p>
       )}
 
       <p className="max-w-4xl text-[13px] leading-relaxed text-muted-foreground">

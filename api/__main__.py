@@ -70,21 +70,29 @@ def route(path, query):
         return (200, t) if t else (404, {"error": f"no board {arg!r}"})
 
     if head == "symbols":
-        return 200, {"symbols": _universe()}
+        from . import market
+        return 200, {"symbols": _universe(), "indices": market.index_names()}
 
     if head == "bars" and arg:
         from prices import bars as adjusted
-        b = adjusted(arg.upper())
-        if not b:
-            return 404, {"error": f"no bars for {arg!r}"}
-        d, o, h, l, c, v = b
+        from . import market
         n = int(query.get("limit", ["500"])[0])
-        s = slice(-n, None) if n > 0 else slice(None)
-        return 200, {"symbol": arg.upper(), "adjusted": True,
-                     "bars": [{"date": a, "open": b_, "high": c_, "low": d_, "close": e_,
-                               "volume": f_}
-                              for a, b_, c_, d_, e_, f_ in
-                              zip(d[s], o[s], h[s], l[s], c[s], v[s])]}
+        b = adjusted(arg.upper())
+        if b:
+            d, o, h, l, c, v = b
+            s = slice(-n, None) if n > 0 else slice(None)
+            return 200, {"symbol": arg.upper(), "kind": "stock", "adjusted": True,
+                         "bars": [{"date": a, "open": b_, "high": c_, "low": d_, "close": e_,
+                                   "volume": f_}
+                                  for a, b_, c_, d_, e_, f_ in
+                                  zip(d[s], o[s], h[s], l[s], c[s], v[s])]}
+        # Stocks first, then indices. An index carries `adjusted: false` and means it — see
+        # market.index_bars for why running one through the adjuster would be wrong, not just
+        # unnecessary.
+        rows = market.index_bars(arg, n)
+        if rows:
+            return 200, {"symbol": arg.upper(), "kind": "index", "adjusted": False, "bars": rows}
+        return 404, {"error": f"no bars for {arg!r}"}
 
     if head == "floorsheet" and arg:
         from . import market

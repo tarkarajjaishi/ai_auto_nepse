@@ -29,6 +29,11 @@ const SYMBOL_PARAM: Record<string, string> = {
   "/admin/floorsheet": "symbol",
 };
 
+/** Its own bucket, not a sector — an index is not a scrip you can hold. */
+const INDICES = "Indices";
+
+type Row = HeatSymbol & { sector: string };
+
 export function InstrumentRail() {
   const router = useRouter();
   const pathname = usePathname();
@@ -44,31 +49,60 @@ export function InstrumentRail() {
     queryFn: ({ signal }) => api.heatmap(signal),
     staleTime: 60_000,
   });
+  const idx = useQuery({
+    queryKey: qk.indices,
+    queryFn: ({ signal }) => api.indices(signal),
+    staleTime: 60_000,
+  });
 
+  // Indices first, the way the reference rail leads with its own index bucket. NEPSE is the
+  // number you check before any individual scrip means anything.
   const sectors = useMemo(
-    () => ["All", ...(hm.data?.sectors ?? []).map((s) => s.sector)],
+    () => ["All", INDICES, ...(hm.data?.sectors ?? []).map((s) => s.sector)],
     [hm.data],
   );
 
   const rows = useMemo(() => {
-    const all = (hm.data?.sectors ?? []).flatMap((s) =>
-      sector === "All" || s.sector === sector
-        ? s.symbols.map((m) => ({ ...m, sector: s.sector }))
-        : [],
-    );
+    const indexRows: Row[] =
+      sector === "All" || sector === INDICES
+        ? (idx.data?.rows ?? []).map((r) => ({ ...r, symbol: r.index, sector: INDICES }))
+        : [];
+    const stockRows: Row[] =
+      sector === INDICES
+        ? []
+        : (hm.data?.sectors ?? []).flatMap((s) =>
+            sector === "All" || s.sector === sector
+              ? s.symbols.map((m) => ({ ...m, sector: s.sector }))
+              : [],
+          );
+
     const q = deferred.trim().toUpperCase();
-    const hit = q ? all.filter((r) => r.symbol.includes(q)) : all;
-    // Turnover order, not alphabetical: what traded today is what you are looking for. A search
-    // narrows to a handful anyway, so the ordering only matters while browsing.
-    return hit.sort((a, b) => (b.turnover ?? 0) - (a.turnover ?? 0));
-  }, [hm.data, sector, deferred]);
+    const keep = (r: Row) => !q || r.symbol.includes(q);
+    // Turnover order within each block, not alphabetical: what traded today is what you are
+    // looking for. Indices stay pinned above the stocks rather than competing on turnover —
+    // NEPSE's turnover is the sum of the market's and would swamp the sort.
+    const byTurnover = (a: Row, b: Row) => (b.turnover ?? 0) - (a.turnover ?? 0);
+    return [
+      ...indexRows.filter(keep).sort(byTurnover),
+      ...stockRows.filter(keep).sort(byTurnover),
+    ];
+  }, [hm.data, idx.data, sector, deferred]);
+
+  const loading = hm.isPending || idx.isPending;
 
   const activeSymbol = (
     params.get(SYMBOL_PARAM[pathname] ?? "symbol") ??
     (pathname.startsWith("/admin/swing-pro/") ? decodeURIComponent(pathname.split("/").pop()!) : "")
   ).toUpperCase();
 
-  function open(symbol: string) {
+  function open(symbol: string, isIndex: boolean) {
+    // An index has no floorsheet and no swing_pro row — there is no broker tape for a synthetic
+    // series and the framework scores instruments you can actually buy. Send it to the chart,
+    // which does serve indices, instead of to a page that would answer 404.
+    if (isIndex) {
+      router.push(`/admin/chart?symbol=${encodeURIComponent(symbol)}`);
+      return;
+    }
     const key = SYMBOL_PARAM[pathname];
     if (key) {
       const next = new URLSearchParams(params.toString());
@@ -118,7 +152,7 @@ export function InstrumentRail() {
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto border-t border-border">
-        {hm.isPending
+        {loading
           ? Array.from({ length: 14 }).map((_, i) => (
               <div key={i} className="px-2 py-1.5">
                 <Skeleton className="h-7 w-full" />
@@ -126,15 +160,15 @@ export function InstrumentRail() {
             ))
           : rows.map((r) => (
               <InstrumentRow
-                key={r.symbol}
+                key={`${r.sector}:${r.symbol}`}
                 row={r}
                 active={r.symbol === activeSymbol}
-                onClick={() => open(r.symbol)}
+                onClick={() => open(r.symbol, r.sector === INDICES)}
               />
             ))}
-        {!hm.isPending && !rows.length && (
+        {!loading && !rows.length && (
           <p className="p-3 text-[12px] text-muted-foreground">
-            {hm.isError ? "Instrument list unavailable." : "Nothing matches."}
+            {hm.isError || idx.isError ? "Instrument list unavailable." : "Nothing matches."}
           </p>
         )}
       </div>
@@ -153,11 +187,12 @@ function InstrumentRow({
   active,
   onClick,
 }: {
-  row: HeatSymbol & { sector: string };
+  row: Row;
   active: boolean;
   onClick: () => void;
 }) {
   const up = (row.pct ?? 0) >= 0;
+  const isIndex = row.sector === INDICES;
   return (
     <button
       onClick={onClick}
@@ -169,8 +204,17 @@ function InstrumentRow({
       )}
     >
       <div className="min-w-0 flex-1">
-        <div className="truncate font-mono text-[12px] font-medium">{row.symbol}</div>
-        <div className="truncate text-[10px] text-muted-foreground">{row.sector}</div>
+        <div
+          className={cn(
+            "truncate font-mono text-[12px] font-medium",
+            isIndex && "text-primary",
+          )}
+        >
+          {row.symbol}
+        </div>
+        <div className="truncate text-[10px] text-muted-foreground">
+          {isIndex ? "index" : row.sector}
+        </div>
       </div>
       <div className="shrink-0 text-right">
         <div className="font-mono text-[12px] tabular-nums">{price(row.close)}</div>

@@ -223,6 +223,36 @@ def _sectors():
     return out
 
 
+def index_names():
+    d = MASTER / "indices"
+    return sorted(p.name for p in d.iterdir() if p.is_dir()) if d.is_dir() else []
+
+
+def index_bars(name, limit=500):
+    """Daily bars for one index — NOT run through prices.bars(), on purpose.
+
+    That loader corporate-action-adjusts, and an index has no corporate actions: it is already a
+    continuous series by construction, so 'adjusting' it could only invent a factor out of an
+    ordinary large move. It also reads Master_data/symbols/ only, and indices live in their own
+    directory. Two different things that both happen to be OHLC, kept apart.
+    """
+    p = MASTER / "indices" / name.upper().replace("/", "-") / "1D.txt"
+    if not p.exists():
+        return None
+    out = []
+    for line in p.read_text(encoding="utf-8").splitlines()[1:]:
+        f = line.split("\t")
+        if len(f) < 5 or not f[0] or f[4] in ("", "None"):
+            continue
+        try:
+            out.append({"date": f[0], "open": float(f[1] or f[4]), "high": float(f[2] or f[4]),
+                        "low": float(f[3] or f[4]), "close": float(f[4]),
+                        "volume": float(f[7]) if len(f) > 7 and f[7] not in ("", "None") else 0.0})
+        except ValueError:
+            continue
+    return out[-limit:] if limit > 0 else out
+
+
 def indices():
     """The last bar of every index in the archive."""
     d = MASTER / "indices"

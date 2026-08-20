@@ -102,7 +102,12 @@ export type Bar = {
   volume: number;
 };
 
-export type Bars = { symbol: string; adjusted: boolean; bars: Bar[] };
+/**
+ * `kind` matters for reading the chart, not just for labelling it. A stock's bars are
+ * corporate-action adjusted; an index's are raw and always will be, because an index has no
+ * corporate actions and "adjusting" one could only invent a factor out of a large ordinary move.
+ */
+export type Bars = { symbol: string; kind: "stock" | "index"; adjusted: boolean; bars: Bar[] };
 
 export type Scorecard = {
   symbol: string;
@@ -234,7 +239,8 @@ export const api = {
   health: (signal?: AbortSignal) => get<Health>("/api/health", signal),
   boards: (signal?: AbortSignal) => get<BoardsIndex>("/api/boards", signal),
   board: (name: BoardName, signal?: AbortSignal) => get<Board>(`/api/board/${name}`, signal),
-  symbols: (signal?: AbortSignal) => get<{ symbols: string[] }>("/api/symbols", signal),
+  symbols: (signal?: AbortSignal) =>
+    get<{ symbols: string[]; indices: string[] }>("/api/symbols", signal),
   bars: (symbol: string, limit = 500, signal?: AbortSignal) =>
     get<Bars>(`/api/bars/${encodeURIComponent(symbol)}?limit=${limit}`, signal),
   report: (symbol: string, signal?: AbortSignal) =>
