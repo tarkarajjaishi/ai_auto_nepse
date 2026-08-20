@@ -24,6 +24,7 @@ import tempfile
 from pathlib import Path
 
 import fetch_swp
+import prices
 
 H = "a\tb"
 
@@ -58,6 +59,31 @@ def test_deploy_health():
     assert "SKIPPED — the push failed" in src, \
         "a failed push must block the VPS ship, or the box runs code GitHub does not have"
     print("  deploy              only exact 'active' is healthy; a failed push blocks the ship")
+
+
+def test_ex_date_detection():
+    """prices.ex_dates must separate a RESTATEMENT from a traded fall of the same size.
+
+    It used to test only the close against a -10.5% threshold, on the premise that NEPSE's
+    circuit is +/-10%. It is +/-15% — 150 sessions in the archive close at >= +14.5% — so 67 of
+    the 139 events it flagged were ordinary limit-downs, and 48 symbols had their entire prior
+    history multiplied by a fabricated factor (NIL 0.34, CORBL 0.49, ULHC 0.62).
+    """
+    d = ["d1", "d2"]
+
+    def ex(open2, close2, close1=100.0):
+        return prices.ex_dates(d, [close1, close2], [close1, open2])
+
+    # a bonus ex-date: restated overnight, so the gap is already in the open and it stays
+    assert ex(50.0, 50.0), "a genuine restatement must be detected"
+    # an ordinary limit-down: opens at/above the prior close, then trades down to the band
+    assert not ex(105.0, 85.0), "a limit-down that opened UP is not a corporate action"
+    assert not ex(97.34, 85.02), "ULHC 2026-08-12 opened -2.7% and traded down — not an ex-date"
+    # a panic gap that the market buys back: opened low, did not stay there
+    assert not ex(80.0, 98.0), "a gap-down that recovered was not a restatement"
+    # bad data guard still holds
+    assert not ex(5.0, 5.0), "a >5x drop is bad data, not a splice"
+    print("  prices.ex_dates     restatement yes; limit-down, bought-back gap and bad data no")
 
 
 def _ui_src():
@@ -107,6 +133,7 @@ def main():
     print("ops safety:")
     test_rewrite()
     test_deploy_health()
+    test_ex_date_detection()
     test_no_nested_expanders()
     test_every_page_has_a_body()
     print("ok")
