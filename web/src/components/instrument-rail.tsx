@@ -136,6 +136,18 @@ function RailInner() {
       );
   }, [searching, deferred, openSector, allSymbols, idx.data]);
 
+  // Live prices for the rows on screen. `rows` is already the visible set — fourteen indices at
+  // the top level, one sector's scrips when drilled in — so this stays small whatever is open.
+  const visible = useMemo(() => rows.slice(0, 60).map((r) => r.symbol), [rows]);
+  const live = useQuery({
+    queryKey: ["quotes", visible.join(",")],
+    queryFn: ({ signal }) => api.quotes(visible, signal),
+    enabled: wanted && visible.length > 0,
+    refetchInterval: 1000,
+    retry: false,
+  });
+  const quotes = live.data?.fresh ? live.data.quotes : undefined;
+
   const activeSymbol = (
     params.get(SYMBOL_PARAM[pathname] ?? "symbol") ??
     (pathname.startsWith("/admin/swing-pro/") ? decodeURIComponent(pathname.split("/").pop()!) : "")
@@ -232,6 +244,7 @@ function RailInner() {
               <RailRow
                 key={`${r.sector}:${r.symbol}`}
                 row={r}
+                live={quotes?.[r.symbol]}
                 active={r.symbol === activeSymbol}
                 drillable={r.sector === "index" && !searching && Boolean(sectorOfIndex[r.symbol])}
                 onClick={() => onRow(r)}
@@ -256,16 +269,22 @@ function RailInner() {
 
 function RailRow({
   row,
+  live,
   active,
   drillable,
   onClick,
 }: {
   row: Row;
+  /** the live quote for this instrument, when the socket has one */
+  live?: { ltp: number; close: number | null; pct: number | null };
   active: boolean;
   drillable: boolean;
   onClick: () => void;
 }) {
-  const up = (row.pct ?? 0) >= 0;
+  // The live quote wins when there is one; otherwise the stored bar, unchanged.
+  const close = live?.ltp ?? row.close;
+  const change = live?.pct ?? row.pct;
+  const up = (change ?? 0) >= 0;
   const isIndex = row.sector === "index";
   return (
     // 48px rows divided by a rule, which is how theirs are built — not a left accent bar. The
@@ -287,9 +306,9 @@ function RailRow({
         </div>
       </div>
       <div className="shrink-0 text-right">
-        <div className="font-mono text-xs tabular-nums">{price(row.close)}</div>
+        <div className="font-mono text-xs tabular-nums">{price(close)}</div>
         <div className={cn("font-mono text-[11px] tabular-nums", up ? "text-up" : "text-down")}>
-          {pct(row.pct)}
+          {pct(change)}
         </div>
       </div>
       {drillable && <ChevronRight className="size-3 shrink-0 text-muted-foreground" />}

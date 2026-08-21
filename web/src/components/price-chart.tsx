@@ -8,6 +8,7 @@ import {
   LineSeries,
   createChart,
   type IChartApi,
+  type ISeriesApi,
   type UTCTimestamp,
 } from "lightweight-charts";
 import { useEffect, useRef } from "react";
@@ -35,6 +36,7 @@ export function PriceChart({
   visibleBars = 120,
   ema,
   mode = "candles",
+  liveBar,
 }: {
   bars: Bar[];
   height?: number;
@@ -52,11 +54,20 @@ export function PriceChart({
   visibleBars?: number;
   /** period -> series, straight from the API. Drawn as-is; never computed here. */
   ema?: Record<string, (number | null)[]>;
+  /**
+   * Today's bar off the live feed, built by live_1d.row() on the server — the same function that
+   * writes it into 1D.txt. Applied with series.update() so the zoom and pan survive; merging it
+   * into `bars` would re-create the chart every second and reset both.
+   */
+  liveBar?: { date: string; open: number; high: number; low: number; close: number; volume: number } | null;
   /** candles, or a filled line for reading long spans */
   mode?: "candles" | "line";
 }) {
   const box = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
+  // Held so the live bar can be applied without touching the effect that builds the chart.
+  const priceRef = useRef<ISeriesApi<"Candlestick"> | ISeriesApi<"Area"> | null>(null);
+  const volRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const theme = useTheme((s) => s.theme);
 
   useEffect(() => {
@@ -120,6 +131,7 @@ export function PriceChart({
           close: b.close,
         })),
       );
+      priceRef.current = candles;
     } else {
       const brass = read("--primary", "#c39a4e");
       const area = c.addSeries(AreaSeries, {
@@ -129,6 +141,7 @@ export function PriceChart({
         bottomColor: `${brass}00`,
       });
       area.setData(bars.map((b) => ({ time: toTime(b.date), value: b.close })));
+      priceRef.current = area;
     }
 
     // EMA overlays, drawn exactly as the API sent them. Nulls during the warm-up are dropped
@@ -168,6 +181,7 @@ export function PriceChart({
         color: b.close >= b.open ? `${up}55` : `${down}55`,
       })),
     );
+    volRef.current = volume;
     // Volume takes a fixed slice of the height rather than an even split of the two panes.
     const sizePanes = () => {
       const total = fill ? (box.current?.clientHeight ?? height) : height;
@@ -207,6 +221,42 @@ export function PriceChart({
 
   // In fill mode the box must be a real flex child with min-h-0, or it reports its content
   // height (the canvas it is trying to size) and the two feed each other.
+  // Today's candle, applied in place. `update()` with the same timestamp replaces that bar and
+  // leaves the rest of the series — and the user's zoom and pan — untouched. The bar itself was
+  // built server-side by the function that writes the archive, so this only places it.
+  useEffect(() => {
+    const px = priceRef.current;
+    if (!px || !liveBar) return;
+    const t = toTime(liveBar.date);
+    if (mode === "candles") {
+      (px as ISeriesApi<"Candlestick">).update({
+        time: t,
+        open: liveBar.open,
+        high: liveBar.high,
+        low: liveBar.low,
+        close: liveBar.close,
+      });
+    } else {
+      (px as ISeriesApi<"Area">).update({ time: t, value: liveBar.close });
+    }
+    const vol = volRef.current;
+    if (vol && liveBar.volume != null) {
+      // Read the tokens here rather than closing over the build effect's helper: this effect
+      // must not depend on anything that would drag `bars` back into its dependency list.
+      const css = getComputedStyle(document.documentElement);
+      const tok = (v: string, fallback: string) => css.getPropertyValue(v).trim() || fallback;
+      const up = tok("--up", "#12946a");
+      const down = tok("--down", "#cf4436");
+      vol.update({
+        time: t,
+        value: liveBar.volume,
+        color: liveBar.close >= liveBar.open ? `${up}55` : `${down}55`,
+      });
+    }
+  }, [liveBar, mode]);   // `mode` is a prop, so the effect reads it directly — a ref written
+                         // during render is what eslint's react-hooks rule rejects, and it
+                         // bought nothing here: re-applying one bar on a mode switch is free.
+
   return (
     <div
       ref={box}

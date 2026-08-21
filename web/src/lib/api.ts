@@ -189,6 +189,38 @@ export type Setup = {
   } | null;
 };
 
+/**
+ * Today's bar off the live socket, built server-side by the same function that writes it
+ * into 1D.txt. `bar` is null when the instrument has not traded today, or when the feed
+ * snapshot's own timestamp is not today — the socket keeps yesterday's quote alive past the
+ * close, and printing that as today is the failure this project keeps finding.
+ */
+export type LiveBar = {
+  symbol: string;
+  age: number | null;
+  fresh: boolean;
+  session: string;
+  bar: {
+    date: string;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    change: number | null;
+    pct: number | null;
+    volume: number;
+    amount: number | null;
+  } | null;
+};
+
+/** ltp / previous close / % for many instruments at once — small enough to poll. */
+export type Quotes = {
+  age: number | null;
+  fresh: boolean;
+  session: string;
+  quotes: Record<string, { ltp: number; close: number | null; pct: number | null }>;
+};
+
 /** One supply/demand zone: a band of price, live from `from` until price closes through it. */
 export type Zone = {
   /** the date of the candle that formed it — the band starts here and runs to the right edge */
@@ -564,6 +596,11 @@ export const api = {
   /** The live book. Cheap — it reads one small file — so a 1s poll is fine. */
   depth: (symbol: string, signal?: AbortSignal) =>
     get<Depth>(`/api/depth/${encodeURIComponent(symbol)}`, signal),
+  /** Today's bar, live. Tiny — /api/bars is five thousand candles and is not pollable. */
+  liveBar: (symbol: string, signal?: AbortSignal) =>
+    get<LiveBar>(`/api/bar/${encodeURIComponent(symbol)}`, signal),
+  quotes: (symbols: string[], signal?: AbortSignal) =>
+    get<Quotes>(`/api/quotes?symbols=${encodeURIComponent(symbols.join(","))}`, signal),
   rebuildStatus: (signal?: AbortSignal) => get<RebuildStatus>("/api/rebuild", signal),
   /** Start a rebuild. Resolves with `started: false` and a reason when one is already running. */
   rebuild: (board: string) =>

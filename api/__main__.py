@@ -23,6 +23,8 @@ Routes (all GET, all JSON):
     /api/ledger/<symbol>?broker=&days=  one broker's daily bought/sold/net in that stock
     /api/setup/<symbol>               trade_setup's score, grade, entry timing and levels
     /api/depth[/<symbol>]             the live socket book, with the age of the snapshot
+    /api/bar/<symbol>                 today's bar live off the socket, poll-sized
+    /api/quotes?symbols=A,B,C         ltp / prev close / % for many instruments at once
     /api/indices                      the last bar of every index
     /api/account/holdings|orderbook|collateral      NAASA, read-only
     /api/auth?probe=1                 whether the saved NAASA / SWP logins still work
@@ -279,6 +281,58 @@ def route(path, query):
         if arg.upper() not in _universe():
             return 404, {"error": f"no such symbol {arg.upper()!r}"}
         return 200, market.broker_flow(arg, max(1, min(500, n)))
+
+    if head == "bar" and arg:
+        # TODAY's bar, live off the socket snapshot — small enough to poll every second, where
+        # /api/bars is five thousand candles and is not.
+        #
+        # Built by live_1d.row(), the SAME function that writes this row into 1D.txt. That is the
+        # point: the screen and the archive cannot disagree about today, and row()'s refusals come
+        # with it — no LTP or no Open returns null rather than a hollow bar at price 0, and a quote
+        # whose own timestamp is not today is refused outright, because the socket snapshot
+        # survives past the close and would otherwise print yesterday as today.
+        import feed_snap
+        import live_1d
+        snap = feed_snap.read()
+        q = snap["quotes"].get(live_1d.feed_name(arg.upper()))
+        out = {"symbol": arg.upper(), "age": snap["age"], "fresh": snap["fresh"],
+               "session": market_hours.session_now()[0], "bar": None}
+        if q:
+            # back to the feed's own field names, which is what live_1d.row() reads
+            line = live_1d.row({"LTP": q.get("ltp"), "Open": q.get("open"),
+                                "High": q.get("high"), "Low": q.get("low"),
+                                "Close": q.get("close"), "TTQ": q.get("volume"),
+                                "TTV": q.get("ttv"), "WeightedAverage": q.get("avg_price"),
+                                "_t": q.get("stamp")}, live_1d.today())
+            if line:
+                f = line.split("\t")
+                keys = ("date", "open", "high", "low", "close", "change", "pct", "volume", "amount")
+                out["bar"] = {k: (v if k == "date" else (float(v) if v else None))
+                              for k, v in zip(keys, f)}
+        return 200, out
+
+    if head == "quotes":
+        # Many instruments, three numbers each. The rail shows fourteen; sending the whole 347-row
+        # snapshot at 1s would be ~40 KB a second for the sake of a price and a percentage.
+        import feed_snap
+        import live_1d
+        want = [w.strip().upper() for w in (query.get("symbols", [""])[0] or "").split(",")
+                if w.strip()]
+        if not want:
+            return 400, {"error": "symbols is required, e.g. /api/quotes?symbols=NEPSE,NABIL"}
+        if len(want) > 400:
+            return 400, {"error": "at most 400 symbols per call"}
+        snap = feed_snap.read()
+        out = {}
+        for name in want:
+            q = snap["quotes"].get(live_1d.feed_name(name))
+            if not q or q.get("ltp") is None:
+                continue
+            prev = q.get("close")
+            out[name] = {"ltp": q["ltp"], "close": prev,
+                         "pct": round((q["ltp"] - prev) / prev * 100, 2) if prev else None}
+        return 200, {"age": snap["age"], "fresh": snap["fresh"],
+                     "session": market_hours.session_now()[0], "quotes": out}
 
     if head == "depth":
         # The live book, read from the snapshot the socket-holding process publishes. `age` and

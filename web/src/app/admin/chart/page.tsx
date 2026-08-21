@@ -9,7 +9,7 @@ import { Suspense, useMemo, useState } from "react";
 import { PriceChart } from "@/components/price-chart";
 import { SectorTreemap } from "@/components/sector-treemap";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api, qk, type Heatmap, type Questions, type Report, type Scorecard } from "@/lib/api";
+import { api, qk, type Heatmap, type LiveBar, type Questions, type Report, type Scorecard } from "@/lib/api";
 import {
   compact,
   decisionTone,
@@ -95,8 +95,26 @@ function ChartInner() {
     retry: false,
   });
 
-  const last = bars.data?.bars.at(-1);
-  const prev = bars.data?.bars.at(-2);
+  // Today's bar, straight off the socket, every second. Deliberately NOT part of `bars`: that
+  // query loads the whole archive and re-running it at 1s would refetch five thousand candles and
+  // reset the chart. This is one row, and the chart applies it with series.update().
+  const live = useQuery({
+    queryKey: ["live-bar", symbol],
+    queryFn: ({ signal }) => api.liveBar(symbol, signal),
+    refetchInterval: 1000,
+    retry: false,
+  });
+  const liveBar = live.data?.fresh ? (live.data.bar ?? null) : null;
+
+  const archived = bars.data?.bars.at(-1);
+  // Prefer the live bar for the header, but only when it is TODAY's and the archive has not
+  // already caught up past it. live_1d writes the same row every 20s, so the two agree; this only
+  // removes the latency between flushes.
+  const last =
+    liveBar && archived && liveBar.date >= archived.date
+      ? { ...archived, ...liveBar }
+      : archived;
+  const prev = bars.data?.bars.at(liveBar && archived && liveBar.date > archived.date ? -1 : -2);
   const change = last && prev ? (last.close / prev.close - 1) * 100 : null;
   const isIndex = bars.data?.kind === "index";
 
@@ -139,6 +157,8 @@ function ChartInner() {
               </span>
             )}
           </div>
+
+          <LiveTag q={live.data} />
 
           <Field label="Change" value={pct(change)} tone={change == null ? undefined : change >= 0 ? "up" : "down"} loading={bars.isPending} />
           <Field label="Open" value={price(last?.open)} loading={bars.isPending} />
@@ -237,6 +257,7 @@ function ChartInner() {
               visibleBars={RANGES[range].bars}
               ema={bars.data?.ema}
               mode={mode}
+              liveBar={liveBar}
             />
           )}
         </div>
@@ -251,6 +272,40 @@ function ChartInner() {
         isIndex={isIndex}
       />
     </div>
+  );
+}
+
+/**
+ * Whether the numbers beside this are ticking, and what they are when they are not.
+ *
+ * A live price and a stored close look identical, and the whole point of this strip is that you
+ * can tell. LIVE means the socket published within the last two minutes AND stamped today;
+ * anything else names what you are actually looking at instead.
+ */
+function LiveTag({ q }: { q?: LiveBar }) {
+  if (!q) return null;
+  const ticking = q.fresh && q.bar;
+  const label = ticking
+    ? "live"
+    : q.session === "LIVE"
+      ? "feed quiet"
+      : q.session.toLowerCase();
+  return (
+    <span
+      title={
+        ticking
+          ? `Today's bar, ${Math.round(q.age ?? 0)}s old, off the NAASA socket`
+          : q.session === "LIVE"
+            ? "The market is open but no tick has arrived — the last daily bar is shown"
+            : "The market is closed; these are the last stored session's numbers"
+      }
+      className={cn(
+        "rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide",
+        ticking ? "bg-down/15 text-down" : "bg-muted text-muted-foreground",
+      )}
+    >
+      {label}
+    </span>
   );
 }
 

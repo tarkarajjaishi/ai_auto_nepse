@@ -26,7 +26,10 @@ PATH = MASTER / "feed_snapshot.txt"
 
 # The fields the depth panel needs. Written in this order, and read back by NAME, so adding one
 # later cannot shift the meaning of the others.
-_TOP = ("ltp", "close", "open", "high", "low", "volume", "avg_price",
+# `ttv` is the feed's own turnover. Indices publish it directly; a stock quote carries no
+# turnover field at all, which is why live_1d falls back to volume x VWAP. Keeping the raw
+# value means that fallback stays the fallback rather than becoming the only answer.
+_TOP = ("ltp", "close", "open", "high", "low", "volume", "avg_price", "ttv",
         "bid", "bid_qty", "ask", "ask_qty", "stamp")
 # Five levels a side, flat. The panel shows orders/qty/price per level and a total per side, so
 # best-bid-only cannot render it -- that is the top of the book, not the book.
@@ -45,7 +48,10 @@ def _num(v):
         f = float(str(v).replace(",", ""))
     except (TypeError, ValueError):
         return ""
-    return "%g" % f
+    # repr(), NOT "%g". %g keeps six significant digits, so a turnover of 14,952,584 was written
+    # as 1.49526e+07 and read back as 14,952,600 — money rounded to the nearest hundred, silently,
+    # on every instrument whose volume or turnover runs past six digits. repr() round-trips.
+    return repr(int(f)) if f.is_integer() and abs(f) < 2 ** 53 else repr(f)
 
 
 def _pick(quote):
@@ -67,6 +73,7 @@ def _pick(quote):
         # number that can disagree with the two it comes from.
         _num(g("TTQ") or g("Volume") or g("TotalQty")),
         _num(g("WeightedAverage")),
+        _num(g("TTV")),
         _num(g("BidPrice") or g("Buy1")),
         _num(g("BidQty") or g("BuyQty1")),
         _num(g("OfferPrice") or g("Sell1")),
@@ -169,7 +176,7 @@ def demo():
 
         snap = {
             "NABIL": {"LTP": "548.5", "Close": "550", "Open": "550", "High": "552",
-                      "Low": "547", "TTQ": "27241", "WeightedAverage": "548.9",
+                      "Low": "547", "TTQ": "27241", "WeightedAverage": "548.9", "TTV": "14952584",
                       "BidPrice": "548", "BidQty": "10",
                       "OfferPrice": "549", "OfferQty": "5", "_t": "21/08/2026 13:02:11",
                       "depth": [
@@ -192,6 +199,10 @@ def demo():
         assert n["bids"][0] == {"price": 548.0, "qty": 10.0, "orders": 2.0}, n["bids"][0]
         assert n["asks"][0]["price"] == 549.0, n["asks"][0]
         assert n["turnover"] == round(27241.0 * 548.9, 2), n["turnover"]
+        assert n["ttv"] == 14952584.0, "the feed's own turnover is kept, not just derived"
+        # Exact, to the rupee. "%g" used to round this to 14,952,600 on the way to disk.
+        assert repr(n["ttv"]) == "14952584.0", n["ttv"]
+        assert n["volume"] == 27241.0 and n["ltp"] == 548.5
 
         s = out["quotes"]["SAHAS"]
         assert s["ltp"] == 701.8, s
