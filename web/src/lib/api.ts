@@ -91,6 +91,46 @@ export type Stores = {
   missed_sessions: number | null;
 };
 
+/** One session of one broker's activity in one stock. */
+export type LedgerDay = {
+  date: string;
+  bought: number;
+  sold: number;
+  net: number;
+  /** change in net against the previous session on file; null on the first row */
+  vs_prev: number | null;
+};
+
+export type Ledger = {
+  symbol: string;
+  broker: string;
+  sessions: LedgerDay[];
+  totals: { bought: number; sold: number; net: number };
+};
+
+/** trade_setup's read of one symbol: the score, the timing and the levels. */
+export type Setup = {
+  symbol: string;
+  date: string;
+  close: number;
+  score: number;
+  grade: string;
+  signal: string;
+  parts: Record<string, number>;
+  entry: number;
+  target1: number;
+  target2: number;
+  stop: number;
+  risk_pct: number;
+  rr: number;
+  atr: number;
+  buy_date: string | null;
+  days_active: number | null;
+  still_buy: boolean;
+  still_reason: string;
+  liquid: boolean;
+};
+
 /** One supply/demand zone: a band of price, live from `from` until price closes through it. */
 export type Zone = {
   /** the date of the candle that formed it — the band starts here and runs to the right edge */
@@ -453,6 +493,14 @@ export const api = {
   /** Zones + the bars they sit on, so the chart cannot disagree with itself about a date. */
   zones: (symbol: string, bars = 180, signal?: AbortSignal) =>
     get<ZoneChart>(`/api/zones/${encodeURIComponent(symbol)}?bars=${bars}`, signal),
+  /** One broker's daily bought/sold/net in one stock — the rows under a summary claim. */
+  ledger: (symbol: string, broker: string, days = 30, signal?: AbortSignal) =>
+    get<Ledger>(
+      `/api/ledger/${encodeURIComponent(symbol)}?broker=${encodeURIComponent(broker)}&days=${days}`,
+      signal,
+    ),
+  setup: (symbol: string, signal?: AbortSignal) =>
+    get<Setup>(`/api/setup/${encodeURIComponent(symbol)}`, signal),
   rebuildStatus: (signal?: AbortSignal) => get<RebuildStatus>("/api/rebuild", signal),
   /** Start a rebuild. Resolves with `started: false` and a reason when one is already running. */
   rebuild: (board: string) =>

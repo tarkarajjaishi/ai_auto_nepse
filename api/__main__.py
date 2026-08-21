@@ -20,6 +20,8 @@ Routes (all GET, all JSON):
     /api/stores                       per-store archive freshness (bars, floorsheet, flow)
     /api/timeframes/<symbol>          supply/demand across 5m..1M for one scrip
     /api/zones/<symbol>?bars=180      every supply/demand zone, classified, with its bars
+    /api/ledger/<symbol>?broker=&days=  one broker's daily bought/sold/net in that stock
+    /api/setup/<symbol>               trade_setup's score, grade, entry timing and levels
     /api/indices                      the last bar of every index
     /api/account/holdings|orderbook|collateral      NAASA, read-only
     /api/auth?probe=1                 whether the saved NAASA / SWP logins still work
@@ -276,6 +278,52 @@ def route(path, query):
         if arg.upper() not in _universe():
             return 404, {"error": f"no such symbol {arg.upper()!r}"}
         return 200, market.broker_flow(arg, max(1, min(500, n)))
+
+    if head == "ledger" and arg:
+        # One broker's day-by-day bought / sold / net in one stock. This is the row-level evidence
+        # under "broker 92 is the dominant net buyer": a claim about twenty sessions should be
+        # checkable session by session, not taken on the strength of its own summary.
+        broker = (query.get("broker", [""])[0] or "").strip()
+        if not broker:
+            return 400, {"error": "broker is required, e.g. /api/ledger/MEN?broker=92"}
+        days = _int(query, "days", 30)
+        if days is None or not 1 <= days <= 400:
+            return 400, {"error": "days must be a whole number between 1 and 400"}
+        path = MASTER / "broker_flow" / (arg.upper().replace("/", "-") + ".txt")
+        if not path.exists():
+            return 404, {"error": f"no broker flow on file for {arg.upper()!r}"}
+        rows = []
+        for line in path.read_text(encoding="utf-8").splitlines()[1:]:
+            f = line.split("\t")
+            if len(f) < 5 or f[1] != broker:
+                continue
+            try:
+                rows.append({"date": f[0], "bought": float(f[2]), "sold": float(f[3]),
+                             "net": float(f[4])})
+            except ValueError:
+                continue          # a malformed row is skipped, never guessed at
+        rows.sort(key=lambda r: r["date"])
+        rows = rows[-days:]
+        # vs_prev is computed here so the table and any chart of it cannot disagree.
+        for i, r in enumerate(rows):
+            r["vs_prev"] = None if i == 0 else round(r["net"] - rows[i - 1]["net"], 2)
+        if not rows:
+            return 404, {"error": f"broker {broker} has no sessions on file for {arg.upper()}"}
+        return 200, {"symbol": arg.upper(), "broker": broker, "sessions": rows,
+                     "totals": {"bought": round(sum(r["bought"] for r in rows), 2),
+                                "sold": round(sum(r["sold"] for r in rows), 2),
+                                "net": round(sum(r["net"] for r in rows), 2)}}
+
+    if head == "setup" and arg:
+        # trade_setup.setup() -- the A+ score, the entry timing and the levels. Computed live and
+        # cheap (~20ms); it carries its own `date`, so the screen can say which session it read.
+        import trade_setup
+        if arg.upper() not in _universe():
+            return 404, {"error": f"no such symbol {arg.upper()!r}"}
+        out = trade_setup.setup(arg.upper())
+        if not out:
+            return 404, {"error": f"{arg.upper()}: not enough history for a setup"}
+        return 200, out
 
     if head == "zones" and arg:
         import supply_demand
