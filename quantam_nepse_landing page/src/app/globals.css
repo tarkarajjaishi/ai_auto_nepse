@@ -421,6 +421,8 @@ body:has(.stage) {
   .node-dot,
   .drift,
   .shine::after,
+  .accessmodal:popover-open,
+  .ax-spin,
   .dome ellipse,
   .packet,
   .newsfeed > div,
@@ -733,7 +735,11 @@ body:has(.stage) {
 }
 
 .glass,
-.stage a {
+.stage a,
+/* BUTTONS TOO. The wrappers above turn pointer events off for the whole group and only links
+   opted back in — so the moment the call to action became a <button> it rendered perfectly and
+   could not be clicked, with nothing in the console to say why. */
+.stage button {
   pointer-events: auto;
 }
 
@@ -746,6 +752,255 @@ body:has(.stage) {
       0 132rem,
       0 12rem;
   }
+}
+
+/* ============================================================ access request
+   The Request-For-Access panel. A native [popover], so it lives in the TOP
+   LAYER: no z-index, and nothing on the artboard can clip it — not .stage's
+   overflow, not a card's overflow-hidden, not .glass's backdrop-filter
+   containing block, not .drift's will-change.
+
+   Sizes are rem, like everything else here, because 1rem is one artboard pixel
+   on BOTH surfaces (1.5px at 1920x1080, ~1.15px on a phone) — so one set of
+   numbers is correct on each. The two clamps are the exception and they are
+   required: 430rem is 645px on a desktop and 494px on a 375px phone, which
+   would be wider than the screen. min() against a vw/dvh term caps it without
+   needing a second breakpoint.
+
+   Colours are literal rather than the artboard's tokens on purpose: a top-layer
+   element is painted outside its ancestors' effects, so the document-wide
+   buy/sell hue-rotate does NOT reach it. The panel stays brand green through
+   both phases, which is what a form should do — a sign-up turning red mid-typing
+   reads as an error. */
+
+.accessmodal {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(430rem, calc(100vw - 28px));
+  max-height: min(640rem, calc(100dvh - 28px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 26rem 26rem 20rem;
+  border: 1rem solid rgba(50, 213, 131, 0.34);
+  border-radius: 16rem;
+  background:
+    radial-gradient(120% 80% at 8% -10%, rgba(50, 213, 131, 0.13), transparent 60%),
+    linear-gradient(160deg, #0a2116 0%, #051710 55%, #04120c 100%);
+  color: #ecf5f1;
+  box-shadow:
+    0 30rem 80rem rgba(0, 0, 0, 0.62),
+    inset 0 1rem 0 rgba(255, 255, 255, 0.07);
+  scrollbar-width: thin;
+}
+
+.accessmodal:popover-open {
+  animation: ax-in 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.accessmodal::backdrop {
+  background: rgba(1, 8, 5, 0.74);
+  backdrop-filter: blur(3px);
+}
+
+@keyframes ax-in {
+  from {
+    opacity: 0;
+    transform: translateY(10rem) scale(0.97);
+  }
+}
+
+.ax-h {
+  margin: 0;
+  font-size: 21rem;
+  font-weight: 600;
+  letter-spacing: -0.3rem;
+  color: #f2fbf6;
+}
+
+.ax-sub {
+  margin: 6rem 0 18rem;
+  font-size: 11rem;
+  line-height: 1.55;
+  color: #9ccbb4;
+}
+
+.ax-close {
+  position: absolute;
+  top: 14rem;
+  right: 14rem;
+  display: grid;
+  place-items: center;
+  width: 26rem;
+  height: 26rem;
+  padding: 0;
+  border: 0;
+  border-radius: 8rem;
+  background: rgba(255, 255, 255, 0.05);
+  color: #9ccbb4;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.ax-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ecf5f1;
+}
+
+.ax-field {
+  display: block;
+  margin-bottom: 4rem;
+}
+
+.ax-label {
+  display: block;
+  margin-bottom: 5rem;
+  font-size: 10rem;
+  font-weight: 500;
+  letter-spacing: 0.2rem;
+  color: #9ccbb4;
+}
+
+.ax-in,
+.ax-cc {
+  width: 100%;
+  height: 34rem;
+  padding: 0 11rem;
+  border: 1rem solid rgba(50, 213, 131, 0.26);
+  border-radius: 9rem;
+  background: rgba(2, 14, 9, 0.72);
+  color: #ecf5f1;
+  /* font:inherit or the browser drops to its own 13.33px form font, which on a
+     1.5x artboard is visibly smaller than every label around it */
+  font: inherit;
+  font-size: 13rem;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ax-in::placeholder {
+  color: #587a6a;
+}
+
+.ax-in:focus,
+.ax-cc:focus {
+  border-color: #32d583;
+  box-shadow: 0 0 0 3rem rgba(50, 213, 131, 0.18);
+}
+
+/* The country code sits beside its number, not above it: they are one value.
+   `auto` rather than a fixed column so a long dial code cannot clip. */
+.ax-tel {
+  display: grid;
+  grid-template-columns: minmax(78rem, auto) minmax(0, 1fr);
+  gap: 8rem;
+}
+
+.ax-cc {
+  padding-right: 4rem;
+  /* the native select arrow is drawn by the UA in its own colour; hiding the
+     option text overflow keeps a long country name from widening the column */
+  text-overflow: ellipsis;
+}
+
+.ax-cc option {
+  background: #06180f;
+  color: #ecf5f1;
+}
+
+.ax-bad .ax-in,
+.ax-bad .ax-cc {
+  border-color: rgba(240, 128, 118, 0.6);
+}
+
+/* Always in the flow, empty or not — a message that appears on blur must not
+   push every field below it down by a line. */
+.ax-err {
+  display: block;
+  min-height: 15rem;
+  padding-top: 3rem;
+  font-size: 10rem;
+  line-height: 1.2;
+  color: #f0a29b;
+}
+
+.ax-failed {
+  margin: 2rem 0 10rem;
+  padding: 8rem 10rem;
+  border: 1rem solid rgba(240, 128, 118, 0.4);
+  border-radius: 8rem;
+  background: rgba(240, 128, 118, 0.1);
+  font-size: 11rem;
+  line-height: 1.45;
+  color: #f5c3bf;
+}
+
+.ax-submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7rem;
+  width: 100%;
+  height: 38rem;
+  margin-top: 6rem;
+  border: 0;
+  border-radius: 9rem;
+  background: linear-gradient(180deg, #32d583, #12b76a);
+  color: #0b0d0c;
+  font: inherit;
+  font-size: 13rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.ax-submit:hover:not(:disabled) {
+  filter: brightness(1.07);
+}
+
+/* Visibly dead, and the note under it says why. A disabled button that still
+   looks pressable is how a form loses somebody silently. */
+.ax-submit:disabled {
+  background: rgba(50, 213, 131, 0.16);
+  color: #6d9384;
+  cursor: not-allowed;
+}
+
+.ax-note {
+  margin: 9rem 0 0;
+  font-size: 10rem;
+  text-align: center;
+  color: #7ea994;
+}
+
+.ax-spin {
+  animation: ax-spin 0.9s linear infinite;
+}
+
+@keyframes ax-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ax-done {
+  padding: 12rem 0 4rem;
+  text-align: center;
+}
+
+.ax-tick {
+  display: grid;
+  place-items: center;
+  width: 52rem;
+  height: 52rem;
+  margin: 0 auto 14rem;
+  border-radius: 50%;
+  background: rgba(50, 213, 131, 0.16);
+  color: #6ce9a6;
+}
+
+.ax-done .ax-sub {
+  margin-bottom: 20rem;
 }
 
 /* =================================================================== mobile

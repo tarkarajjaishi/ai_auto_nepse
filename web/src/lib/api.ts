@@ -640,6 +640,8 @@ export const api = {
   health: (signal?: AbortSignal) => get<Health>("/api/health", signal),
   boards: (signal?: AbortSignal) => get<BoardsIndex>("/api/boards", signal),
   stores: (signal?: AbortSignal) => get<Stores>("/api/stores", signal),
+  accessRequests: (signal?: AbortSignal) =>
+    get<AccessRequests>("/api/access-requests", signal),
   /** One scrip across every timeframe. ~1s per symbol, so call it on demand, never on a poll. */
   timeframes: (symbol: string, signal?: AbortSignal) =>
     get<Timeframes>(`/api/timeframes/${encodeURIComponent(symbol)}`, signal),
@@ -757,12 +759,33 @@ export const api = {
     get<AuthStatus>(`/api/auth${probe ? "?probe=1" : ""}`, signal),
 };
 
+/**
+ * A landing-page access request. Every field is a string because every field was typed into a
+ * form by a member of the public — including the phone numbers, which are stored as digits and
+ * must never become numbers (a leading zero is part of a national number, and 9801234567 does
+ * not survive a round trip through a float).
+ */
+export type AccessRequest = {
+  received_at: string;
+  full_name: string;
+  country_code: string;
+  phone: string;
+  whatsapp_code: string;
+  whatsapp: string;
+  place: string;
+  email: string;
+  source_ip: string;
+};
+
+export type AccessRequests = { count: number; rows: AccessRequest[] };
+
 /* ── query keys ─────────────────────────────────────────────────────────────────────────── */
 
 export const qk = {
   health: ["health"] as const,
   boards: ["boards"] as const,
   stores: ["stores"] as const,
+  accessRequests: ["access-requests"] as const,
   rebuild: ["rebuild"] as const,
   board: (n: BoardName, params?: Record<string, string | number>) =>
     ["board", n, params ?? null] as const,

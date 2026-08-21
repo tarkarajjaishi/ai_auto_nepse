@@ -9,6 +9,7 @@ import {
   FlaskConical,
   Gauge,
   Layers,
+  Inbox,
   LineChart,
   Radar,
   ScrollText,
@@ -160,6 +161,15 @@ export const NAV: NavGroup[] = [
         label: "Account",
         icon: BarChart3,
         hint: "NAASA holdings and orders",
+      },
+      // No `board`. StaleDot keys off that field against /api/boards, and a name that is not
+      // in tables.BOARDS renders no dot at all — a sidebar that silently claims freshness it
+      // never checked. These rows have no session and no rebuild script.
+      {
+        href: "/admin/access-requests",
+        label: "Access Requests",
+        icon: Inbox,
+        hint: "Who asked for access from the landing page",
       },
     ],
   },

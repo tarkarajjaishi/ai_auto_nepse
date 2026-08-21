@@ -52,16 +52,33 @@ describe("navigation", () => {
     expect(missing).toEqual([]);
   });
 
+  // Routes that exist but are deliberately NOT in the sidebar. An explicit list, never a
+  // pattern: a pattern would quietly absorb the next page somebody forgets to link, which is
+  // the entire failure this test exists to catch.
+  const UNLINKED = new Set([
+    // The door, not a section. You arrive here by having no session — the sidebar is not even
+    // rendered at that point (admin/layout.tsx returns bare children when getServerSession is
+    // null), so a nav entry pointing at it could never be clicked.
+    "/admin/login",
+  ]);
+
   it("every /admin route is reachable from the sidebar", () => {
     const linked = new Set(ALL_NAV_ITEMS.map((i) => i.href));
     const orphans = [...routes].filter(
       (r) =>
         r.startsWith("/admin") &&
         !linked.has(r) &&
+        !UNLINKED.has(r) &&
         // dynamic segments are reached by clicking a row, not from the nav
         !r.includes("["),
     );
     expect(orphans).toEqual([]);
+  });
+
+  it("the unlinked list does not name a route that no longer exists", () => {
+    // Otherwise the exemption outlives the page and silently covers a future orphan at the
+    // same path.
+    expect([...UNLINKED].filter((r) => !routes.has(r))).toEqual([]);
   });
 
   it("has no duplicate hrefs", () => {

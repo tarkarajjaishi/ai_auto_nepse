@@ -31,6 +31,7 @@ import indicators
 import jobs
 import live_1d
 import market_hours
+from api import access
 from api import stores
 import master_signal
 import naasa
@@ -741,7 +742,68 @@ def test_api_can_never_place_an_order():
     for forbidden in ("subprocess", "os.system", "eval(", "exec(", "shell=True"):
         assert forbidden not in post_src, \
             "do_POST must not run anything itself (%s); it may only call jobs.start()" % forbidden
-    assert "rebuild" in post_src, "do_POST serves some path other than /api/rebuild"
+    # The write surface is TWO paths now, and "in post_src" cannot express that: the old
+    # assertion passed for any handler that merely MENTIONED rebuild, so it would have stayed
+    # green while a third route was added underneath it. Read the route literals out of the AST
+    # and compare the SET — a new path cannot be introduced without this line failing.
+    # Only the constants the handler COMPARES a path segment against. Collecting every string
+    # in the function instead swept up dict keys and error-message words ("boards", "started"),
+    # which is a set nobody can maintain — and an unmaintainable assertion gets deleted.
+    literals = {c.value
+                for cmp_ in ast.walk(post) if isinstance(cmp_, ast.Compare)
+                for c in ast.walk(cmp_)
+                if isinstance(c, ast.Constant) and isinstance(c.value, str)}
+    assert literals == {"api", "rebuild", "access-request"}, (
+        "do_POST's route literals changed — it now serves %s. Every path this handler answers "
+        "must be listed here deliberately, because one of them is public." % sorted(literals))
+
+    # The public route is the only one a stranger can reach. Four things make it safe, and each
+    # is a line somebody could delete without any other test noticing.
+    pub = next((n for n in ast.walk(post) if isinstance(n, ast.If)
+                and "access-request" in ast.dump(n.test)), None)
+    assert pub is not None, "the access-request branch is no longer an explicit path test"
+    pub_src = ast.get_source_segment(api_src, pub) or ""
+
+    # 1. the body is capped BEFORE it is read. rfile.read(n) with an attacker-chosen n is how a
+    #    form becomes a memory-exhaustion bug, and the cap is invisible in a functional test
+    #    because a well-behaved client never trips it.
+    caps = [n.value for n in ast.walk(pub) if isinstance(n, ast.Constant)
+            and isinstance(n.value, int) and n.value > 1000]
+    assert caps and max(caps) <= 8192,         "the access-request branch must bound Content-Length by a literal <= 8192; found %s" % caps
+    assert "Content-Length" in pub_src and "rfile.read" in pub_src,         "the access-request branch no longer reads a bounded body"
+
+    # 2. it validates, and a failure RETURNS rather than falling through to the write
+    assert "access.validate" in pub_src, "access-request does not call access.validate"
+    # The GUARD, not the mention: an `if` on validate's error that actually returns. A substring
+    # test cannot tell `if why: return` from `why = ...` sitting above an unconditional write —
+    # the same trap the jobs.SCRIPTS check above was rewritten to avoid.
+    returns_on_invalid = any(
+        isinstance(n, ast.If)
+        and any(isinstance(x, ast.Name) and x.id == "why" for x in ast.walk(n.test))
+        and any(isinstance(r, ast.Return) for r in ast.walk(n))
+        for n in ast.walk(pub))
+    assert returns_on_invalid, \
+        "a validation failure must return, not fall through to access.record"
+
+    # 3. nothing in it builds a path or opens a file. The target is a module constant; if a
+    #    filename ever gets derived from the payload, this is where it would happen.
+    for forbidden in ("open(", "Path(", "os.path", "join(", "MASTER", "__file__"):
+        assert forbidden not in pub_src,             "the public route must not name a file (%s) — access.PATH is a constant" % forbidden
+
+    # 4. ...and that constant really is one, rooted in the archive
+    assert access.PATH == fetch_ohlc.MASTER / "access_requests.txt",         "access.PATH moved: %s" % access.PATH
+    # Checked against string constants that are NOT docstrings. `"access_requests.txt" not in
+    # api_src` went red the moment the module docstring documented the route -- the same failure
+    # the do_POST spelling check above already carries a note about. A test a comment can turn
+    # red is a test people learn to edit rather than believe.
+    docs = {ast.get_docstring(n, clean=False) for n in ast.walk(api_tree)
+            if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))}
+    code_strings = [n.value for n in ast.walk(api_tree)
+                    if isinstance(n, ast.Constant) and isinstance(n.value, str)
+                    and n.value not in docs]
+    assert not [v for v in code_strings if "access_requests" in v],         "the API names the storage file in code -- it must only ever go through api/access.py"
+
+    assert "rebuild" in post_src, "do_POST no longer serves /api/rebuild"
 
     # The allow-list itself: plain filenames that exist, and nothing that reaches the broker.
     import jobs as _jobs
@@ -768,7 +830,7 @@ def test_api_can_never_place_an_order():
     by_name = {k.split(".", 1)[1]: [k] for k in pf}
     assert reaches("p.a") == "x_place_order", \
         "the transitive walk cannot see an indirect money call — it proves nothing"
-    print("  api write surface   one POST route, allow-listed scripts, no path to a money call")
+    print("  api write surface   two POST routes, capped public body, no path to a money call")
 
 
 def test_collateral_never_returns_client_pii():
@@ -995,6 +1057,7 @@ def main():
     stores.demo()           # per-store freshness: dates compared as dates, columns by name
     feed_snap.demo()        # the live snapshot: round-trip, missing != zero, stale says so
     feed_publisher.demo()   # the socket owner: switches gate it, snapshots are copied
+    access.demo()           # the public form: validation, tab-safe rows, per-IP rate limit
     print("ok")
     return 0
 

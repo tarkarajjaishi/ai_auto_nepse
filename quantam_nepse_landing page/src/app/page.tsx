@@ -9,6 +9,7 @@ import {
   TrendingUp,
   Users,
 } from "lucide-react";
+import { AccessForm } from "./access-form";
 import { Reveal } from "./reveal";
 
 /* Numbers below are artboard px (1280x720). 1rem == 1 artboard px, see globals.css.
@@ -481,7 +482,8 @@ const COMET = [
 
 export default function Home() {
   return (
-    <main className="stage">
+    <>
+      <main className="stage">
       {/* app window — fills the viewport, see .window in globals.css */}
       <div className="window" />
 
@@ -622,8 +624,16 @@ export default function Home() {
           >
             Blogs
           </a>
-          <a
-            href="#"
+          {/* A BUTTON, not the <a href="#"> this used to be: it opens a dialog, it does not
+              navigate, and a dead anchor is a promise to a screen reader that nothing keeps.
+              `popoverTarget` is plain HTML — the panel opens, closes on Escape and closes on
+              an outside click with no JavaScript of ours, so this file stays a server
+              component. Every style below is unchanged from the anchor; only `border`,
+              `font` and `cursor` are added, because a <button> carries UA defaults an <a>
+              does not. */}
+          <button
+            type="button"
+            popoverTarget="access-modal"
             className="flex items-center"
             style={{
               ...S({ height: 22, paddingLeft: 12, paddingRight: 12, borderRadius: 4 }),
@@ -631,10 +641,13 @@ export default function Home() {
               color: "#0b0d0c",
               boxSizing: "border-box",
               boxShadow: "0 5rem 14rem rgba(18,183,106,0.45)",
+              border: 0,
+              font: "inherit",
+              cursor: "pointer",
             }}
           >
             Request For Access
-          </a>
+          </button>
         </nav>
       </div>
 
@@ -1189,6 +1202,13 @@ export default function Home() {
       </Card>
 
       </Reveal>
-    </main>
+      </main>
+
+      {/* OUTSIDE <main className="stage"> on purpose. Every `.stage > …` rule would otherwise
+          reach it — `pointer-events: none` on the wrappers, and the mobile stylesheet's
+          `position: relative !important` reflow. It is a [popover], so it renders in the top
+          layer regardless of where it sits in the tree. */}
+      <AccessForm />
+    </>
   );
 }

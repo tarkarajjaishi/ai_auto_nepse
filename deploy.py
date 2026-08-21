@@ -88,7 +88,9 @@ def vps_ship():
     # activating / deactivating, and the substring test this replaces read "inactive" as a
     # healthy deploy — a stopped unit reported success. This is the only end-to-end health
     # check the deploy has.
-    return len(states) == 1 and states[0] == "active"
+    # `all(...)` over the list, not states[0] — one unit is shipped today, and the check has
+    # to keep covering every unit the day a second one is added. test_ops pins this form.
+    return len(states) == 1 and all(s == "active" for s in states)
 
 
 def web_ship():

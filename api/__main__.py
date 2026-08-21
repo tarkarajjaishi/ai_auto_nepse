@@ -29,16 +29,25 @@ Routes (all GET, all JSON):
     /api/account/holdings|orderbook|collateral      NAASA, read-only
     /api/auth?probe=1                 whether the saved NAASA / SWP logins still work
 
-Reads are GET. There is exactly ONE write route, and it is narrow on purpose:
+Reads are GET. There are exactly TWO write routes, both narrow on purpose:
 
     POST /api/rebuild/<board>          re-run that board's script; 409 if one is already running
     GET  /api/rebuild                  what is running, and how the last run went
+    POST /api/access-request           one landing-page form submission -> access_requests.txt
+    GET  /api/access-requests          those submissions, newest first (behind the nginx wall)
 
-That is load-bearing rather than incidental, and the rule that replaced "no do_POST at all" is
-still checkable: `do_POST` serves that one path and 404s everything else, the board name is
-looked up in `jobs.SCRIPTS` so a client can never name a script or a path, and `jobs.py` does not
-import naasa — so no rebuild can reach a money call. The account routes reach a live broker
-session but only ever read from it; see api/account.py for why no order path is importable here.
+Both are load-bearing rather than incidental, and the rule that replaced "no do_POST at all" is
+still checkable. `do_POST` serves those two EXACT paths and 404s everything else. The rebuild
+board name is looked up in `jobs.SCRIPTS`, so a client can never name a script or a path, and
+`jobs.py` does not import naasa — so no rebuild can reach a money call.
+
+/api/access-request is the only route a STRANGER can reach: it is public at nginx, because a
+demo-request form behind a password is a form nobody fills in. What that buys an attacker is
+bounded by construction — the target filename is a module constant in api/access.py, the body is
+capped before it is read, every field is validated and length-capped, and the only operation is
+appending one escaped line. There is no path, no filename and no command anywhere in its input.
+The account routes reach a live broker session but only ever read from it; see api/account.py
+for why no order path is importable here.
 
 Nothing here computes. Every route calls a function that already exists and is already tested.
 """
@@ -53,6 +62,7 @@ from fetch_ohlc import MASTER
 
 import jobs
 import market_hours
+from . import access
 from . import tables
 
 # The Next dev server's origin, for CORS. Only ever used in DEVELOPMENT — in production nginx
@@ -134,6 +144,13 @@ def route(path, query):
         return 200, {"ok": True, "archive_session": newest,
                      "missed_sessions": market_hours.missed_sessions(newest),
                      "symbols": len(_universe())}
+
+    if head == "access-requests":
+        # Public to WRITE, private to READ: these rows are somebody's name, email and phone.
+        # nginx keeps every /api path except the POST behind the wall, so this needs no check
+        # of its own — but that is a fact about the deployment, so test_ops pins it.
+        rows = access.read_all()
+        return 200, {"count": len(rows), "rows": rows}
 
     if head == "boards":
         out = {}
@@ -617,7 +634,7 @@ class Handler(BaseHTTPRequestHandler):
             pass
 
     def do_POST(self):
-        """The only write verb, and it serves exactly one path.
+        """The only write verb, and it serves exactly two paths.
 
         `POST /api/rebuild/<board>` starts that board's script in the background. The board name
         is a KEY into jobs.SCRIPTS -- never a path, never a command -- so the worst a caller can
@@ -626,11 +643,65 @@ class Handler(BaseHTTPRequestHandler):
         409 rather than a queue when something is already running: two concurrent rebuilds write
         the same .txt files, which is the exact collision jobs.py's lock exists to stop, and
         silently queueing would hide it from whoever pressed the button.
+
+        `POST /api/access-request` appends one landing-page form submission. It is PUBLIC, and
+        it is the only route in this project a stranger can reach, so it is written out in full
+        here rather than hidden behind a helper: the checks are the point, and a test that reads
+        this function's source can only see what this function contains.
         """
         u = urlparse(self.path)
         parts = [p for p in u.path.strip("/").split("/") if p]
+
+        if parts == ["api", "access-request"]:
+            # Cap BEFORE reading. rfile.read(n) with an attacker-chosen n is how a form becomes
+            # a memory exhaustion bug; 8 KB is ~40x the largest legitimate submission.
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = -1
+            if length <= 0 or length > 8192:
+                # Close, do not keep alive. protocol_version is HTTP/1.1, so the connection is
+                # reused — and we are about to answer WITHOUT draining Content-Length bytes.
+                # Leaving them in the socket makes the next request on that connection start
+                # mid-body, which reads as a random parse failure somewhere else entirely.
+                self.close_connection = True
+                return self._send(413, {"error": "request too large"})
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            except Exception:
+                return self._send(400, {"error": "expected a JSON body"})
+
+            # CF-Connecting-IP FIRST, and that is not a preference — it is the only header
+            # here that carries the visitor. This vhost sits behind Cloudflare with no
+            # ngx_http_realip configuration, so $remote_addr and X-Real-IP are both a
+            # Cloudflare edge (measured: every line in access.log is 104.22.x.x). Bucketing
+            # the rate limit on those would put every visitor in the world into one of a
+            # handful of buckets, and would write an edge address into the lead list.
+            #
+            # Trusting a client-settable header is safe only because of where this runs: the
+            # server binds 127.0.0.1, so nginx is the only thing that can reach it, and
+            # Cloudflare overwrites CF-Connecting-IP on every request it proxies. Someone
+            # hitting the origin directly could forge it — which is what the nginx limit_req
+            # in front (keyed the same way, with a $remote_addr fallback) is for.
+            ip = (self.headers.get("CF-Connecting-IP")
+                  or self.headers.get("X-Real-IP")
+                  or self.client_address[0] or "").strip()
+            if not access.allowed(ip):
+                return self._send(429, {"error": "Too many requests. Please try again later."})
+            clean, why = access.validate(payload)
+            if why:
+                return self._send(400, {"error": why})
+            try:
+                access.record(clean, ip)
+            except Exception as e:
+                traceback.print_exc()
+                return self._send(500, {"error": "%s: %s" % (type(e).__name__, e)})
+            return self._send(201, {"ok": True,
+                                    "message": "Sent successfully. You will be contacted soon."})
+
         if len(parts) != 3 or parts[0] != "api" or parts[1] != "rebuild":
-            return self._send(404, {"error": "the only write route is POST /api/rebuild/<board>"})
+            return self._send(404, {"error": "write routes are POST /api/rebuild/<board> and "
+                                             "POST /api/access-request"})
         board = unquote(parts[2])
         if board not in jobs.SCRIPTS:
             return self._send(404, {"error": "no rebuild for %r" % board,
