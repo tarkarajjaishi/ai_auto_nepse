@@ -81,6 +81,10 @@ export function BoardPage({
     retry: false,
   });
   const quotes = live.data?.fresh ? live.data.quotes : undefined;
+  // The overlay keeps working after the close — today's closing price IS more current than a
+  // board built last night — but it must stop CALLING it live. Only the session decides that.
+  const marketOpen =
+    live.data?.session === "LIVE" || Boolean(live.data?.session?.startsWith("PRE-OPEN"));
 
   if (q.isError) {
     return (
@@ -176,15 +180,20 @@ export function BoardPage({
             {quotes && (
               <span
                 title={
-                  "close and change% are ticking off the NAASA socket" +
+                  (marketOpen
+                    ? "close and change% are ticking off the NAASA socket"
+                    : "close and change% are today's FINAL numbers off the socket, not live") +
                   (live.data?.age != null ? `, ${Math.round(live.data.age)}s old` : "") +
                   ". Entry, stop, target and risk stay as this board computed them — so once " +
                   "close moves, risk% no longer matches close-to-stop. That is the setup's " +
                   "risk as decided, not a rounding error."
                 }
-                className="rounded bg-down/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide text-down"
+                className={cn(
+                  "rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide",
+                  marketOpen ? "bg-down/15 text-down" : "bg-muted text-muted-foreground",
+                )}
               >
-                live price
+                {marketOpen ? "live price" : "today's close"}
               </span>
             )}
             <span className="font-mono text-[11px] text-muted-foreground">

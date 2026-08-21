@@ -509,6 +509,41 @@ def test_freshness_is_never_reported_from_one_half():
              sum(1 for b in _tables.BOARDS if jobs.auto(b)), len(jobs.MANUAL)))
 
 
+def test_live_never_means_merely_recent():
+    """LIVE must mean the market is OPEN, not that the snapshot is recent.
+
+    Caught end-to-end at 15:01, one minute after the close: the chart still read LIVE. The tag
+    keyed on freshness and the presence of a bar, and both stay true after the close -- the
+    publisher keeps writing, so the snapshot is seconds old and the bar is today's. Neither says
+    the market is open, and a tag reading LIVE over numbers that stopped moving is the same false
+    claim as a stale board reporting itself current.
+
+    The quote route had the matching hole. The publisher holds the socket for as long as the DAY
+    is a trading day, so at 09:00 tomorrow the snapshot is seconds old with yesterday's closing
+    quotes in it. /api/bar always refused that -- live_1d.row() checks the quote's own timestamp
+    -- and /api/quotes did not, so every board overlay would have applied yesterday's close as
+    today's price.
+    """
+    api_src = Path("api/__main__.py").read_text(encoding="utf-8")
+    i = api_src.find("head == ")
+    while i != -1 and "quotes" not in api_src[i:i + 40]:
+        i = api_src.find("head == ", i + 1)
+    assert i != -1, "the quotes route is gone"
+    assert "stamp" in api_src[i:i + 1800], (
+        "/api/quotes must check the quote's own timestamp, or the morning after a session it "
+        "serves yesterday's close as today's price")
+
+    chart = Path("web/src/app/admin/chart/page.tsx").read_text(encoding="utf-8")
+    assert "const ticking = open &&" in chart, (
+        "the chart's LIVE tag must require the market to be open, not merely a recent snapshot")
+
+    board = Path("web/src/components/board-page.tsx").read_text(encoding="utf-8")
+    assert "marketOpen" in board, (
+        "the board's price tag must tell a live price from today's final one")
+
+    print("  live means open     a recent file is not a running market")
+
+
 def test_a_partial_bar_does_not_make_every_board_stale():
     """A board is not out of date for being older than a bar that is still being written.
 
@@ -1055,6 +1090,7 @@ def main():
     test_every_page_has_a_body()
     test_order_body_is_exactly_what_the_screen_sends()
     test_freshness_is_never_reported_from_one_half()
+    test_live_never_means_merely_recent()
     test_a_partial_bar_does_not_make_every_board_stale()
     test_open_orders_never_counts_a_filled_one()
     test_money_calls_never_auto_retry()

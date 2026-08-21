@@ -284,20 +284,22 @@ function ChartInner() {
  */
 function LiveTag({ q }: { q?: LiveBar }) {
   if (!q) return null;
-  const ticking = q.fresh && q.bar;
-  const label = ticking
-    ? "live"
-    : q.session === "LIVE"
-      ? "feed quiet"
-      : q.session.toLowerCase();
+  // LIVE means the market is OPEN and ticks are arriving — not merely that the snapshot is
+  // recent. The publisher keeps writing after the close, so `fresh` stays true over numbers that
+  // stopped moving; this read LIVE at 15:01 with the market shut.
+  const open = q.session === "LIVE" || q.session.startsWith("PRE-OPEN");
+  const ticking = open && q.fresh && Boolean(q.bar);
+  const label = ticking ? "live" : open ? "feed quiet" : q.session.toLowerCase();
   return (
     <span
       title={
         ticking
           ? `Today's bar, ${Math.round(q.age ?? 0)}s old, off the NAASA socket`
-          : q.session === "LIVE"
+          : open
             ? "The market is open but no tick has arrived — the last daily bar is shown"
-            : "The market is closed; these are the last stored session's numbers"
+            : q.bar
+              ? "The market is closed. These are today's final numbers, not a live price."
+              : "The market is closed; these are the last stored session's numbers"
       }
       className={cn(
         "rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide",

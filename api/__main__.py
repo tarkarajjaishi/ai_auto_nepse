@@ -341,10 +341,18 @@ def route(path, query):
         if len(want) > 400:
             return 400, {"error": "at most 400 symbols per call"}
         snap = feed_snap.read()
+        # The feed stamps DD/MM/YYYY. The publisher keeps writing while the day is a trading day,
+        # so after the close the snapshot stays seconds-old with the CLOSING quotes in it — and
+        # tomorrow morning those are yesterday's numbers under a fresh written_at. /api/bar has
+        # always refused that (live_1d.row checks the quote's own stamp); this did not.
+        today = live_1d.today()
+        stamp_today = "%s/%s/%s" % (today[8:10], today[5:7], today[:4]) if today else None
         out = {}
         for name in want:
             q = snap["quotes"].get(live_1d.feed_name(name))
             if not q or q.get("ltp") is None:
+                continue
+            if stamp_today and q.get("stamp") and not str(q["stamp"]).startswith(stamp_today):
                 continue
             prev = q.get("close")
             out[name] = {"ltp": q["ltp"], "close": prev,
