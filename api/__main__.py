@@ -22,6 +22,7 @@ Routes (all GET, all JSON):
     /api/zones/<symbol>?bars=180      every supply/demand zone, classified, with its bars
     /api/ledger/<symbol>?broker=&days=  one broker's daily bought/sold/net in that stock
     /api/setup/<symbol>               trade_setup's score, grade, entry timing and levels
+    /api/depth[/<symbol>]             the live socket book, with the age of the snapshot
     /api/indices                      the last bar of every index
     /api/account/holdings|orderbook|collateral      NAASA, read-only
     /api/auth?probe=1                 whether the saved NAASA / SWP logins still work
@@ -278,6 +279,22 @@ def route(path, query):
         if arg.upper() not in _universe():
             return 404, {"error": f"no such symbol {arg.upper()!r}"}
         return 200, market.broker_flow(arg, max(1, min(500, n)))
+
+    if head == "depth":
+        # The live book, read from the snapshot the socket-holding process publishes. `age` and
+        # `fresh` travel with it and are not optional: a quote from Thursday's close renders
+        # exactly like a live one, so a reader that cannot see the age cannot tell them apart.
+        import feed_snap
+        import live_1d
+        snap = feed_snap.read()
+        out = {"age": snap["age"], "fresh": snap["fresh"], "written_at": snap["written_at"],
+               "instruments": len(snap["quotes"])}
+        if arg:
+            # The snapshot is keyed the way the FEED names things, and eight sector indices are
+            # abbreviated differently there.
+            out["symbol"] = arg.upper()
+            out["quote"] = snap["quotes"].get(live_1d.feed_name(arg.upper()))
+        return 200, out
 
     if head == "ledger" and arg:
         # One broker's day-by-day bought / sold / net in one stock. This is the row-level evidence

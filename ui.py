@@ -21,6 +21,7 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 import live_1d
+import feed_snap
 import jobs
 import market_hours
 import naasa
@@ -671,6 +672,13 @@ def naasa_feed():
                     continue
                 with state["lock"]:
                     snap = {k: dict(v) for k, v in state["snap"].items()}
+                # Publish what the socket sees so OTHER processes can read it. NAASA allows one
+                # session per account, so the API cannot open its own feed -- whichever connected
+                # second would take it away from the first. One writer, one file, many readers.
+                try:
+                    feed_snap.write(snap)
+                except Exception:
+                    pass                           # publishing must never break the archiver
                 written, _ = live_1d.flush(snap)
                 state["saved_err"] = ""
                 if written:

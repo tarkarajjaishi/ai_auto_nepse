@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { CircleAlert, Eye, KeyRound, PlugZap } from "lucide-react";
 
 import { ConnectionsPanel } from "@/components/connections-panel";
+import { LiveDepth } from "@/components/live-depth";
 import { StatTile } from "@/components/stat-tile";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, qk, ApiError, type Holding, type Order } from "@/lib/api";
@@ -58,6 +59,8 @@ export default function AccountPage() {
 
       {/* Status of BOTH saved logins, above the account panels — when the numbers below are
           empty this is the screen that says whether that means "flat" or "the login is gone". */}
+      <LiveDepth symbol="NABIL" />
+
       <ConnectionsPanel />
 
       {upstreamGone ? (

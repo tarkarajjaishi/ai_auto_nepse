@@ -91,6 +91,36 @@ export type Stores = {
   missed_sessions: number | null;
 };
 
+/**
+ * The live socket book for one instrument, plus how old the snapshot is.
+ *
+ * `age` and `fresh` are not decoration. NAASA allows one session per account, so the socket
+ * lives in whichever process holds it and publishes what it sees to a file; a snapshot left
+ * over from a finished session renders exactly like a live one. Never show `quote` without
+ * showing `age`.
+ */
+export type Depth = {
+  age: number | null;
+  fresh: boolean;
+  written_at: number | null;
+  instruments: number;
+  symbol?: string;
+  quote?: {
+    ltp: number | null;
+    close: number | null;
+    open: number | null;
+    high: number | null;
+    low: number | null;
+    volume: number | null;
+    turnover: number | null;
+    bid: number | null;
+    bid_qty: number | null;
+    ask: number | null;
+    ask_qty: number | null;
+    stamp: string | null;
+  } | null;
+};
+
 /** One session of one broker's activity in one stock. */
 export type LedgerDay = {
   date: string;
@@ -501,6 +531,9 @@ export const api = {
     ),
   setup: (symbol: string, signal?: AbortSignal) =>
     get<Setup>(`/api/setup/${encodeURIComponent(symbol)}`, signal),
+  /** The live book. Cheap — it reads one small file — so a 1s poll is fine. */
+  depth: (symbol: string, signal?: AbortSignal) =>
+    get<Depth>(`/api/depth/${encodeURIComponent(symbol)}`, signal),
   rebuildStatus: (signal?: AbortSignal) => get<RebuildStatus>("/api/rebuild", signal),
   /** Start a rebuild. Resolves with `started: false` and a reason when one is already running. */
   rebuild: (board: string) =>

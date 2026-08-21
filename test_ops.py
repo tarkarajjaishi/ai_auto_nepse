@@ -30,6 +30,7 @@ from pathlib import Path
 import backtest
 import fetch_ohlc
 import fetch_swp
+import feed_snap
 import indicators
 import jobs
 import live_1d
@@ -992,6 +993,7 @@ def main():
     market_hours.demo()     # the one open/closed switch: defaults, toggles, bad file
     jobs.demo()             # the cross-process rebuild lock: exclusive, breakable, safe
     stores.demo()           # per-store freshness: dates compared as dates, columns by name
+    feed_snap.demo()        # the live snapshot: round-trip, missing != zero, stale says so
     print("ok")
     return 0
 
