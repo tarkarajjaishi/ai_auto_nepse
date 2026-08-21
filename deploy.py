@@ -3,7 +3,7 @@
 Keeping the two in sync by hand always drifts — the box ends up ahead of the repo. This does
 both from one command, so what runs on the VPS is always what is on GitHub.
 
-    python deploy.py                     # commit everything, push, ship all three, restart
+    python deploy.py                     # commit everything, push, ship both, restart
     python deploy.py -m "fix heatmap"    # with a message
     python deploy.py --no-git            # ship to the VPS only (skip commit/push)
     python deploy.py --no-vps            # commit/push only (skip the VPS)
@@ -11,9 +11,12 @@ both from one command, so what runs on the VPS is always what is on GitHub.
 
 Three things run on the box and this ships all of them:
 
-    chukul        streamlit ui.py            127.0.0.1:8501   ← nginx /
     chukul-api    python -m api              127.0.0.1:8600   ← nginx /api
     chukul-web    node server.js (Next)      127.0.0.1:3101   ← nginx /admin, /_next
+
+The landing page (nepse-landing, 3102) is a separate app and is NOT shipped here — see
+DEPLOYMENT.md. chukul-feed is deliberately never restarted: it holds the one NAASA socket the
+account is allowed, and a restart mid-session drops the live feed.
 
 Ships the tracked source only — Master_data/ (the archive and the saved logins) never leaves
 the box, and the VPS keeps its own copy.
@@ -31,7 +34,6 @@ from pathlib import Path
 HERE = Path(__file__).parent
 VPS = "ubuntu@202.51.70.101"
 APP = "~/chukul_data"
-SERVICE = "chukul"
 API_SERVICE = "chukul-api"
 WEB_SERVICE = "chukul-web"
 WEB_SRC = HERE / "web"
@@ -70,22 +72,23 @@ def vps_ship():
     tar = subprocess.Popen(["tar", "czf", "-"] + files, cwd=HERE, stdout=subprocess.PIPE)
     ship = subprocess.run(
         ["ssh", "-o", "ConnectTimeout=30", VPS,
-         f"cd {APP} && tar xzf - && sudo systemctl restart {SERVICE} {API_SERVICE} && sleep 3 && "
-         f"systemctl is-active {SERVICE} {API_SERVICE}"],
+         f"cd {APP} && tar xzf - && sudo systemctl restart {API_SERVICE} && sleep 3 && "
+         f"systemctl is-active {API_SERVICE}"],
         stdin=tar.stdout, text=True, capture_output=True)
     tar.stdout.close(), tar.wait()
-    # Both units answer on their own line; both must be up. The API serves the same modules the
-    # Streamlit app does, so shipping ui.py without restarting the API leaves the terminal
-    # running yesterday's Python against today's txt.
+    # The API is the only Python service a source ship affects — it serves the modules the
+    # boards are built from, so shipping without restarting it leaves the terminal running
+    # yesterday's Python against today's txt. `chukul` (Streamlit) used to be restarted here
+    # too and no longer exists; naming a dead unit makes systemctl fail and the whole deploy
+    # report failure.
     states = ship.stdout.split()
-    print(f"  {len(files)} file(s) shipped · {SERVICE}={states[0] if states else '?'} "
-          f"{API_SERVICE}={states[1] if len(states) > 1 else '?'}"
+    print(f"  {len(files)} file(s) shipped · {API_SERVICE}={states[0] if states else '?'}"
           f"{'' if states else '  ' + ship.stderr.strip()}")
     # Exact match. `systemd is-active` answers with one of active / inactive / failed /
     # activating / deactivating, and the substring test this replaces read "inactive" as a
     # healthy deploy — a stopped unit reported success. This is the only end-to-end health
     # check the deploy has.
-    return len(states) == 2 and all(s == "active" for s in states)
+    return len(states) == 1 and states[0] == "active"
 
 
 def web_ship():

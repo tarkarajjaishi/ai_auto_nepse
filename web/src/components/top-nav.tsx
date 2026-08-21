@@ -2,9 +2,10 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "motion/react";
-import { ChevronDown, CircleAlert, CircleCheck, CircleDashed } from "lucide-react";
+import { ChevronDown, CircleAlert, CircleCheck, CircleDashed, LogOut } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { signOut } from "next-auth/react";
 
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
@@ -109,8 +110,37 @@ export function TopNav() {
       <div className="ml-auto flex items-center gap-2">
         <ArchivePill />
         <ThemeToggle />
+        <SignOutButton />
       </div>
     </header>
+  );
+}
+
+/**
+ * The only way out. The session is deliberately a ten-year cookie that survives restarts and
+ * deploys, so this button is not a convenience — it is the entire expiry mechanism.
+ *
+ * callbackUrl is explicit: signOut defaults to the current URL, which is a guarded /admin route,
+ * so the browser would land there, be bounced by middleware, and arrive at the login page with a
+ * callbackUrl pointing back at the page you just left.
+ */
+function SignOutButton() {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            onClick={() => signOut({ callbackUrl: "/admin/login" })}
+            aria-label="Sign out"
+            className="grid size-8 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          />
+        }
+      >
+        <LogOut className="size-4" />
+      </TooltipTrigger>
+      <TooltipContent>Sign out</TooltipContent>
+    </Tooltip>
   );
 }
 
