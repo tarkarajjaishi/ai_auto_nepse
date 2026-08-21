@@ -30,6 +30,7 @@ from pathlib import Path
 import backtest
 import fetch_ohlc
 import fetch_swp
+import feed_publisher
 import feed_snap
 import indicators
 import jobs
@@ -1019,6 +1020,7 @@ def main():
     jobs.demo()             # the cross-process rebuild lock: exclusive, breakable, safe
     stores.demo()           # per-store freshness: dates compared as dates, columns by name
     feed_snap.demo()        # the live snapshot: round-trip, missing != zero, stale says so
+    feed_publisher.demo()   # the socket owner: switches gate it, snapshots are copied
     print("ok")
     return 0
 

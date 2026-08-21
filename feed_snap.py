@@ -164,6 +164,45 @@ def read(path=None):
             "quotes": quotes}
 
 
+# A snapshot written within this many seconds means SOMEBODY IS PUBLISHING right now. It is much
+# tighter than FRESH_FOR, which asks "is this quote worth showing"; this asks "is the socket
+# already taken", and the answer has to go stale fast or a reader waits two minutes before
+# deciding it may connect.
+PUBLISHED_WITHIN = 15
+
+
+def publishing(path=None):
+    """Is another process currently holding the socket and writing here?"""
+    snap = read(path)
+    return snap["age"] is not None and snap["age"] <= PUBLISHED_WITHIN
+
+
+def as_feed_quote(row):
+    """One stored row back into the FEED's own field names.
+
+    The file is normalised — `ltp`, `close`, `bids[]` — because that is what a screen wants. Two
+    readers want the raw shape instead: `live_1d.row()`, which builds the archive bar, and ui.py,
+    whose panels were written against the socket directly. Mapping back in ONE place means those
+    two cannot drift from each other or from the writer.
+    """
+    out = {
+        "LTP": row.get("ltp"), "Open": row.get("open"), "High": row.get("high"),
+        "Low": row.get("low"), "Close": row.get("close"), "TTQ": row.get("volume"),
+        "TTV": row.get("ttv"), "WeightedAverage": row.get("avg_price"), "_t": row.get("stamp"),
+    }
+    bids, asks = row.get("bids") or [], row.get("asks") or []
+    depth = []
+    for i in range(max(len(bids), len(asks))):
+        b = bids[i] if i < len(bids) else {}
+        a = asks[i] if i < len(asks) else {}
+        depth.append({"BuyRate": b.get("price"), "BuyQty": b.get("qty"),
+                      "BuyOrders": b.get("orders"), "SellRate": a.get("price"),
+                      "SellQty": a.get("qty"), "SellOrders": a.get("orders")})
+    if depth:
+        out["depth"] = depth
+    return out
+
+
 def demo():
     """Self-check: round-trip, missing fields stay missing, and a stale file says so."""
     import tempfile
@@ -219,6 +258,27 @@ def demo():
         stale = read(p)
         assert stale["fresh"] is False and stale["age"] > FRESH_FOR, stale
         assert stale["quotes"]["NABIL"]["ltp"] == 548.5, "stale data is still returned, just flagged"
+
+        # the round trip back to feed names, which live_1d.row() and ui.py both read
+        feed = as_feed_quote(read(p)["quotes"]["NABIL"])
+        assert feed["LTP"] == 548.5 and feed["TTQ"] == 27241.0 and feed["TTV"] == 14952584.0, feed
+        assert feed["_t"] == "21/08/2026 13:02:11"
+        assert len(feed["depth"]) == 2, feed["depth"]
+        assert feed["depth"][0]["BuyRate"] == 548.0 and feed["depth"][0]["SellQty"] == 5.0
+        # a level present on one side only must not invent the other
+        assert feed["depth"][1]["BuyRate"] == 547.5 and feed["depth"][1]["SellRate"] is None
+        assert "depth" not in as_feed_quote(read(p)["quotes"]["SAHAS"]), \
+            "no book means no depth key, not five empty levels"
+
+        # publishing() is about the SOCKET being taken, not about the quote being useful.
+        # Re-write first: the staleness check above deliberately aged this file.
+        write(snap, p)
+        assert publishing(p) is True
+        body = p.read_text(encoding="utf-8").splitlines()
+        body[0] = "written_at\t%.3f" % (time.time() - PUBLISHED_WITHIN - 5)
+        p.write_text("\n".join(body) + "\n", encoding="utf-8")
+        assert publishing(p) is False, "an old snapshot means nobody is holding the socket"
+        assert read(p)["fresh"] is True, "...but the quote is still fresh enough to show"
 
         # garbage must not raise into a page
         p.write_text("nonsense\n", encoding="utf-8")

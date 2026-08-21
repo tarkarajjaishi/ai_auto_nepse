@@ -646,6 +646,23 @@ def naasa_feed():
                 if state["status"] != "no login saved":
                     state["status"] = "off"
                 time.sleep(0.4); continue
+            # SOMEONE ELSE MAY ALREADY HOLD THE SOCKET. feed_publisher.service normally does,
+            # and NAASA allows one session per account — opening a second here would evict it,
+            # it would reconnect and evict us, and the two would fight for the rest of the
+            # session. So while a snapshot is being written, read that instead.
+            #
+            # Falling through when nobody is publishing is deliberate: this app still works on
+            # its own if the service is not running.
+            if feed_snap.publishing():
+                published = feed_snap.read()
+                with state["lock"]:
+                    state["snap"] = {k: feed_snap.as_feed_quote(v)
+                                     for k, v in published["quotes"].items()}
+                state["status"] = "live"
+                state["err"] = ""
+                time.sleep(1)
+                continue
+
             em, pw = naasa.load_credentials()
             if not (em and pw):
                 state["status"] = "no login saved"; state["want"] = False; continue
