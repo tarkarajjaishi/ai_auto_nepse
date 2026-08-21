@@ -1,0 +1,76 @@
+title: What Is Quantum Computing and Could It Change Nepal's Stock Market?
+slug: what-is-quantum-computing-and-could-it-change-nepal
+description: A plain explanation of what quantum computers actually do, why the popular description is wrong, and an honest assessment of whether any of it reaches the Nepal Stock Exchange.
+category: quantum-finance
+tags: Quantum Computing, Quantum Finance, Nepal Stock Exchange, NEPSE, Investment Technology
+---
+A quantum computer is not a fast computer. That single misunderstanding is responsible for most of the nonsense written about quantum technology and money, so it is worth clearing before anything else.
+
+An ordinary computer stores information in bits that are either 0 or 1. A quantum computer stores information in qubits, which can hold a combination of both states at once, described by numbers called amplitudes. Amplitudes can be positive or negative, and when you combine qubits, paths through a calculation can reinforce each other or cancel out — the same way overlapping ripples on water can build a taller wave or flatten to nothing.
+
+That cancellation is the entire trick. A quantum algorithm is a carefully designed arrangement in which the wrong answers interfere destructively and cancel, leaving the right answer with a high probability of being measured. It is not, as the popular version has it, a machine that tries every possibility simultaneously and reads them all off. You get one answer when you measure, and the design work is in making that answer likely to be the one you wanted.
+
+## Why this matters before you read any market claim
+
+Because interference has to be engineered for each problem, quantum speed-ups are not general. There is no universal setting that makes computation faster. A quantum computer is a specialised device that beats a classical one on a short list of mathematical structures and does nothing for everything else.
+
+The list is genuinely short. It includes factoring large integers and related problems in number theory, simulating quantum physics and chemistry, unstructured search, and certain kinds of numerical estimation. Outside those structures, a quantum machine is slower than the laptop you already own — because the classical hardware is mature and the quantum hardware is not.
+
+> If someone cannot name the specific mathematical structure their quantum speed-up exploits, there is no speed-up. There is only the word.
+
+## The hardware reality
+
+Three physical constraints define what today's machines can do, and none of them is close to solved.
+
+- **Decoherence.** Qubits lose their quantum state through interaction with their environment. The useful computing window is extremely short, which limits how many operations an algorithm can perform before the state is noise.
+- **Error rates.** Quantum operations are far less reliable than classical ones. Errors accumulate through a long calculation rather than cancelling out.
+- **Error correction overhead.** The fix is known in principle: encode one reliable logical qubit across many physical ones. The cost is large — the ratio of physical to logical qubits for demanding algorithms is severe enough that current machine sizes are nowhere near sufficient.
+
+The current period is often called the noisy intermediate-scale era, meaning machines exist, they are real, and they are too small and too error-prone for the algorithms that would matter commercially. Demonstrations of "quantum advantage" have generally been on artificial sampling tasks chosen to be hard for classical computers, and several have subsequently been matched or beaten by improved classical methods. That pattern — a claimed advantage narrowing under classical attack — has repeated often enough to be the default expectation.
+
+## Which market problems have the right shape
+
+Set aside the hardware timeline and ask a cleaner question: if a large, reliable quantum computer existed, which problems in finance would it help with?
+
+1. **Portfolio optimisation with awkward constraints.** Choosing weights across many assets under integer or discrete restrictions is combinatorially hard. Quantum optimisation heuristics target this, though no proven advantage over good classical solvers has been established.
+2. **Monte Carlo estimation.** Pricing and risk work often means simulating enormous numbers of scenarios. Quantum amplitude estimation offers a quadratic reduction in the number of samples needed for a target precision — real, provable, and modest.
+3. **Simulating quantum systems.** Immensely important for chemistry and materials. Irrelevant to equities.
+4. **Breaking public-key cryptography.** Not a benefit to finance; a threat to it, and the one item on this list with a clear, proven algorithm behind it.
+
+A quadratic speed-up on sampling is worth having in a bank pricing complex derivatives across huge books. It is not worth having when your calculation finishes on a laptop in a second, which describes almost everything an equity investor does.
+
+## Now apply that to NEPSE
+
+The Nepal Stock Exchange is small by global standards, with a few hundred listed securities, a retail-dominated participant base, and sub-indices across banking, hydropower, microfinance, insurance and the rest. Its daily data volume is modest. Its instrument set is plain equity, not a thicket of exotic derivatives.
+
+None of the computations a NEPSE analyst performs is limited by processing power. Scanning the full listed universe against a defined rule takes seconds on ordinary hardware. Aggregating months of floorsheet data takes minutes. There is no queue of unanswerable questions waiting for a faster machine.
+
+The binding constraints in Nepal are different, and they are not computational:
+
+- **Data quality and continuity.** Missing sessions, inconsistent formats, and corporate-action adjustments that quietly corrupt a price history.
+- **Method.** Whether a claimed signal has been honestly tested outside the sample it was invented on.
+- **Access and literacy.** Whether an ordinary investor can obtain, read and trust the data at all.
+- **Sample size.** A young market has limited history. No amount of computing power creates more years of evidence.
+
+That last point deserves emphasis, because it is permanent. Statistical confidence comes from data, not from processors. If a pattern rests on a handful of episodes, a quantum computer will confirm it exactly as unreliably as a classical one, only with more electricity.
+
+## The one quantum development Nepal should genuinely track
+
+There is a real quantum-related risk for Nepali market infrastructure, and it has nothing to do with analysis or returns. It is cryptography.
+
+The security of online trading systems, depository records and banking connections rests on public-key schemes whose safety depends on problems that a sufficiently large quantum computer would break. That is not speculative mathematics — the algorithm has been known for decades; only the hardware is missing.
+
+The associated risk is often described as harvest now, decrypt later: an adversary records encrypted traffic today and decrypts it once capable machines exist. Standards bodies have selected post-quantum cryptographic algorithms designed to resist quantum attack, and migration is an infrastructure project, not a research one.
+
+For Nepal, the practical implication is that brokers, the depository and the exchange's technology providers should have a plan for migrating to post-quantum cryptography — the same as any financial institution anywhere. That is the quantum question with a real deadline attached. Portfolio optimisation is not.
+
+## What a Nepali investor should actually do
+
+Nothing about your investment process should change because of quantum computing. Concretely:
+
+- **Ignore any product marketed on quantum physics.** There is no deployed quantum advantage in equity analysis, in Nepal or anywhere. A brand containing the word is branding.
+- **Spend the attention on method instead.** Whether a signal was tested out of sample matters enormously; whether it was computed on exotic hardware does not.
+- **Ask about cryptography if you work in market infrastructure.** That is where the genuine question sits.
+- **Learn the technology that is already here.** Machine learning on market data is deployed, useful and imperfect today, which is covered in [How Machine Learning Can Help Analyze Nepal Stock Exchange Data](/blogs/how-machine-learning-can-help-analyze-nepal-stock-exchange) and compared directly in [AI vs Quantum Computing in Stock Market Analysis](/blogs/ai-vs-quantum-computing-in-stock-market-analysis).
+
+Quantum computing is one of the most interesting engineering projects of the era, and it may eventually reshape parts of finance. The specific applications, timelines and limitations are worth understanding on their own terms, which is the subject of [Quantum Computing in Finance: What Could It Mean for NEPSE?](/blogs/quantum-computing-in-finance-what-could-it-mean-for). What it will not do is tell you which Nepali stock to buy, and no honest account of the technology suggests otherwise.

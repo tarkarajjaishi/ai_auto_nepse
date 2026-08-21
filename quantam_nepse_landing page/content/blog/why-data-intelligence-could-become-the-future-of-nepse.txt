@@ -1,0 +1,85 @@
+title: Why Data Intelligence Could Become the Future of NEPSE Investing
+slug: why-data-intelligence-could-become-the-future-of-nepse
+description: Nepal's market publishes more data than investors use. Data intelligence turns it into comparisons and base rates — and knows which questions it can never answer.
+category: data-and-research
+tags: Data Intelligence, NEPSE Analysis, Nepal Stock Exchange, Investment Research, Base Rates, Quantitative Analysis
+---
+Nepal's stock market does not have a data shortage. NEPSE publishes daily prices, sector sub-indices, and a broker-level floorsheet that is more granular than what many larger exchanges make public. Listed companies file quarterly reports. All of it is available, and almost none of it is used properly.
+
+The gap is not access. It is comparison. A number on its own — a price, a turnover figure, an EPS — carries almost no information until you know what it is normally. "Data intelligence" is a vague phrase, so here is a working definition: it is the practice of turning raw market records into comparisons that make a single observation interpretable, and being explicit about how much confidence the comparison supports.
+
+That sounds modest. It is also the difference between "this stock traded heavily today" and "this stock's turnover today is far outside anything it has done in months, and the buying was unusually concentrated". The first is a fact. The second is a reason to look closer.
+
+## The ladder from data to a decision
+
+Most investment tools stop on the first rung. The useful ones climb all three.
+
+1. **Record.** A raw value: today's close, today's volume, the broker-wise summary. Accurate, and by itself nearly meaningless.
+2. **Context.** The same value positioned against its own history and its peers: how does this compare with this stock's typical range, with the sector, with the same stock a quarter ago. This is where information appears.
+3. **Decision rule.** A pre-stated rule about what you will do at which threshold, written before you are looking at a position you already hold.
+
+The third rung is the one investors skip most, and skipping it is why so much good analysis produces bad outcomes. Context without a rule becomes rationalisation — you find the comparison that supports what you already wanted to do.
+
+> Data does not make decisions better. Data plus a rule written in advance makes decisions better, because it removes you from the moment of choosing.
+
+## Base rates: the most underused idea in Nepali investing
+
+If you take one concept from this article, take this one.
+
+A base rate is how often something happens in general, before you consider the specifics of the case in front of you. When someone tells you a stock is about to run because a broker is accumulating, the question that matters is not "is the broker accumulating?" It is "of all the times this pattern has appeared, how often did the stock actually run?"
+
+Almost nobody asks that, and the answer is frequently deflating. Patterns that feel diagnostic often occur constantly. A useful exercise: take any claim of the form "when X happens, the stock rises", count how many times X happened across the market, and count how often the rise followed. Many popular claims fail immediately, because X turns out to be true on most stocks on most days.
+
+This is what machine processing is genuinely for. Counting occurrences across hundreds of stocks and years of sessions is exactly what humans cannot do and computers do trivially. The findings are usually negative — and negative findings save money.
+
+## What it looks like in practice
+
+The shift is easiest to see as a change in the questions you ask.
+
+- Instead of "is the volume high?", ask **"is this volume high for this stock, against its own recent distribution?"** Raw volume comparisons across stocks mostly rank stocks by size.
+- Instead of "is the P/E low?", ask **"is this P/E low relative to this company's own history and to its sector, and what changed in the earnings?"** A low ratio can mean cheap or it can mean the market expects earnings to fall.
+- Instead of "which broker bought today?", ask **"is this broker's activity in this stock unusual for that broker, and is the concentration rising over a window of sessions?"**
+- Instead of "is the market bullish?", ask **"is the advance broad across sub-indices, or carried by a few large names?"**
+- Instead of "did this strategy work?", ask **"did it work in every year, and how much of the result comes from the top few trades?"**
+
+Each rewrite converts a yes/no impression into something checkable. The habit generalises: the practical checklist for a single stock is in [how to analyse a NEPSE stock before buying](/blogs/how-to-analyze-a-nepse-stock-before-buying).
+
+## The discipline that keeps it honest
+
+Data intelligence fails in predictable ways, and each failure has a specific guard.
+
+**Normalise per stock, not across the market.** Most raw metrics computed across the whole market end up ranking stocks by price or size. A metric measured in share counts is often an inverse price proxy in disguise — a cheap stock trades in larger lots for the same rupee value. If your "unusual activity" list is always the same low-priced names, this is why.
+
+**Respect the identities.** On NEPSE's floorsheet, every share bought is sold. Market-wide net buying is therefore zero by construction. Any metric that appears to show a hidden net buyer across the whole market is re-describing turnover. This one identity invalidates a surprising number of confident-sounding claims, and checking it costs nothing.
+
+**Rank point-in-time.** If you select stocks today using information that only existed later — a full-sample ranking, a list of companies that are still listed — your results are contaminated. This is subtle and extremely common, because the contaminated version always looks better.
+
+**Compare against the whole market, not against the cases you noticed.** If a pattern appears before ten big moves, the relevant question is how often it appeared before nothing happened. Selecting on the outcome guarantees a beautiful, useless result.
+
+**Date every number.** A precomputed board is a snapshot of the session it was built from. Presenting it as current when the archive has moved past it is the most common defect in market software, and the reader cannot detect it from the screen. The infrastructure side of this is covered in [how data science is changing stock market research in Nepal](/blogs/how-data-science-is-changing-stock-market-research-in).
+
+## What data cannot do
+
+An honest case for data intelligence has to include its boundaries, because the oversold version is what discredits the whole approach.
+
+Data cannot tell you whether management is honest. It cannot tell you what a regulator will decide. It cannot price an event that has not happened before, and a market as young as Nepal's has a short catalogue of precedents. It cannot tell you how much loss you can hold through without selling — that is a fact about you, not about the market.
+
+And it cannot make an uncertain market certain. Most measurable relationships in equity markets are weak, unstable, and weaker after costs. A tool that presents a strong, precise conclusion from public data is usually wrong in a way that is hard to see, because a well-formatted number looks like knowledge.
+
+## Why "could", and not "will"
+
+The headline is hedged deliberately. Data intelligence becomes the future of NEPSE investing only if two things happen, and neither is guaranteed.
+
+First, the data has to stay reliably available and machine-readable. Analysis built on sources that change format without notice or disappear is analysis with an expiry date.
+
+Second, and harder, the culture has to change so that claims come with tests attached. Right now a confident story travels much further than a careful measurement, and AI tooling makes confident stories cheaper to produce than ever. If the flood of generated commentary outpaces the growth of verification habits, the availability of data will not improve outcomes at all — it will just supply better-looking justifications for the same decisions. The wider structural argument is in [the role of big data in Nepal stock market](/blogs/the-role-of-big-data-in-nepal-stock-market).
+
+## Where to start
+
+You do not need a platform to begin. You need three habits.
+
+- **Keep a decision log.** Write down what you bought, why, and what would prove you wrong. Review it quarterly against what happened. This single dataset is worth more than any screener, and only you can build it.
+- **Demand a comparison for every number** you are shown. If a tool says a stock has unusual activity, ask: unusual against what, over what period, normalised how.
+- **Test one claim you believe.** Pick a rule you have heard repeated in investing groups, define it precisely, and count how often it actually preceded the outcome across the market. Whatever you find, you will never hear the claim the same way again.
+
+That last exercise is the entire discipline in miniature — and it is available to anyone with a spreadsheet and a willingness to be disappointed by an idea they liked. For the broader movement this belongs to, see [data-driven investing in Nepal](/blogs/data-driven-investing-in-nepal-the-rise-of-quantitative).

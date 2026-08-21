@@ -1,0 +1,86 @@
+title: Building an Intelligent Stock Research Platform for Nepal
+slug: building-an-intelligent-stock-research-platform-for-nepal
+description: What it takes to build a serious NEPSE research platform — the archive, corporate action adjustment, live versus stored prices, and the honesty layer most tools skip.
+category: nepse
+tags: NEPSE Data, Nepal Stock Exchange, Financial Technology, Data Engineering, Investment Research, Market Intelligence
+---
+The hard part of building a stock research platform for Nepal is not the model. It is the data underneath it. Anyone can fit a machine learning model to a price series in an afternoon; almost nobody gets the archive right, and a wrong archive produces confident, well-formatted, useless output.
+
+This is worth spelling out because the market is full of tools that look sophisticated on the surface and are broken two layers down. A chart with a beautiful indicator overlay computed on prices that were never adjusted for a bonus issue is not a research tool. It is a decorated error.
+
+What follows is the honest anatomy of a NEPSE research platform: the layers it needs, the failure modes that hide inside each, and the order in which they should be built. It applies whether you are building one or deciding whether to trust one.
+
+## Start with the archive, not the algorithm
+
+Every analytical number a platform shows is derived from stored history. If the history is wrong, incomplete or silently overwritten, everything above it inherits the error — and inherits it invisibly, because the output still renders.
+
+An archive worth building on has four properties:
+
+1. **It never shrinks.** A rebuild that fails partway must not leave you with fewer sessions than you started with. This sounds obvious and is one of the most common real-world defects, because a partial write looks exactly like a successful one.
+2. **It is reproducible.** Rebuilding the same day's data from source should produce the same file. If it does not, something upstream is non-deterministic and every backtest is unreliable.
+3. **It records what it does not know.** A missing session must be stored as missing, not silently interpolated or skipped. Gaps carry information.
+4. **It is checkable.** You should be able to recompute a total from raw records and have it match. On floorsheet data there is a free check available: every share bought is sold, so buy and sell quantities must reconcile exactly. If they do not, your parser is dropping rows.
+
+That last check has caught more real bugs than any model diagnostic. A parser that quietly discards malformed rows will produce plausible numbers forever without ever raising an error.
+
+## The four data layers Nepal needs
+
+A NEPSE platform draws on four distinct sources, each with its own update rhythm and its own failure mode.
+
+- **Daily price and volume.** The backbone. Simple, but only useful once adjusted correctly for corporate actions.
+- **The broker-level floorsheet.** Nepal's genuinely distinctive dataset — trade-level records with broker identifiers, which many larger markets never publish. Large, slow to process, and the source of most of the interesting questions.
+- **Company fundamentals and disclosures.** Quarterly reports, EPS, book value, capital changes. Mostly unstructured text and images, which is why so few tools handle them well.
+- **Corporate actions.** Bonus shares, rights issues, dividends, mergers, capital restructuring. The smallest dataset and the one that does the most damage when it is wrong.
+
+Each layer must be timestamped independently, because they update at different times and a platform that presents them as if they were captured together will eventually show you a price from today next to an EPS from three quarters ago without saying so.
+
+## Corporate actions are the silent killer
+
+When a company issues bonus shares, the price restates. If your archive stores the raw price series without adjusting, the restatement appears as a large single-day fall. Every return calculation crossing that date is wrong, every volatility estimate is inflated, and every backtest that touches the stock is contaminated.
+
+The fix is conceptually simple and operationally fiddly: maintain an adjustment factor per stock per event and apply it consistently to the whole history before any calculation. The detail that catches people out is **detection**. A restatement shows up as a gap at the open, not as a large intraday fall — the stock opens at the adjusted level and trades normally from there. A rule that flags "any large drop" will confuse a genuine sell-off with a bonus adjustment, and treating a real crash as a corporate action is a serious error in the opposite direction.
+
+> An unadjusted price series does not produce slightly worse research. It produces research about an event that never happened.
+
+## Live versus stored: which session is this?
+
+This is the requirement most tools ignore, and it is the one that matters most to a user actually making a decision.
+
+During a trading session, a price is a live number. Outside it, the same field is yesterday's close. These are different facts, and a screen that shows one while the reader assumes the other has caused more bad decisions than any modelling flaw.
+
+A serious platform enforces three rules:
+
+- **Every displayed number carries its session.** Not a subtle grey timestamp in a corner — a label the reader cannot miss.
+- **Staleness is rendered as staleness.** If the live source has not updated recently, show that it has not. Do not display an old value as if it were current.
+- **Derived boards say what they were computed from.** Any screener, score or ranking is only as fresh as the last time its inputs were rebuilt. If the archive has moved past that, the board must warn rather than quietly present old rankings as today's.
+
+The same discipline applies to anything precomputed. A stock ranking is a snapshot of a moment, and the moment is part of the answer.
+
+## The computation layer: deterministic first, models later
+
+Once the data is right, resist the urge to start with machine learning. The most valuable computations on NEPSE are deterministic and unglamorous: per-stock normalisation of volume and turnover, breadth statistics across sub-indices, broker concentration over a window, fundamental ratios computed consistently across companies.
+
+These have three advantages over models. They are explainable, they are stable, and when they are wrong you can find out why. Build them first and you will discover that a large share of the questions investors actually have — is this activity unusual for this stock, is this rally broad, how does this valuation sit against its own history — are answered without a model at all. The statistical layer above them is covered in [how quantitative analysis can improve NEPSE stock research](/blogs/how-quantitative-analysis-can-improve-nepse-stock-research).
+
+Machine learning belongs on top of that foundation, applied to problems where the pattern genuinely exceeds what a rule can express: extracting figures from unstructured disclosures, clustering stocks by behaviour rather than by declared sector, ranking many weak signals together. Not as a replacement for the arithmetic.
+
+## The honesty layer
+
+The feature that distinguishes a research platform from a marketing product is its willingness to say nothing.
+
+A well-built system should be able to output "no view" — no ranking, no score, no suggestion — when the data does not support one. Most tools cannot, because an empty screen looks like a broken product. But a screener that always returns ten stocks will return ten stocks on a day when none qualify, and the user has no way to tell those two days apart.
+
+Design for the refusal case explicitly: a stock with too little trading history, a session with incomplete data, a company whose latest report has not been filed. Each of these should produce a stated limitation rather than a number computed on thin evidence. The reasoning behind this design stance is set out in [what is NEPSE Quantum](/blogs/what-is-nepse-quantum-a-new-approach-to-nepal).
+
+## A build order that works
+
+If you are building this, the sequence matters more than the feature list.
+
+1. **Ingest and store one dataset properly**, with reproducibility and gap handling, before adding a second.
+2. **Add corporate action adjustment** before computing any return, ratio or indicator.
+3. **Build the deterministic metrics** and validate them against hand-checked examples for a few stocks.
+4. **Add the live layer** with explicit session labelling and staleness handling.
+5. **Only then add models**, and evaluate them on held-out history you never looked at while building.
+6. **Add the interface last**, designed around stating what a number is and when it is from.
+
+Most projects run this list backwards, starting with the interface and the model and treating the data as plumbing. That is why so many finished-looking NEPSE tools cannot answer a simple question: where did this number come from, and when. If a platform you are evaluating cannot answer that in one click, the rest of its features are decoration. For the wider case on why this matters for Nepal specifically, see [why Nepal needs AI-powered stock market intelligence](/blogs/why-nepal-needs-ai-powered-stock-market-intelligence).

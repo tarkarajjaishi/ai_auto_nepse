@@ -1,0 +1,95 @@
+title: NEPSE Today: How to Read a Trading Session Properly
+slug: nepse-today-how-to-read-a-trading-session-properly
+description: A working method for reading one NEPSE session — index versus breadth, turnover versus volume, what LTP means intraday, and the data traps that make live screens quietly wrong.
+category: nepse-today
+tags: NEPSE Today, Trading Session, Market Breadth, LTP, Floorsheet, Nepal Stock Exchange
+---
+Reading a NEPSE session properly takes about four minutes and almost nobody does it. The common routine is to check the index, check whether your own holdings are green, and stop. That routine gives you a number and a mood, and it regularly leaves you with the wrong impression of what actually happened.
+
+A session has structure. It has phases, it has a distribution of outcomes across hundreds of stocks, and it leaves behind a broker-level record that is more informative than anything you saw while it was running. Reading it well means going through that structure in a fixed order so that today's read is comparable with yesterday's.
+
+Here is the method, the order to do it in, and the specific ways market screens mislead you while a session is live.
+
+## Start with breadth, not the index
+
+The headline index is capitalisation-weighted, so a handful of large companies dominate it. Look at the index first and you have anchored on the largest companies' day, not on the market's day.
+
+Look instead at how many stocks advanced, declined and were unchanged, then read the index against that.
+
+- **Index up, breadth strongly positive.** A broad session. The move is what it looks like.
+- **Index up, breadth negative.** Heavyweights carried it. Most portfolios did worse than the headline suggests. This combination is common and almost never reported as what it is.
+- **Index down, breadth positive.** A large company or a heavy sector fell. If you hold small and mid caps, your day was better than the headline.
+- **Index flat, breadth extreme in either direction.** The most misleading day of all. Nothing happened at the headline and a great deal happened underneath.
+
+> The index reports the largest companies. Breadth reports the market. When they disagree, breadth is the one that describes your portfolio.
+
+Add one refinement: count how many stocks moved by a large amount in either direction. A session where a handful of names hit their limits is a different kind of day from one where everything drifted a fraction, even if the index change is identical.
+
+## Turnover is the number that tells you whether to care
+
+Volume in share counts is close to useless for cross-stock comparison, because a low-priced stock trades far more shares for the same rupee amount. Share counts rank by cheapness, not by interest.
+
+Use **turnover value** instead, and always read it in context:
+
+1. **Today's total turnover against its own recent range.** A strong index move on unusually light turnover is a weak signal. The same move on heavy turnover means participation agreed with it.
+2. **A single stock's turnover against that stock's own typical level.** This is the correct comparison. Comparing a stock's turnover with the market's tells you its size, which you already knew.
+3. **Turnover concentration.** If a large share of the day's total value went through a few symbols, the session was narrow regardless of what breadth suggested.
+
+The general rule: price tells you what happened, turnover tells you how much conviction was behind it, and turnover measured against the stock's own history is the only version of that with any information in it.
+
+## What LTP means, and when it stops meaning it
+
+LTP is last traded price — the price of the most recent executed trade. It is not a quote, not a valuation and not necessarily current.
+
+Two consequences matter during a session:
+
+**For a thinly traded stock, LTP can be hours old.** If the last trade happened early in the session, the LTP you are reading describes that moment, not now. In an illiquid name the LTP can sit unchanged while the whole market moves.
+
+**After the close, LTP is a leftover.** Feeds frequently keep publishing the last quote well past the end of the session. A screen that renders that as a live price is showing you a stale number with a confident label. This is the single most common defect in market software, and it is invisible unless the screen states the age of what it is showing.
+
+So the first question to ask of any live NEPSE screen is not "what is the price" but "when was this number produced". A good screen answers it without being asked. A screen that shows yesterday's close during a live session is wrong even when the figure is accurate, because you cannot tell which one you are looking at.
+
+## The phases of a session, and what each tells you
+
+A NEPSE session has a pre-open phase before continuous trading begins, then continuous trading through to the close.
+
+**Pre-open** is where orders accumulate before continuous trading. It is worth a glance because it shows where interest was queued before anyone could react to the day's flow — but a pre-open indication is a starting condition, not a forecast, and it is frequently overturned within the first stretch of trading.
+
+**The open** tends to be noisy. Orders placed overnight execute, gaps resolve, and a large share of the day's eventual volume can trade in a compressed window. A move in the opening minutes is the least reliable read of the session.
+
+**The middle of the session** is where the honest signal lives. If a direction survives past the opening flurry on sustained turnover, it reflects something more than queued orders clearing.
+
+**The close** matters because closing prices are what get recorded, indexed and referenced. A move in the final stretch has more effect on tomorrow's starting point than a bigger move in the middle of the day.
+
+## After the close: the part almost nobody reads
+
+Once the session ends, NEPSE publishes a broker-level floorsheet — every trade, with the broker on each side. This is unusually granular disclosure; many exchanges never release counterparty identifiers publicly.
+
+Reading it by hand is impractical, but even a coarse look answers questions the live screen cannot:
+
+- Was today's volume in a given stock spread across many brokers, or concentrated in a few?
+- Did the same brokers appear on both sides, meaning turnover without any change of ownership pattern?
+- How large were the individual trades, in value rather than share count?
+
+One caution that saves you from a whole family of bad conclusions: every share bought is sold. Any net buy/sell imbalance across the whole market is exactly zero by construction. If you find yourself concluding that a hidden buyer accumulated across NEPSE today, you have re-described turnover. At the level of a single stock the flow question is legitimate; at the market level it is arithmetic.
+
+## The four-minute session routine
+
+Do these in this order and your reading of a session becomes consistent rather than mood-driven.
+
+1. **Advances, declines and unchanged.** Form your view of the day before you look at the index.
+2. **Index and sub-indices.** Which groups led and lagged. Attribute the headline move to a sector rather than to "the market".
+3. **Total turnover against its recent range**, then the turnover share of the top few symbols.
+4. **Your own holdings against their sub-index**, not against the headline. Green while your sector rose more is underperformance.
+5. **One anomaly.** Pick the largest unexplained move of the day and find out whether a disclosure, a corporate action or an ex-date explains it. A price fall on an ex-dividend or bonus adjustment is not a fall.
+
+## What to watch for, and what to distrust
+
+- **Distrust any unlabelled number during a live session.** If a screen does not state which session its figures belong to, assume the worst.
+- **Distrust round-number narratives.** "The index defended a level" is a story told after the fact; the level had no mechanical force.
+- **Distrust one-day conclusions about a company.** A single session is mostly noise. What a session is genuinely good for is spotting things worth investigating, not reaching verdicts.
+- **Watch for breadth diverging from the index across several sessions.** A run of index gains on weakening breadth means the move is narrowing, which is a real and checkable observation.
+
+The point of reading a session properly is not to trade it. It is to build an accurate picture of what the market is doing so that when you do act, you are acting on the market rather than on the headline.
+
+For what actually causes those moves, read [What Moves NEPSE in a Single Trading Day?](/blogs/what-moves-nepse-in-a-single-trading-day). For the metric most often misread on a live screen, see [What Is LTP in NEPSE? Complete Explanation](/blogs/what-is-ltp-in-nepse-complete-explanation), and for the sector groups you should attribute moves to, [Understanding NEPSE Sub-Indices: Banking, Hydropower, Microfinance and More](/blogs/understanding-nepse-sub-indices-banking-hydropower-microfinance-and-more).

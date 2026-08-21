@@ -1,0 +1,79 @@
+title: The Future of NEPSE: AI, Data and Intelligent Stock Market Analysis
+slug: the-future-of-nepse-ai-data-and-intelligent-stock
+description: The future of NEPSE analysis is decided by data quality, not model sophistication. Here is the infrastructure required first, and what becomes possible once it exists.
+category: ai-and-nepse
+tags: NEPSE AI, Market Data, Nepal Stock Exchange, Quantitative Analysis, Machine Learning, Data Infrastructure
+---
+The future of analysis on the Nepal Stock Exchange will not be decided by which model architecture wins. It will be decided by whether anyone builds a clean, complete, correctly dated record of what the market did, and keeps it that way for years.
+
+That is a dull answer to an exciting question, and it is the one every quantitative team eventually arrives at. Models are commodities. Sophisticated statistical methods are freely available and well documented. What is scarce in Nepal is a trustworthy dataset: adjusted price history that survives corporate actions, a floorsheet archive that has not been silently overwritten, fundamentals stamped with the date they were published rather than the date they were downloaded, and a discipline about which numbers came from which session.
+
+This article describes the data layer that intelligent NEPSE analysis depends on, the specific ways it goes wrong, and what genuinely becomes possible once it is right.
+
+## The bottleneck is data, not algorithms
+
+Consider what an ambitious NEPSE research question requires. Suppose you want to know whether unusual broker concentration in a stock precedes anything. To answer it properly you need every session's floorsheet for several years, price history adjusted for every bonus and rights issue, a way to exclude securities that had stopped trading, and a guarantee that each of those records reflects only what was knowable on the day in question.
+
+The modelling that follows might be a few dozen lines. The data work is the project. Teams that invert this ratio produce impressive-looking results that quietly depend on information nobody could have had at the time.
+
+## What a usable NEPSE data layer has to contain
+
+- **Daily bars per security**, adjusted for corporate actions, with the sessions that did not trade represented as gaps rather than as invented prices.
+- **The broker-level floorsheet**, stored in full rather than as a summary, because tomorrow's question will need a column today's summary discarded.
+- **Index and sub-index history**, so a stock's move can be separated from its sector's move and the market's.
+- **Fundamentals with publication dates**, not just values. EPS is meaningless in a study unless you know when the market could first have seen it.
+- **A record of what the archive itself looked like on each past day**, so that a result can be reproduced exactly rather than approximately.
+
+The last one is the one almost everybody skips, and it is the one that determines whether any research built on top can be believed.
+
+## Point-in-time is the whole game
+
+Look-ahead bias is not an exotic statistical concern. It is a plumbing failure, and it is easy to commit without noticing.
+
+Here is the shape of it. You rebuild a historical screen using the archive as it exists now. The archive now contains adjusted prices, corrected filings, and a symbol list that excludes companies delisted along the way. Your screen therefore evaluates a past date with facts that arrived after it. The results look strong because they are partly a memory of the future.
+
+The subtle version is worse. A single field carrying a value that was later restated, a symbol list quietly filtered to those still trading, a threshold chosen after seeing which one worked: each of these leaks a little future into the past, and each is invisible in the output. The only defence is architectural. Every stored fact carries the date it became knowable, and every historical rebuild refuses to read anything stamped later than the date being rebuilt.
+
+> A backtest is not a measurement of a strategy. It is a measurement of your data discipline, and the strategy is only visible once that discipline is perfect.
+
+If you are going to run historical tests yourself, read [Backtesting a NEPSE Trading Strategy: Complete Beginner Guide](/blogs/backtesting-a-nepse-trading-strategy-complete-beginner-guide) before you trust a single result.
+
+## Corporate actions quietly destroy history
+
+Bonus shares, rights issues and stock splits change the price without changing the value of what a holder owns. An unadjusted price series records these as sudden collapses. Any model reading that series will learn from crashes that never happened, and any volatility measure computed over them will be wrong.
+
+Detection is harder than it looks. You cannot simply flag large single-day falls, because NEPSE applies a daily circuit limit, and a genuine limit-down move and a modest adjustment can look similar in a series of closes. The reliable signal is the gap at the open rather than the size of the fall, cross-checked against the corporate action record. A system that gets this wrong does not fail loudly. It produces plausible numbers that are simply untrue, which is the worst failure mode a research platform can have.
+
+## What becomes possible when the data is right
+
+Once the archive is trustworthy, a set of genuinely useful capabilities follows, none of which involve forecasting.
+
+**Complete screening.** Every listed security evaluated against the same definition every session, with each stock measured against its own history rather than a market-wide threshold. This is the single largest practical gain, and it is available to anyone willing to do the data work.
+
+**Regime description.** Whether the market is trending or oscillating, whether breadth supports the index, whether volatility is high relative to that instrument's own norm. These are descriptions of the present, not claims about the future, and they are checkable the day after.
+
+**Cross-sectional comparison.** A stock rising during a rising market has said less than a stock rising against one. Separating the two requires sector and index history, which is why the sub-index series matters as much as the price series. [Understanding NEPSE Sub-Indices: Banking, Hydropower, Microfinance and More](/blogs/understanding-nepse-sub-indices-banking-hydropower-microfinance-and-more) covers how differently these behave.
+
+**Text at scale.** Quarterly reports and disclosures are documents. Language models can extract figures and summarise tone across hundreds of them, turning a reading backlog into a searchable dataset. The output still needs verification against the source, because a confidently extracted wrong figure is more dangerous than no figure.
+
+**Honest risk accounting.** With clean history you can state how a rule behaved in its worst period rather than on average, which is the only number that predicts how you will feel while holding it.
+
+## Three futures that are not arriving
+
+**A machine that tells you what to buy tomorrow.** Short-horizon prediction remains close to a coin flip in liquid markets, and Nepal's market being smaller does not make prices more forecastable. It makes samples smaller and results less reliable, which is the opposite of helpful.
+
+**A black box you can trust.** In a market this size, a model whose reasoning cannot be inspected cannot be validated either, because there is not enough independent data to test it into submission. Explainability here is not a nicety, it is the only available substitute for scale.
+
+**Free, complete, real-time everything.** Live data has real cost and real constraints. What matters is not that a screen updates constantly but that it tells you honestly how old the number is. A price labelled with its session is more useful than a price refreshed every second with no indication of whether the market is even open.
+
+## What to watch for
+
+If you are evaluating a NEPSE analysis product, or building one, these are the questions that separate infrastructure from decoration.
+
+1. Does every displayed number say which session it came from, and does it visibly change appearance when it goes stale?
+2. Can a past result be reproduced exactly, on demand, from the archive alone?
+3. Does the system store raw source data or only its own summaries? Summaries are irreversible, and tomorrow's question will need the column you discarded.
+4. How are bonus and rights adjustments handled, and can that handling be inspected for a specific security?
+5. Has the operator ever published a result that did not work? Everything works in a brochure.
+
+The future of intelligent analysis in Nepal is less glamorous than the phrase suggests and more valuable. It is a complete, correctly dated record of a market that has never had one, plus the discipline to be measured against it. Everything interesting, including every honest use of machine learning, is built on that foundation. For the modelling side of the story, see [Historical NEPSE Data and Machine Learning: What Can We Learn?](/blogs/historical-nepse-data-and-machine-learning-what-can-we) and [Time-Series Analysis of NEPSE Stocks Explained](/blogs/time-series-analysis-of-nepse-stocks-explained).

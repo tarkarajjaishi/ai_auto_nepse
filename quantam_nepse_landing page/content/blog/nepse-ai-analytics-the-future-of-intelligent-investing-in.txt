@@ -1,0 +1,95 @@
+title: NEPSE AI Analytics: The Future of Intelligent Investing in Nepal
+slug: nepse-ai-analytics-the-future-of-intelligent-investing-in
+description: What AI analytics for NEPSE should actually consist of — its data, computation and interpretation layers, what genuinely changes for an investor, and what to reject.
+category: ai-and-nepse
+tags: NEPSE AI, Intelligent Investing, Market Analytics, Nepal Stock Exchange, Data Intelligence
+---
+"AI analytics" is close to meaningless as a phrase, because it is applied equally to a language model summarising a report and to a screener with a coloured badge on it. If it is going to mean anything for the Nepal Stock Exchange, it has to be broken into the specific capabilities involved, each of which is at a different level of maturity and each of which fails in a different way.
+
+The honest version of the argument is narrower than the marketing version but more durable. AI does not make NEPSE predictable. What it changes is how much public evidence one investor can process, how consistently that processing is applied, and how quickly a claim can be checked against history. In a market where most participants read a fraction of the available data and nobody reads it the same way twice, that is a genuine shift — just not the one usually advertised.
+
+This article sets out what a serious NEPSE analytics system should be made of, what it should refuse to claim, and how to judge one you are being sold.
+
+## The four layers, and which ones are actually solved
+
+Think of an analytics platform as a stack. Value accumulates upward, but so does the opportunity to be wrong, and the layers are not equally mature.
+
+1. **The data layer.** Prices, volumes, the broker floorsheet, financial statements, corporate actions, index and sub-index history. Boring, unglamorous, and the layer that determines whether everything above it is worth anything. Essentially solved as an engineering problem, and constantly got wrong in practice.
+2. **The computation layer.** Indicators, aggregations, rankings, screens, statistics. Deterministic. Given the same inputs it returns the same answer, and any disagreement can be traced to a definition. Solved.
+3. **The interpretation layer.** Turning numbers into statements — pattern detection, sentiment scoring, summarisation, anomaly flags. Partly solved. Language tasks work well; forecasting tasks do not.
+4. **The decision layer.** Position sizing, risk limits, entry and exit discipline. Mechanically solved, and the layer where a rules-based system most reliably beats a human, because the failure mode it removes is emotional rather than analytical.
+
+Most attention goes to layer three. Most of the actual benefit is in layers one, two and four. That inversion explains why so many impressive-sounding tools deliver so little.
+
+## Why the data layer decides everything
+
+Nothing above the data layer can be more correct than the data. Three specific failures matter on NEPSE, and all three are invisible unless you go looking.
+
+**Corporate action adjustment.** Bonus shares and rights issues change the price scale overnight. An unadjusted series shows a crash that never happened. Every trend, every momentum ranking, every volatility figure computed on that series is wrong, and it will look completely normal on screen.
+
+**Thin trading.** Many listed stocks do not trade every session. Filling those gaps with the previous close manufactures flat days that make a stock look far calmer than it is.
+
+**Staleness.** This is the one that most affects a reader. Any board of pre-computed numbers is only as fresh as the last time it was rebuilt. If a screen shows a figure from an earlier session without saying so, the reader cannot tell whether they are looking at today or last week — and the number can be perfectly accurate while the conclusion drawn from it is wrong.
+
+> A platform that does not tell you how old a number is has not given you a number. It has given you a number and a hidden assumption.
+
+The fix is not sophisticated. Every figure should carry the session it belongs to and a visible warning when the underlying archive has moved past it. During an open session, a screen showing a live price should say it is live and show its age; a screen showing yesterday's close should say that instead of quietly presenting it as the current price.
+
+## What genuinely changes for a Nepali investor
+
+Strip away the prediction claims and the remaining list is still substantial.
+
+- **Coverage.** Reading every disclosure across the entire listed universe is not humanly possible. A system that surfaces which ones contain something material converts an impossible task into a manageable one.
+- **The floorsheet becomes usable.** NEPSE publishes broker-level trade data that most investors never open. Aggregated across months, it supports questions about concentration and participation that no one answers by scrolling.
+- **Consistency.** A rule applied identically to every stock, every session, is immune to fatigue and to yesterday's loss colouring today's judgement. The definition is fixed, so it can be examined and disputed.
+- **Testability.** The most under-rated benefit. A rule written down precisely enough for a machine can be checked against history. A rule in someone's head cannot, which is why intuitions survive so long without evidence.
+- **Speed of dismissal.** Most ideas are wrong. Being able to kill an idea in an afternoon rather than over a year of capital is worth more than any single insight.
+
+The comparison with human analysis is not a contest with a winner — the tasks are different, as argued in [AI vs Human Stock Analysis: Which Is Better for NEPSE?](/blogs/ai-vs-human-stock-analysis-which-is-better-for).
+
+## What should not be claimed
+
+An analytics platform serving a retail-dominated market has an obligation to be more careful than its marketing incentives suggest, because the audience is least equipped to check.
+
+**Price predictions.** Nobody can produce reliable individual price forecasts, and a system presenting a target as a computed fact is misrepresenting an uncertain estimate as an output.
+
+**Accuracy percentages without a method.** An accuracy figure means nothing without the out-of-sample period, the benchmark it beat, and how many variants were tested before that one was selected. Test twenty ideas and one will look excellent by chance alone.
+
+**A market-wide hidden buyer.** Every share bought is sold. Across the whole market, net accumulation is exactly zero by construction. Any product claiming to detect institutional accumulation market-wide is re-describing turnover.
+
+**Client-level identification.** The floorsheet identifies brokers, not clients. One broker's activity may represent many unrelated investors. Concentration is a real, measurable fact; the story attached to it is an inference, and should be labelled as one.
+
+This scepticism is not a hedge. It is what separates a research tool from a signals service, and the distinction is drawn out in [Can AI Really Predict NEPSE?](/blogs/can-ai-really-predict-nepse-separating-technology-from-hype).
+
+## What trustworthy looks like in practice
+
+A few properties distinguish a system worth relying on, and they are all checkable from the outside.
+
+- **Every number is traceable.** You can see the definition and the inputs. A score you cannot decompose is a score you cannot argue with, and one you cannot argue with is one you should not act on.
+- **Negative results are published.** A platform that has tested its own ideas and reports which ones failed is doing research. One that only ever announces discoveries is doing marketing.
+- **Uncertainty is shown, not hidden.** Confidence intervals, sample sizes, the number of observations behind a statistic. A ranking built on twelve trades should say so on the same screen.
+- **Results are broken down by period.** A per-year table is the single most revealing diagnostic in quantitative work. A strategy carried by one exceptional year is one lucky period, and averaging hides that.
+- **Data freshness is visible everywhere.** Stated above, and worth repeating because it is the most common omission.
+
+## The realistic trajectory
+
+Where this goes over the next several years is reasonably predictable, because the constraints are structural rather than technological.
+
+The data layer will improve first, because it is the cheapest to fix and the most valuable. Clean, adjusted, timestamped archives with the floorsheet aggregated and searchable would raise the quality of Nepali market research more than any modelling advance.
+
+Language models will become ordinary infrastructure for reading — extracting figures from quarterly reports, comparing this quarter's language with last quarter's, summarising with citations you can check. This is the area where the technology is genuinely mature and the local benefit is largest, given how much Nepali market information sits in unstructured documents nobody has time to read.
+
+Forecasting will remain hard, because the difficulty is not computational. It is that markets adapt: a widely known edge stops working, which is not a problem better hardware solves. Expect steady improvement in risk measurement, execution discipline and research throughput, and very little in prediction.
+
+The broader case for this direction is made in [Why Data Intelligence Could Become the Future of NEPSE Investing](/blogs/why-data-intelligence-could-become-the-future-of-nepse) and [NEPSE Quantum: The Future of AI-Powered Nepal Share Market Analysis](/blogs/nepse-quantum-the-future-of-ai-powered-nepal-share).
+
+## How to judge a platform you are being shown
+
+Four questions, and you can ask all of them in a few minutes.
+
+1. **Where does this number come from, and how old is it?** If the interface cannot answer, the rest does not matter.
+2. **How is this score defined?** A one-sentence answer you can understand is a good sign. "Proprietary AI" is not an answer.
+3. **What has this been tested against, and over what period?** Ask specifically for results broken down by year, not an average.
+4. **What has it got wrong?** A platform with no published failures has either not looked or is not telling you.
+
+Then apply the standard that matters more than any of them: does this help you make a decision you can explain to yourself in plain language? A tool that improves the quality of your reasoning is worth keeping. One that replaces your reasoning with a badge you cannot interrogate has made you more confident without making you better informed, which is the most expensive possible outcome.

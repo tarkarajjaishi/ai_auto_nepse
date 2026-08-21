@@ -1,0 +1,85 @@
+title: How Quantitative Analysis Can Improve NEPSE Stock Research
+slug: how-quantitative-analysis-can-improve-nepse-stock-research
+description: How measurable definitions, cross-sectional comparison and the broker floorsheet make NEPSE research repeatable, and the metric traps that quietly ruin most home-made scores.
+category: quantitative-finance
+tags: Quantitative Analysis, NEPSE Research, Nepal Stock Exchange, Stock Screening, Investing in Nepal
+---
+Most NEPSE research is done one company at a time. You pick a stock, read its quarterly report, glance at the chart, check what the market is saying, and form a view. Then you repeat that for the next stock, days later, in a different mood, with a different amount of patience. The two conclusions are not comparable, even though they feel like they are.
+
+Quantitative analysis fixes exactly that problem, and it is worth being clear that this is what it fixes. It is not primarily about prediction. It is about making your research repeatable, comparable across the whole listed universe, and honest about what you actually knew at the time you decided.
+
+That sounds modest. In a market where the same investor will call a stock "strong" on a good week and "overheated" on a bad one, using the same evidence, it is the single largest available improvement.
+
+## Turning a judgement into a definition
+
+Every experienced investor has intuitions: this stock is quietly accumulating, that one is overextended, this sector is rotating in. The quantitative step is not to replace those intuitions but to write them down precisely enough that they can be computed, and therefore argued with.
+
+Take "overextended". Written down, it becomes a specific question: how far is the price from its own recent average, measured in units of its own typical daily movement? Now it is a number you can compute for every stock on the board, compare across sectors, and check against history. You will often find your intuition was tracking something else entirely, or was really a statement about volume.
+
+The gain is not that the definition is correct. It is that it is fixed. When a defined rule fails you can find out why. When an intuition fails you can only feel bad about it.
+
+> A number you cannot reproduce next month is an opinion with decimal places.
+
+## Comparison is the whole game
+
+A raw metric is nearly useless. A price-to-earnings ratio of eighteen means nothing until you know what the rest of the sector trades at and what this company has typically traded at. Turnover of a few million rupees is enormous for one stock and a quiet day for another.
+
+Serious quantitative work is therefore almost always comparative, in two directions at once:
+
+- **Against the stock's own history.** Is today's volume unusual for this stock? Is this valuation high relative to where this company has been? This controls for the permanent differences between companies.
+- **Against its peers on the same day.** Is this stock cheap relative to other development banks right now? This controls for the market-wide mood, which otherwise dominates everything.
+
+Skip the second and you will rediscover the market index in every metric you build: in a market where sectors move together, almost every stock looks strong on a strong day. Rank within the day, and you learn something about the stock rather than the session.
+
+If you want the sector context that makes those comparisons meaningful, [how Nepal's market sectors behave differently](/blogs/nepse-sector-analysis-how-nepal-market-sectors-behave-differently) is the place to start, because banking, hydropower and microfinance do not share a normal range for anything.
+
+## What the floorsheet adds that fundamentals cannot
+
+NEPSE publishes a broker-level record of trades. Many exchanges do not make anything comparable public. It is the richest dataset a Nepali retail investor has, and it is largely unused because reading it by hand is impractical past a handful of sessions.
+
+Processed systematically, it answers questions that fundamentals cannot touch:
+
+- Was today's volume spread across many brokers or concentrated in a few?
+- Which brokers were persistently on one side of a stock over the last week, and is that unusual behaviour for them?
+- How does participation today compare with this stock's own typical breadth of participation?
+
+These are descriptions of what happened, stated precisely. That is a much lower bar than forecasting and a far more dependable one. They belong in your research as context — evidence about who was involved — not as a signal to trade on by themselves.
+
+## The traps that quietly ruin home-made NEPSE metrics
+
+This is where most enthusiastic quantitative projects in Nepal go wrong. Four failures account for the majority, and all four produce results that look impressive.
+
+**The conservation identity.** Every share bought is sold. Any measure of net buying across the whole market is zero by construction, and most "hidden accumulation" metrics computed market-wide are re-describing turnover in an elaborate way. If a metric's top names are simply the most traded stocks, it is a liquidity measure wearing a costume.
+
+**Price in disguise.** Metrics built on share counts — average shares per trade, quantity thresholds — are inversely related to price, because a hundred rupees buys many more shares of a cheap stock. Neutralise for price and much of that family evaporates.
+
+**Degenerate output.** Check the distribution of every metric you build. If it takes almost the same value for nearly every stock, or pins at its own limit constantly, it is not measuring variation and cannot rank anything, no matter how sensible the formula looked.
+
+**Look-ahead.** The most damaging and the hardest to see. If your ranking uses any information that was not available on the date you claim to have ranked, your results are fiction. This includes ranking a universe chosen because those stocks are liquid today.
+
+## A research loop that one person can actually run
+
+You do not need a research team. You need a loop you repeat identically.
+
+1. **Define the universe** before you look at anything: which stocks are eligible, on liquidity and listing status, as of the date in question.
+2. **Compute a small set of measures** you understand completely. Three you can explain beat twenty you cannot.
+3. **Rank within the day**, and within the sector where the sector has its own norms.
+4. **Read the top and the bottom.** The bottom is more instructive than most people expect, because it tells you what your measure is really selecting for.
+5. **Write the thesis down** before you act, including what would prove it wrong.
+6. **Review the misses**, not just the hits. A record of only winners is a memory, not a dataset.
+
+## Where the numbers stop and judgement resumes
+
+Quantitative analysis is very good at breadth and consistency and completely blind to a set of things that matter enormously in Nepal: governance quality, promoter behaviour, regulatory shifts, the credibility of a management team, whether a hydropower project will actually reach completion. No metric on the board captures those.
+
+The right division of labour is that numbers choose what you examine and judgement decides what you own. A screen that hands you fifteen names to read is doing its job. A screen that hands you an order to place is exceeding it.
+
+The complementary skill is still reading the company itself, and [how to read a NEPSE company financial report](/blogs/how-to-read-a-nepse-company-financial-report) covers the half that no ranking will do for you.
+
+## What to do this week
+
+Pick one intuition you use often and write it down as a formula. Compute it for every stock you can, on one past date. Look at what it selects. Then check three things: does the top of the list simply contain the most traded stocks, does the metric vary at all across the universe, and could you have computed it with only the information available on that date.
+
+Most first attempts fail at least one of those tests. That is the point of running them. The value of a quantitative process is not that it is cleverer than you, it is that it fails visibly instead of quietly.
+
+When your definitions survive those checks, the next step is combining them into something testable, which is where [building a quantitative strategy for the Nepal Stock Exchange](/blogs/building-a-quantitative-strategy-for-the-nepal-stock-exchange) picks up.

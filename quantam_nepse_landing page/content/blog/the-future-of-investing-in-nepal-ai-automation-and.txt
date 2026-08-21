@@ -1,0 +1,79 @@
+title: The Future of Investing in Nepal: AI, Automation and Data
+slug: the-future-of-investing-in-nepal-ai-automation-and
+description: How AI, automation and better data change the actual work of investing in Nepal — which parts of your process they replace, which they cannot, and the order in which to adopt them.
+category: market-news
+tags: AI Investing, Nepal Stock Exchange, Automation, Data-Driven Investing, NEPSE Research
+---
+The future of investing in Nepal is less exciting and more useful than the marketing suggests. It is not a machine that tells you what to buy. It is the gradual automation of the parts of your process that you already do, but do inconsistently, slowly, or not at all because there are not enough hours in the evening.
+
+That framing matters because it tells you where the gains are. If you currently check three stocks a week and skim a quarterly report, automation does not make you a better forecaster. It makes you an investor who checks every stock, reads every report, applies the same criteria to all of them, and has a written record of why each decision was made. In a retail-dominated market with thin analytical coverage, that alone is a meaningful difference.
+
+This article breaks the investing process into layers, shows which layer each technology actually touches, and gives an order of adoption that does not require you to become a programmer.
+
+## Three layers, and only one of them is glamorous
+
+Every investment process, however informal, has three layers.
+
+1. **Collection.** Getting the data: prices, volumes, the floorsheet, financial statements, disclosures, news.
+2. **Analysis.** Turning that data into a view: valuation, trend, risk, comparison against peers.
+3. **Execution and discipline.** Sizing the position, setting the exit, and actually doing what you said you would do.
+
+Public conversation about AI is almost entirely about layer two, because that is the layer that sounds like intelligence. In practice, layer one is where most retail time is lost, and layer three is where most retail money is lost. Automating layer two first is the classic mistake.
+
+## Automation pays first where the work is boring
+
+Consider what collection costs you today. NEPSE publishes a broker-level floorsheet — genuinely granular data, more granular than many larger markets make public. Reading one day of it by hand is tedious. Reading a month of it to see how a stock's broker participation has changed is effectively impossible without software.
+
+That is not an intelligence problem. It is a clerical problem, and clerical problems are exactly what computers solved decades before anyone said "AI". The same applies to pulling every listed company's reported EPS into one comparable sheet, or flagging which of your holdings has published something new this week.
+
+The realistic near-term future for a Nepali investor is that this clerical layer becomes free. Once it is free, the question changes from "can I get this data" to "what do I do with all of it" — and that question is harder than it sounds, because more data without a method is just more noise.
+
+> The first thing to automate is not your judgement. It is everything you do before your judgement gets involved.
+
+## Data quality is the constraint, not the algorithms
+
+Modern machine-learning methods are commodities. Anyone can obtain them. What is not a commodity in Nepal is clean, complete, correctly aligned historical data.
+
+The problems are ordinary and unglamorous. Corporate actions restate price history, so a naive price series shows a fall that never happened. Symbols change. Files from different periods use different formats and a careless parser silently drops rows rather than erroring. A trading session with no trades in a stock is not the same as a session with a zero price, but a spreadsheet treats them identically.
+
+Every one of those defects produces a model that looks excellent in testing and fails in use — and the failure is silent, because a wrong number is still a number. If you are evaluating any analytical tool for the Nepali market, the questions that separate serious work from a demo are about data handling, not about model architecture. [How machine learning can help analyse Nepal Stock Exchange data](/blogs/how-machine-learning-can-help-analyze-nepal-stock-exchange) goes into what those methods can and cannot extract once the data is sound.
+
+## Automation scales a bad process just as efficiently as a good one
+
+This is the risk nobody advertises. If your current method is "buy what is rising and hope", automating it gives you a faster, more thorough, more disciplined way to buy what is rising and hope. The machine adds consistency; it does not add correctness.
+
+The defence is testing, and testing properly is harder than running it. A strategy tested on the same data used to design it will look profitable — that is a mathematical near-certainty, not evidence. Honest testing means holding back data the design never saw, accounting for the fact that today's listed companies are the survivors, including realistic costs, and being willing to conclude that the idea has no edge. Most ideas do not. [Backtesting a NEPSE trading strategy](/blogs/backtesting-a-nepse-trading-strategy-complete-beginner-guide) walks through the traps that make results look better than they are.
+
+Expect the majority of your automated ideas to fail this test. That is not a sign the approach is wrong. It is the approach working.
+
+## The discipline layer is the highest-return automation, and the least discussed
+
+Here is the uncomfortable arithmetic of retail investing anywhere: the gap between a strategy's tested performance and an investor's actual performance is mostly behaviour. Positions sized by conviction rather than rule. Stops widened because the loss felt temporary. A plan abandoned three weeks in because a different stock ran.
+
+Software is indifferent. It sizes the position the same way on a day you feel clever and a day you feel burned. It applies the exit you wrote down when you were calm. Nothing about this requires artificial intelligence — it requires a written rule and something that enforces it.
+
+If you automate exactly one thing, automate this. It is the only layer where the benefit does not depend on your predictions being any good.
+
+## Where the hype is, plainly
+
+Be sceptical of these claims specifically:
+
+- **"The AI predicts price."** Markets are largely reflexive and adaptive. A published edge gets competed away. Prediction claims should be treated as marketing until they show out-of-sample evidence, and even then held loosely.
+- **"We detected the smart money."** Every share bought is sold, so market-wide net buying and selling cancel exactly. Anything claiming a hidden aggregate buyer is usually re-describing turnover.
+- **"Backtested returns of X%."** Ask what data was excluded, what costs were assumed, and whether the parameters were chosen after seeing the results.
+- **"Sentiment analysis of the news."** Useful, but general-purpose sentiment models read financial language badly and news arrives after the price has already moved.
+
+Scepticism here is not pessimism. It is what makes the remaining, real advantages worth having.
+
+## A sensible order of adoption
+
+You do not need to build anything to start. In rough order of return on effort:
+
+1. **Write your process down.** One page: what you buy, why, how much, when you exit. Without this, nothing else can be automated or tested.
+2. **Automate collection.** Get your watchlist's prices, fundamentals and disclosures assembled without manual work.
+3. **Automate screening.** Apply your written criteria to every listed company rather than the handful you happen to think of. See [how to analyse a NEPSE stock before buying](/blogs/how-to-analyze-a-nepse-stock-before-buying) for what belongs in those criteria.
+4. **Automate the record.** Log every decision with its reason at the time. This is the only way you will ever know whether your judgement is any good.
+5. **Test, honestly.** On held-back data, with costs, expecting failure.
+6. **Only then, models.** Once there is a clean pipeline and a tested baseline, a model has something to improve on. Before that, it has nothing to be measured against.
+
+The investors who benefit most from the next decade of tooling in Nepal will not be the ones with the cleverest models. They will be the ones whose process was written down clearly enough to automate in the first place.

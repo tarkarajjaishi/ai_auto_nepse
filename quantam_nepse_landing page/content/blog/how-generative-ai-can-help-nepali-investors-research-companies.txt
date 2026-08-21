@@ -1,0 +1,79 @@
+title: How Generative AI Can Help Nepali Investors Research Companies
+slug: how-generative-ai-can-help-nepali-investors-research-companies
+description: A practical guide to using generative AI on NEPSE company research — the six jobs it does well, the errors it makes reliably, and the verification routine that keeps it honest.
+category: ai-and-nepse
+tags: Generative AI, NEPSE Research, Company Analysis, Nepal Stock Exchange, Investment Research
+---
+Generative AI is useful for researching Nepali companies in one specific way, and misleading in almost every other. It is good at transforming text you give it. It is bad at knowing things about NEPSE-listed companies on its own.
+
+That distinction is the whole article. If you paste a quarterly report and ask the model to pull every figure into a comparable table, you are asking it to do something it is genuinely reliable at. If you ask "what were this company's earnings last quarter", you are asking it to recall a fact about a small market it may have seen little of, and it will answer confidently whether or not it knows. The output looks identical in both cases. Only one of them is trustworthy.
+
+Get that rule right and generative AI becomes the most useful research assistant a retail investor in Nepal has ever had access to. Get it wrong and it is a machine that manufactures plausible numbers.
+
+## The rule: supply the source, never ask from memory
+
+Everything below follows from one habit. **Give the model the document.** The report, the disclosure, the notice, the transcript — paste it in, or point the tool at the file. Then ask questions about the text in front of it.
+
+The reason is structural, not a temporary limitation. Language models generate the most plausible next words. When they have the source text, the most plausible continuation is the correct answer, because the answer is right there. When they do not, the most plausible continuation is something that sounds like a financial figure. Nepali companies are exactly the kind of subject where the model's underlying knowledge is thinnest and its confidence is unchanged.
+
+> A model with the document is a fast reader. A model without it is a fluent guesser, and the two are indistinguishable from the output alone.
+
+## Six jobs it does well
+
+Each of these takes the source text as input. None asks the model to know anything.
+
+**1. Extraction into comparable form.** Paste two or three quarterly reports and ask for a single table of the same line items across periods. This is the single biggest time saving in company research, and it is exactly the sort of tedious transcription where humans make errors and machines do not.
+
+**2. Reading the notes, not the headline.** Ask it to list every item in the notes to accounts that affects the reported profit — one-off gains, provisioning changes, revaluations, changes in accounting treatment. The interesting information in a Nepali financial statement is usually in the notes, and the notes are where retail investors stop reading. [How to read a NEPSE company financial report](/blogs/how-to-read-a-nepse-company-financial-report) covers what you are looking for.
+
+**3. Comparing language across periods.** Give it the management commentary from two consecutive quarters and ask what changed in wording. Companies rarely announce deterioration; they soften adjectives. A phrase that moves from "strong" to "stable", or a risk that gains a paragraph, is a signal that a person skimming will miss and a diff will not.
+
+**4. Generating the questions you have not thought of.** "Based on this report, what are the ten questions a sceptical analyst would ask management?" This is the use that most improves an amateur's research, because the model's weakness — producing plausible content — is a strength when the output is a question rather than an answer. You still have to go and find the answers.
+
+**5. Explaining terminology in context.** Financial statements from banks, insurers and hydropower companies use different vocabulary. Asking what a specific line item means in the context of the document in front of it is fast and low-risk, because the answer is checkable.
+
+**6. Arguing against your own thesis.** Write down why you want to buy something, then ask the model to make the strongest case that you are wrong. This does not require the model to be right. It requires it to be adversarial, which it is happy to be, and it surfaces assumptions you have stopped noticing.
+
+## What it will get wrong, reliably
+
+Knowing the specific failure modes is more useful than a general warning to be careful.
+
+- **Invented figures.** Asked for a number it does not have, a model produces one shaped like the right answer. It will not flag the difference.
+- **Arithmetic.** Language models compute badly. Ratios, growth rates and per-share figures should be recalculated by you or by a calculator, not accepted from prose.
+- **Fabricated sources.** Requests for citations produce citation-shaped text. Assume any reference to a report, circular or article is fictional until you have opened it.
+- **Stale or absent knowledge of Nepali companies.** Small-market coverage in training data is thin and out of date. This is the most dangerous gap because it is invisible.
+- **Financial tone read with everyday vocabulary.** "Provision", "liability" and "exposure" are neutral technical terms that generic models score as negative.
+- **Nepali-language nuance.** Mixed Nepali and English source material, transliteration, and company names that vary in spelling across documents all cause quiet misreadings.
+- **Agreeableness.** Push back on a correct answer and many models will fold. Their confidence is not calibrated to their accuracy, so do not read agreement as confirmation.
+
+## The verification routine
+
+Three checks catch the overwhelming majority of errors, and they take a couple of minutes.
+
+1. **Spot-check three figures against the original document.** Pick one from the top, one from the middle, one from the notes. If all three are right, the extraction is probably clean. If any is wrong, discard the whole output rather than fixing that one — an error in extraction usually means the model misread the structure.
+2. **Recompute one derived number yourself.** If it reports EPS or a growth rate, do the division. This catches arithmetic drift immediately.
+3. **Ask it what it does not know.** "Which of these figures were not present in the text I gave you?" A model prompted to flag gaps often will, and anything it names is something you must source yourself.
+
+## A workable routine for one company
+
+Put together, a single-company research pass looks like this:
+
+1. Collect the source documents yourself: the last four quarterly reports, the annual report, and any disclosures. The model does not fetch these; you do.
+2. Extract the standard line items into one table across periods, then verify three of them.
+3. Ask for every one-off item and accounting change affecting reported profit.
+4. Diff the management commentary across the two most recent quarters.
+5. Compute the metrics yourself from the verified table — EPS, P/E, book value, whatever your process uses. Never take these from the model. See [how to analyse a NEPSE stock before buying](/blogs/how-to-analyze-a-nepse-stock-before-buying) for the checklist they feed.
+6. Ask for the sceptic's ten questions, and answer them from the documents.
+7. Write your thesis in your own words, then have the model attack it.
+
+Notice that the model appears in four steps and decides nothing in any of them.
+
+## Where it does not belong
+
+Do not use generative AI for valuation opinions, buy or sell calls, or price forecasts. Not because the output is unavailable — it will produce all three willingly — but because those outputs have no grounding. A model asked whether a stock is cheap is pattern-matching the language of valuation, not performing one.
+
+It is also a poor tool for anything numerical at scale. Screening the whole market, aggregating the broker-level floorsheet, or testing whether a pattern held historically are jobs for ordinary code and statistics, not for a text model. [AI financial analysis of Nepali companies with data](/blogs/ai-financial-analysis-understanding-nepali-companies-with-data) covers that side of the work.
+
+## The habit worth forming
+
+Treat every generative output as a draft written by a fast, well-read assistant who has never worked in Nepal and will not tell you when they are guessing. That assistant is enormously valuable — and you would still check their numbers before acting on them.

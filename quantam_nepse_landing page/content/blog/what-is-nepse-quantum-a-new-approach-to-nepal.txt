@@ -1,0 +1,77 @@
+title: What Is NEPSE Quantum? A New Approach to Nepal Stock Market Intelligence
+slug: what-is-nepse-quantum-a-new-approach-to-nepal
+description: NEPSE Quantum is a quantitative approach to Nepal Stock Exchange data built on measured description, not prediction. What it is, what it refuses to be, and the name.
+category: nepse
+tags: NEPSE Quantum, Nepal Stock Exchange, Quantitative Analysis, Market Intelligence, NEPSE AI, Investing in Nepal
+---
+NEPSE Quantum is an attempt to apply quantitative methods and machine processing to Nepal Stock Exchange data, and to publish what comes out of that work honestly, including the parts that do not work.
+
+That second half is the unusual bit. Most market tools are built to produce confidence, because confidence is what sells. A research process built properly does the opposite: it spends most of its effort trying to destroy its own ideas, and it publishes the ones that died alongside the ones that survived. In a market where analyst coverage is thin and tips circulate faster than evidence, that discipline is worth more than another chart.
+
+This article sets out what the approach is, what it deliberately is not, and the principles it holds itself to, so you can judge it against those standards rather than against a slogan.
+
+## The problem it exists to address
+
+Nepal's market has an information layer with three gaps.
+
+The first is coverage. Hundreds of securities are listed across banking, development banks, finance, hydropower, microfinance, insurance, hotels, manufacturing, trading, investment and mutual funds. Most investors follow the same small set of names, so the majority of the market is not analysed by anyone in particular on any given day.
+
+The second is memory. Predictions circulate constantly and almost none are scored afterwards. A tip that failed simply disappears from the conversation, which means the market as a whole never learns which sources are reliable.
+
+The third is the unread dataset. NEPSE publishes a broker-level floorsheet, which many exchanges do not make public at all. It is the richest data a Nepali retail investor can obtain, and it is barely used, because reading it by hand is impractical and the summaries that reach most investors throw away nearly everything interesting in it.
+
+None of these gaps is closed by a better opinion. They are closed by systematic processing and a written record.
+
+## What the approach actually is, in three layers
+
+**An archive.** A complete, correctly dated record of what the market did, held so that any past day can be reconstructed using only what was knowable on that day. That last condition sounds pedantic and is the difference between research and self-deception. Any historical test that reads facts which arrived later will look impressive and mean nothing.
+
+**A measurement layer.** Definitions applied identically to every security every session. Turnover relative to a stock's own history rather than the market's. Broker concentration within a session. Trend and volatility described in numbers instead of adjectives. Deliberately, these are descriptions of what happened, not forecasts of what happens next.
+
+**A presentation layer.** Numbers shown with the session they came from and a visible indication when they are stale. This is a boring requirement that turns out to matter enormously, because a previous close presented as a live price looks completely normal and is completely wrong.
+
+## What it deliberately is not
+
+- **Not a tip service.** No buy calls, no target prices, no lists of stocks about to move.
+- **Not a prediction engine.** Short-horizon price forecasting is close to a coin flip in every liquid market studied seriously, and Nepal's smaller sample makes claims about it less reliable, not more.
+- **Not a promise of returns.** Any tool quoting an expected percentage is quoting the past, usually the flattering part of it.
+- **Not a black box.** A method whose reasoning cannot be inspected cannot be validated either, and in a market this size there is not enough independent data to test an opaque model into trustworthiness.
+- **Not a replacement for reading the company.** Earnings, book value, dividend behaviour and disclosure quality drive long-run outcomes, and none of it is visible in a price series.
+
+## The principles
+
+1. **Every number carries its session.** If a figure is from the previous close, it says so. If a live feed has gone quiet, the screen shows the age rather than the last value pretending to be current.
+2. **Description before prediction.** Facts about what happened are reported as facts. Any claim about what follows is separated, labelled, and accompanied by how it was tested.
+3. **A signal must be able to fail.** Before a metric is trusted, the question is what result would have proved it wrong. This kills more ideas than any statistical test, and it kills them earlier.
+4. **Negative results are published.** An approach that has never rejected one of its own ideas has not been testing them. The rejections are as informative as the survivors, and often more so.
+5. **Reproducibility.** The same inputs produce the same output tomorrow. If they do not, the output was decoration.
+
+> A research process that only ever reports what worked is not a research process. It is an advertisement with numbers in it.
+
+## The floorsheet trap that shapes the whole method
+
+Anyone who starts analysing NEPSE's broker data eventually finds what looks like a hidden accumulator: a participant apparently buying persistently across the market. It is a compelling discovery and it is an illusion.
+
+Every share bought is also sold. Any net buy-minus-sell imbalance measured across the whole market is exactly zero by construction. Metrics that appear to reveal market-wide accumulation are usually re-describing turnover, and they will keep producing confident, meaningless output forever because nothing can contradict them.
+
+This single arithmetic fact eliminates an entire family of appealing indicators. Discovering it early is what separates a serious approach from an enthusiastic one, and it is why the emphasis here sits on measurement discipline rather than on model complexity. [How Quantitative Analysis Can Improve NEPSE Stock Research](/blogs/how-quantitative-analysis-can-improve-nepse-stock-research) covers more of this territory.
+
+## Why the name says Quantum
+
+It is a fair question, and the honest answer matters for credibility.
+
+The name points at quantitative analysis, not at quantum computers. There is no quantum hardware involved in analysing NEPSE, and there is unlikely to be for a long time. Quantum computing is a real and genuinely promising field with plausible long-run applications in portfolio optimisation and certain simulation problems, but it is not currently a practical tool for analysing a small equity market, and anyone claiming otherwise is selling vocabulary. If the technology itself interests you, [What Is Quantum Computing and Could It Change Nepal Stock Market?](/blogs/what-is-quantum-computing-and-could-it-change-nepal) treats it seriously and separately.
+
+What the name is meant to convey is the shift from qualitative impression to measured quantity: from "this looks like heavy volume" to a defined threshold, measured against that stock's own history, applied the same way every session.
+
+## What you can reasonably expect, and what you cannot
+
+You can reasonably expect complete coverage rather than a curated shortlist, a stated definition behind every metric, an honest label on how old each number is, and a willingness to say that a question is unresolved.
+
+You cannot expect a signal that tells you what to buy, a model that knows what a policy change means before it is announced, or a method that works in every market condition. Those do not exist anywhere, and a tool that appears to offer them is measuring its own assumptions.
+
+## How to use it well
+
+Treat the output as a filter and an evidence base, never as a verdict. Use the screen to decide what deserves attention, then do the reading yourself. Write down why you acted before you know the outcome. Check the session stamp on every number you rely on. And when a metric here is reported as having failed, take that seriously, because it cost more to publish than a success would have.
+
+If the approach interests you, [Why NEPSE Quantum Is Building the Future of Nepali Stock Market Analysis](/blogs/why-nepse-quantum-is-building-the-future-of-nepali) explains the reasoning behind it in more depth, and [Can Artificial Intelligence Predict NEPSE?](/blogs/can-artificial-intelligence-predict-nepse) sets out where the limits genuinely sit.

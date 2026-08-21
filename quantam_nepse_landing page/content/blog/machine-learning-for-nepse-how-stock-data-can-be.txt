@@ -1,0 +1,91 @@
+title: Machine Learning for NEPSE: How Stock Data Can Be Analyzed
+slug: machine-learning-for-nepse-how-stock-data-can-be
+description: The full pipeline for applying machine learning to Nepal Stock Exchange data — adjusting for bonus shares, labelling, walk-forward validation, costs, and honest evaluation.
+category: quantitative-finance
+tags: Machine Learning, NEPSE, Quantitative Analysis, Nepal Stock Exchange, Data Science, Model Validation
+---
+Applying machine learning to the Nepal Stock Exchange is mostly not a modelling problem. Roughly four fifths of the work is building a clean dataset, deciding what you are predicting, and setting up a validation scheme that cannot lie to you. The model itself is often twenty lines and rarely the thing that determines whether the result is real.
+
+That ordering is worth stating up front because it is the opposite of how the subject is usually presented. Tutorials start with the algorithm. Practitioners start with the data and finish with the algorithm, because a sophisticated model trained on a corrupted dataset produces confident nonsense faster than a simple one.
+
+This article walks the pipeline in the order it actually gets built for a market like NEPSE: data assembly, labelling, features, validation, cost modelling, and evaluation.
+
+## Step one: assemble a price series that is not lying
+
+The most common fatal error in Nepali equity modelling happens before any model is trained. It is the unadjusted price series.
+
+When a company issues bonus shares, the market price adjusts downwards on the ex-date to reflect the larger share count. Nothing bad happened to the business. But to a model reading raw closing prices, a bonus issue looks like a sudden severe crash. Right issues do something similar. Feed that series to any learner and it will faithfully learn that certain companies periodically collapse, and it will build its predictions around an artefact.
+
+Every price series must be adjusted for bonus issues, right issues and dividends before anything else happens. This means maintaining a corporate action history alongside the price data and applying it consistently. It is tedious, unglamorous work and it is the difference between a usable dataset and a worthless one.
+
+The rest of the assembly checklist:
+
+- **Daily bars** per symbol with open, high, low, close and quantity, adjusted as above.
+- **Non-trading days handled explicitly.** A symbol that did not trade has no price, not a price of zero and not yesterday's price silently repeated. How you fill these gaps changes every volatility and correlation estimate you compute.
+- **The floorsheet**, if you are using broker-level data, aligned to the same trading calendar.
+- **Fundamentals stamped with the date they became public**, not the date of the period they describe.
+- **Sector membership as it was**, not as it is now.
+
+## Step two: decide what you are predicting
+
+The label — the thing the model is trained to output — determines more about your results than the algorithm does. Three decisions matter.
+
+**Horizon.** One day, five days, twenty days? Short horizons have more observations and worse signal-to-noise, and are more affected by trading costs. Longer horizons have better economics and far fewer independent observations. On a decade of NEPSE data, a twenty-day horizon gives you perhaps a hundred and twenty non-overlapping periods. That is a small number to fit anything on.
+
+**Absolute or relative.** Predicting a stock's raw forward return in a market where most stocks move together mostly means predicting the index. Predicting the stock's return relative to the market, or its cross-sectional rank against other symbols on the same day, isolates something more specific and is usually the better problem. It is also more honest: it separates stock selection from a market-timing call you may not be making.
+
+**Regression or classification.** Predicting the exact return is harder than predicting the sign, and the sign is harder than predicting the top and bottom deciles of a cross-sectional ranking. Choose the weakest formulation that still answers your question.
+
+> Predicting whether a stock goes up is a hard problem. Predicting whether it goes up more than the other three hundred is a different and often more tractable one.
+
+## Step three: features, built point in time
+
+Features are the inputs. The constraint that governs all of them is simple to state and easy to violate: a feature used to make a decision on a given day must have been knowable on that day.
+
+Price and volume features are usually safe, provided your windows only look backwards. Fundamental features are the danger. A quarterly result describes a period that ended weeks before the report was published. Attach that data to the period end date and your model is reading results before they existed. Its backtest will look extraordinary, and it will be worthless.
+
+Sensible feature families for NEPSE include trend and momentum over multiple lookbacks, realised volatility, volume relative to a symbol's own history, distance from moving averages, liquidity measures such as traded value and days traded, valuation ratios from fundamentals, and — if you have the floorsheet — broker concentration and net flow measures within each stock.
+
+Resist the urge to add hundreds of features. In a dataset this small, every extra feature increases the chance that the model latches onto noise. Fifteen well-motivated features usually outperform two hundred generated ones, and they are far easier to diagnose when something goes wrong.
+
+## Step four: validation that cannot leak
+
+Standard machine learning practice is to shuffle rows and split randomly into training and test sets. On financial time series this is invalid and will produce results that cannot be reproduced in reality.
+
+Shuffling puts future observations into the training set alongside past ones. Because financial data is serially correlated, the model effectively sees the answer. Randomly split backtests routinely look excellent and fail completely when run forward.
+
+The correct approach is walk-forward validation: train on a block of history, test on the block immediately after, roll forward, repeat. Two refinements matter for NEPSE:
+
+1. **Purging.** If your label looks twenty days forward, the last twenty days of the training block overlap the test period. Drop them.
+2. **Embargo.** Leave a further gap after the training block before the test block starts, so serially correlated features cannot bridge the boundary.
+
+Report every walk-forward fold separately. The average across folds hides the thing you most need to see, which is whether the model worked in every regime or only in one.
+
+## Step five: model choice, which matters least
+
+With a small dataset and a low signal-to-noise ratio, simpler models generally win. Regularised linear models are transparent, hard to overfit and set a benchmark that more complex approaches must beat. Gradient-boosted trees handle non-linearity and interactions well and are the usual next step. Deep neural networks are data-hungry in a way that a decade of a few hundred symbols does not satisfy, and they rarely justify themselves at this scale.
+
+The right procedure is to establish the simple benchmark first and require any complex model to beat it out of sample by a margin large enough to survive the extra parameters it introduced. Most of the time it does not, and the correct decision is to ship the simple model. [How to build an AI model for NEPSE stock analysis](/blogs/how-to-build-an-ai-model-for-nepse-stock) goes through the construction in more practical detail.
+
+## Step six: costs, or the model is fiction
+
+A backtest without transaction costs is not a backtest. Every trade on NEPSE carries brokerage commission, regulatory charges and, on gains, capital gains tax. Settlement is not instantaneous, so a strategy assuming same-day round trips is not implementable. Daily price limits mean you cannot always transact at the price your model saw. And in thinner names, the size you can trade without moving the price yourself is a hard constraint that no amount of modelling removes.
+
+Model these explicitly and honestly. A strategy that turns over its portfolio frequently needs a much larger raw edge to survive costs than one that rebalances monthly. Many signals that look genuinely predictive before costs are unprofitable after them, and finding that out at the backtest stage is a great deal cheaper than finding it out with money.
+
+## Step seven: evaluate on the right things
+
+Accuracy is a poor metric for financial models. A model can be right on most days and lose money if it is wrong on the days that move the most, and a model that is right on barely more than half of its calls can be highly profitable if the winners are larger than the losers.
+
+Better measures include the information coefficient — the correlation between predicted and realised ranking across the cross-section — reported per period rather than pooled; the spread between the top and bottom of the ranking; turnover, so you know what you are paying; and the full distribution of outcomes rather than the mean. A thin tail of very large winners can carry an average while the median trade loses money, and you should know which of those two your model is producing.
+
+Always produce a per-year table. It is the single most informative output in the entire process and the one most often omitted, because it is where most models look considerably less impressive than their headline figure. [How machine learning models analyse financial time-series data](/blogs/how-machine-learning-models-analyze-financial-time-series-data) covers the evaluation methodology in more depth.
+
+## What to actually do
+
+1. Fix the data before touching a model: adjust for every corporate action, handle non-trading days explicitly, and stamp fundamentals with their publication date.
+2. Predict cross-sectional rank over a horizon long enough to survive costs, rather than tomorrow's price.
+3. Use walk-forward validation with purging and an embargo. Never shuffle time-series rows.
+4. Start with a regularised linear benchmark and make every complex model earn its place against it.
+5. Include commission, fees, tax, settlement and liquidity limits in every evaluation.
+6. Report results per year and as a distribution, not as one pooled average. Expect most of what you test to fail — that is the process working, not the process breaking. If you want the honest version of what survives, [time-series analysis of NEPSE stocks](/blogs/time-series-analysis-of-nepse-stocks-explained) is the natural next read.

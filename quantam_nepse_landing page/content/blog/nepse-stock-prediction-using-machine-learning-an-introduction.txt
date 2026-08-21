@@ -1,0 +1,86 @@
+title: NEPSE Stock Prediction Using Machine Learning: An Introduction
+slug: nepse-stock-prediction-using-machine-learning-an-introduction
+description: What machine learning can and cannot predict about Nepal Stock Exchange prices, how the problem is really framed, and why market data breaks standard ML assumptions.
+category: data-and-research
+tags: Machine Learning, NEPSE AI, Stock Prediction, Nepal Stock Exchange, Quantitative Analysis
+---
+Machine learning applied to the Nepal Stock Exchange usually gets introduced backwards. The tutorial starts with a model, feeds it closing prices, reports an impressive accuracy figure, and never explains why that figure is meaningless. The result is a generation of investors who believe prediction is a solved problem that someone is keeping from them.
+
+Start from the other end. Machine learning is a way of fitting a function from inputs to an output using examples. It works spectacularly where the relationship is stable and the signal is strong — recognising handwriting, transcribing speech, sorting images. Financial prices have neither property. The relationship changes as participants adapt to it, and the amount of predictable structure in a daily return is small compared with the noise sitting on top of it.
+
+That does not make the exercise pointless. It changes what you should aim at. This article explains how the prediction problem is actually framed, which parts of it are tractable on NEPSE data, and how to tell an honest result from a flattering one.
+
+## How the problem is framed
+
+Every supervised model needs three things: a set of inputs known at a point in time, an output that happens afterwards, and a rule for measuring how wrong the prediction was.
+
+For NEPSE the inputs are usually some combination of the daily price history, volume and turnover, aggregated broker-level floorsheet data, and slower-moving fundamentals such as EPS and book value. The output is the part people define carelessly.
+
+- **Regression on the next closing price.** Almost always a mistake. Tomorrow's price is roughly today's price, so a model that simply repeats the last price scores well and has learned nothing.
+- **Regression on the next return.** Harder and more honest, but dominated by noise at short horizons.
+- **Classification of direction.** Popular, and the source of most inflated accuracy claims, because the class balance is uneven and a model that always guesses the majority class looks respectable.
+- **Ranking across stocks.** Which instruments will outperform the others over the next month. Often the most useful framing, because it removes the market-wide move that no stock-level model can explain.
+
+> If you cannot say what your model would have to beat to be interesting, you have not defined the problem yet.
+
+## Why financial data breaks the usual assumptions
+
+Standard machine-learning practice assumes your examples are independent and drawn from a stable distribution. Market data violates both, and every violation has a specific consequence.
+
+1. **Non-stationarity.** The behaviour of the market changes. Volatility regimes shift, participation changes, sectors that once drove the index stop driving it. A model trained across a long history averages over regimes that are not comparable.
+2. **Autocorrelation.** Consecutive observations are not independent. This is why a random train-test split leaks: neighbouring days in the training and test sets are almost the same observation.
+3. **Low signal-to-noise.** In most liquid markets, the predictable share of a daily return is small. Models with enough capacity will fit the noise perfectly and generalise terribly.
+4. **Adaptation.** If a pattern is real and widely exploited, trading on it erodes it. Nothing in physics pushes back when you predict a temperature.
+5. **Fat tails.** A handful of extreme sessions dominate any average return. Metrics based on means are unstable when a few observations carry most of the total.
+
+None of these are reasons to stop. They are reasons that ordinary machine-learning hygiene is insufficient, and that financial modelling needs its own discipline.
+
+## What is more predictable than price
+
+Direction is the hardest thing on the menu and the thing everybody orders. Several adjacent quantities carry far more structure.
+
+- **Volatility.** Quiet periods tend to be followed by quiet periods and turbulent ones by turbulent ones. This clustering is one of the most robust findings in empirical finance and it shows up in almost every market.
+- **Liquidity and turnover.** How much a stock trades is persistent and reasonably forecastable, which matters for position sizing even if it says nothing about price.
+- **Range and drawdown risk.** Estimating how far a stock might move against you is a different question from which way it will go, and it is the one that keeps you solvent.
+- **Cross-sectional relationships.** Whether a stock is expensive relative to its own history, or unusually active relative to its own baseline, is descriptive and verifiable.
+
+A model that sizes your positions sensibly and flags when a stock's risk profile has changed is more valuable than a direction model with a slightly-better-than-random hit rate, because the second one is almost certainly not real.
+
+## The floorsheet advantage, and its trap
+
+NEPSE publishes broker-level trade data, which many exchanges do not make public. That gives Nepali modellers an input set that is genuinely unusual, and one that machine processing can exploit at a scale hand analysis cannot. Aggregating months of broker activity per symbol is a few seconds of compute and a lifetime of manual work.
+
+The trap is arithmetic. Every share bought is also sold, so any net buy/sell imbalance measured across the whole market is exactly zero by construction. A great many broker-derived metrics that appear to reveal a hidden accumulator turn out, once you neutralise turnover, to be measuring how much the stock traded and nothing else. Before you believe any floorsheet feature, check whether it survives a control for volume and for price level — many share-count metrics are simply an inverse-price proxy in disguise.
+
+[Machine Learning for NEPSE: How Stock Data Can Be Analyzed](/blogs/machine-learning-for-nepse-how-stock-data-can-be) goes into how these datasets fit together.
+
+## How to tell an honest result from a flattering one
+
+You will read claims of high accuracy. Here is how to interrogate them without needing the source code.
+
+- **Ask what the baseline was.** Accuracy above fifty per cent means nothing unless you know the class balance and what buy-and-hold returned over the same period.
+- **Ask about the split.** Was the test period strictly after the training period, and was it looked at only once.
+- **Ask for per-year figures.** Aggregate performance frequently hides several losing years and one exceptional one.
+- **Ask about the universe.** If it contains only instruments still trading today, the test is on survivors.
+- **Ask whether costs were included.** Brokerage and other transaction costs turn many small edges negative.
+- **Ask whether the median trade was profitable**, not only the mean. In a market where a thin tail of large winners carries the average, the typical trade can lose money while the headline looks excellent.
+
+A result that answers all six well is rare and worth attention. A result that answers none is a demonstration, not a finding.
+
+## A realistic starting sequence
+
+If you want to begin, this order wastes the least time.
+
+1. Build a clean daily archive with corporate actions handled, because bonus and rights adjustments otherwise teach the model events that never occurred.
+2. Reproduce something you already know is true — for example that turnover clusters — as a test of the pipeline rather than of the market.
+3. Predict volatility before you predict direction. You will get a real result and learn what a real result feels like.
+4. Only then attempt a cross-sectional ranking model, with a strictly chronological split.
+5. Record predictions forward, session by session, before the outcome is known. That log is the only evaluation nobody can accidentally contaminate.
+
+[How to Build an AI Model for NEPSE Stock Analysis](/blogs/how-to-build-an-ai-model-for-nepse-stock) covers the engineering side of those steps in detail.
+
+## What to expect, honestly
+
+Expect most ideas to fail. That is the normal outcome of doing this properly, and a research process that never kills an idea is not testing anything. Expect the surviving results to be modest, unstable across years, and easier to explain as risk than as free money.
+
+Expect the most durable benefit to be something quieter than prediction: a consistent, repeatable description of what every stock in the market is doing, refreshed every session, without your mood in it. In a retail-dominated market where most participants look at a handful of stocks and a few headlines, that is a real advantage — and it does not require the model to see the future. For the sceptical case in full, read [Can Artificial Intelligence Predict NEPSE?](/blogs/can-artificial-intelligence-predict-nepse).

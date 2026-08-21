@@ -1,0 +1,96 @@
+title: How Does the Nepal Stock Exchange Work?
+slug: how-does-the-nepal-stock-exchange-work
+description: A mechanical walk through NEPSE: what SEBON, CDSC and your broker each do, how an order becomes a trade, how settlement reaches your Demat, and what the floorsheet shows.
+category: investment-education
+tags: Nepal Stock Exchange, NEPSE Basics, Investing In Nepal, Floorsheet, Stock Market Education
+---
+The Nepal Stock Exchange does one job: it matches buy orders against sell orders for listed company shares, then makes sure the shares and the money actually change hands. The index, the sub-indices and the daily commentary are all descriptions of what happened after that matching took place.
+
+The mechanics matter more than they sound. The order type you choose, the moment in the session you place it, the daily price band the stock is trapped inside and the settlement cycle running behind the scenes all decide what you pay and when the shares are genuinely yours.
+
+This is a walk through that chain, from tapping buy to the shares sitting in your account.
+
+## Who does what: NEPSE, SEBON, CDSC and your broker
+
+Four parties sit behind every trade, and confusing them is the source of most beginner frustration.
+
+- **NEPSE** is the exchange, Nepal's only one, based in Kathmandu. It admits companies to listing, runs the matching engine, and publishes market data including the broker-level floorsheet.
+- **SEBON**, the Securities Board of Nepal, is the regulator. It approves public issues, licenses intermediaries and sets the rules the exchange operates under. It does not match your order.
+- **The central depository** holds your shares as electronic entries. Paper certificates are history. It also clears and settles trades between brokers, and runs the investor portal where you see your holdings.
+- **Your broker** is a licensed member firm. You cannot reach the matching engine directly. Every order in the market arrived through some broker's terminal, which is exactly why the floorsheet can identify brokers at all.
+
+In practice you meet these as three accounts: a bank account, a Demat account opened through a depository participant, and a trading account with a broker.
+
+## The shape of a trading day
+
+The trading week runs Sunday to Thursday. Friday, Saturday and public holidays are closed, which is one reason NEPSE news flow bunches up strangely compared with markets that trade Monday to Friday.
+
+A session has two distinct phases.
+
+1. **Pre-open.** For a short window before continuous trading begins, orders are collected and amended without matching continuously. This phase exists so an opening price forms in an orderly way, rather than the first order of the day setting it.
+2. **Continuous trading.** Orders match as they arrive for the rest of the session, and the last of those matches is what most screens will show you as the day's price.
+
+Exact clock times have been revised more than once. Confirm the current hours with your broker rather than memorising them. The structure, price discovery first and continuous matching after, is the durable part.
+
+## How an order becomes a trade
+
+The engine sorts orders by price first and time second. A buy order at a higher price is served before one at a lower price, and among equal prices whoever queued first is served first. That single rule explains a great deal of what you will see, including why a queue at a band price can be enormous and completely unfillable.
+
+Two order types cover most of what you need.
+
+- A **limit order** names the maximum you will pay or the minimum you will accept. It may not fill at all. On a thin stock that is normal, not a malfunction.
+- A **market order** takes whatever price is available. In a liquid stock this is convenient. In an illiquid one it is how people accidentally pay several percent above the last trade.
+
+> An order is not a purchase. It is an offer that may sit unfilled all day, and on a thin stock it often does.
+
+Partial fills are common. A five-hundred-unit order may fill a fraction today and the rest tomorrow, or never. Your contract note shows each execution separately.
+
+## Settlement: when the shares are actually yours
+
+Matching is not ownership. After the session, trades are cleared and settled through the depository over the following working days. You pay your broker within the settlement deadline, and the shares then appear in your Demat account.
+
+Two consequences catch new investors every time.
+
+- You generally **cannot sell what has not settled**. NEPSE is not an intraday market for retail participants. Buying in the morning and selling the same afternoon is not available to you.
+- When you sell, the shares must be **released from your Demat** through the depository portal within the settlement window. Miss that step and the sale fails on your side even though the trade executed on the exchange.
+
+Confirm the current settlement cycle with your broker. It has been shortened over time, and the number matters when you are planning cash flow around a right issue or a tax payment.
+
+## Price bands and why a stock stops moving
+
+Individual stocks trade inside a daily price band measured from the previous close, and the market as a whole has circuit breakers that pause trading after a large index move. When a stock sits at its upper band with a huge buy queue and no sellers, there is nothing wrong with your order. There is simply nobody on the other side at that price.
+
+This is worth internalising because it changes what the word price means. A stock locked at a band has a price and no available liquidity, and those are not the same thing. That distinction is the whole subject of [what LTP actually tells you](/blogs/what-is-ltp-in-nepse-complete-explanation).
+
+## The floorsheet: the part most investors never open
+
+After the session, NEPSE publishes a floorsheet, a record of trades with the buying and selling broker identified. Many larger markets publish nothing comparable to the public. It is the richest dataset a Nepali retail investor has, and it is barely used, because reading it by hand is impractical.
+
+What it answers honestly: how concentrated a day's volume was among brokers, whether a broker usually absent from a stock suddenly appeared, and how today's turnover compares with the stock's own normal range.
+
+What it cannot answer: who the underlying clients are. Brokers are identified, investors are not, and one broker's net position is a mixture of many people. There is also an identity that holds absolutely, every share bought was sold by somebody, so any net buy and sell imbalance measured across the whole market is zero by construction. Metrics claiming to reveal a hidden market-wide buyer are usually re-describing turnover.
+
+## Corporate actions and the book closure date
+
+Companies distribute bonus shares, cash dividends and right shares, and each is tied to a book closure date. Own the shares before books close and you are on the register for that entitlement. Buy after and you are not.
+
+Two mechanical points confuse people every season.
+
+- A bonus issue increases the share count and mechanically reduces the price on the ex-date. Nothing has been handed to you that you did not already have a claim on. It also means [earnings per share](/blogs/what-is-eps-in-nepal-stock-market) falls even when profit is unchanged.
+- A right issue asks you for cash. If you do not apply, your proportional stake is diluted. Undistributed rights typically go to auction, which is a separate opportunity with its own risks.
+
+## What the day costs you
+
+The screen price is not your cost. A trade carries broker commission on a slab basis, a regulatory levy, and a depository charge applied per scrip. On a sale, capital gains tax is deducted at source, at a rate that depends on how long you held and whether you are an individual or an institution, with longer holdings taxed more lightly.
+
+For a small trade in a cheap stock these costs are a meaningful percentage of the position. Check a contract note against what you expected at least once. Most investors never do, and cost drag is the most reliably underestimated part of a retail return.
+
+## What to watch
+
+- Learn the **settlement deadline and the share-release step** before your first sale, not during it.
+- Use **limit orders** by default, and reserve market orders for genuinely liquid names.
+- Before buying, check the stock's **normal daily turnover**, not just its price. Illiquidity is a risk that only appears when you want out.
+- Track the **book closure calendar** for anything you hold. A pending right issue changes what a share is worth to you.
+- Read the floorsheet **descriptively**. It tells you what happened with precision. It does not tell you what happens next.
+
+If you are setting accounts up for the first time, the practical sequence is in [the beginner's guide to investing in NEPSE](/blogs/how-to-start-investing-in-nepse-beginner-guide). The sector structure behind most market commentary is unpacked in [understanding NEPSE sub-indices](/blogs/understanding-nepse-sub-indices-banking-hydropower-microfinance-and-more).

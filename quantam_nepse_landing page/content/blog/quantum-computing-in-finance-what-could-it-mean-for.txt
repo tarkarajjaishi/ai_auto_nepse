@@ -1,0 +1,73 @@
+title: Quantum Computing in Finance: What Could It Mean for NEPSE?
+slug: quantum-computing-in-finance-what-could-it-mean-for
+description: The four financial workloads quantum computing actually targets, why bank pilots have produced so few deployments, and which of them could ever matter to Nepal's equity market.
+category: quantum-finance
+tags: Quantum Finance, Quantum Computing, NEPSE, Portfolio Optimisation, Risk Management, Nepal Stock Exchange
+---
+Global banks have run quantum computing pilots for years. Very little has gone into production. That gap between activity and deployment is the most informative fact in this field, and understanding why it exists tells you far more than any roadmap.
+
+Finance attracted quantum research early for a straightforward reason: several of its heaviest computations have mathematical shapes that quantum algorithms are known to address. Not all of finance — a specific, narrow set of workloads. Knowing which ones, and how large the theoretical gain is for each, lets you judge any claim about quantum finance in about a minute.
+
+For Nepal the question is sharper still, because the Nepal Stock Exchange does not run most of those workloads at all.
+
+## The four workloads that are actually targeted
+
+**Portfolio optimisation under discrete constraints.** Selecting weights across assets is easy when the only constraints are smooth. It becomes combinatorially hard when you add realistic ones: a limit on the number of holdings, minimum lot sizes, sector caps that must be satisfied exactly. Quantum optimisation heuristics — variational circuits and annealing approaches — are aimed here. Crucially, these are heuristics. No proof exists that they beat well-engineered classical solvers, and classical optimisation has improved continuously while quantum hardware has not caught up.
+
+**Monte Carlo simulation for pricing and risk.** Valuing complex derivatives and computing risk measures across large books means simulating vast numbers of scenarios. Accuracy improves slowly with sample count, so the computation is expensive. Quantum amplitude estimation provides a quadratic reduction in samples required for a given precision. This is a proven speed-up, not a heuristic — and it is quadratic, meaning it turns a million samples into roughly a thousand, not into one. Valuable at institutional scale, invisible at retail scale.
+
+**Machine learning on financial data.** Quantum machine learning proposes encoding data into quantum states and exploiting high-dimensional structure. The theoretical results are fragile: many depend on assumptions about loading classical data into quantum memory that no existing hardware satisfies, and several early claims were subsequently matched by classical algorithms inspired by the quantum ones. This is the least settled category and the most heavily marketed.
+
+**Cryptography.** The one item with a proven, complete algorithm behind it. A sufficiently large quantum computer would break the public-key cryptography protecting trading systems, settlement messaging and depository records. This is a threat to finance rather than a tool for it, and it is the only quantum topic in this article with a real deadline.
+
+> Three of the four financial applications are hopeful. The fourth is certain, and it is the one nobody markets, because it is a bill rather than a product.
+
+## Why the pilots have not become deployments
+
+The obstacle is not institutional caution. It is arithmetic about hardware.
+
+Today's machines are small and noisy. Qubits lose their state quickly, operations carry meaningful error rates, and errors accumulate through a calculation. Error correction — encoding one reliable logical qubit across many physical qubits — is the known remedy, and its overhead is large enough that useful financial algorithms require machine sizes well beyond what exists.
+
+There is a second obstacle that gets less attention: getting data in. A quantum algorithm operating on a large dataset must first encode that data into quantum states. For many proposed applications, the encoding step costs as much as the classical computation you were trying to avoid. A speed-up that is cancelled by its own input stage is not a speed-up.
+
+A third pattern is worth internalising. Repeatedly, a claimed quantum advantage has prompted classical researchers to look harder at the problem and find a classical method that closes the gap. The field even has a name for the resulting techniques — quantum-inspired algorithms — which run on ordinary computers and are, in practice, the most commercially useful thing quantum research has produced for finance so far.
+
+## What this means for the Nepal Stock Exchange
+
+Map those four workloads onto Nepal honestly.
+
+- **Derivative pricing at scale.** NEPSE is an equity market. The exotic-derivative books that make Monte Carlo expensive elsewhere are not present. This workload has no local instance.
+- **Institutional portfolio optimisation.** Mutual funds, insurance companies and pension pools in Nepal do construct portfolios under constraints. The universe is a few hundred securities. That is a small optimisation problem — comfortably solved by classical software on ordinary hardware, in seconds.
+- **Machine learning on market data.** Present and growing. It is also entirely classical, and its limits in Nepal are data and method, not processing power.
+- **Cryptography.** Fully applicable. Brokers, the depository, banks and the exchange's technology vendors run on the same public-key infrastructure as everyone else.
+
+So of the four, one applies, and it applies as a security obligation rather than an analytical opportunity. That is not a fashionable conclusion, but it is the accurate one.
+
+## The constraint that no computer removes
+
+Suppose a large error-corrected quantum computer were handed to a Nepali research desk tomorrow. What would improve?
+
+Not the reliability of any signal. NEPSE has a limited trading history and a few hundred listed companies. Statistical confidence comes from independent observations, and no processor manufactures observations. A pattern resting on a handful of episodes stays a pattern resting on a handful of episodes.
+
+Not data quality. Missing sessions, corporate-action adjustments applied inconsistently, and format changes across archive sources are the errors that actually corrupt Nepali market analysis. They are fixed by careful engineering, not by faster mathematics.
+
+Not the conservation identity. Every share bought is sold, so market-wide net buying is zero by construction. Any metric appearing to reveal a hidden net accumulator across the whole market is re-describing turnover. That is a fact about arithmetic and it survives any hardware you point at it.
+
+Not overfitting. A more powerful search over a small dataset finds more spurious patterns, not fewer. Extra compute makes this failure worse, which is why the discipline described in [Building a Quantitative Strategy for the Nepal Stock Exchange](/blogs/building-a-quantitative-strategy-for-the-nepal-stock-exchange) matters more than any hardware roadmap.
+
+## How to evaluate a quantum finance claim
+
+When a product, fund or advisor invokes quantum computing, four questions settle it quickly.
+
+1. **Which algorithm?** A real answer names one — amplitude estimation, a variational optimisation circuit, an annealing formulation — and states what it exploits. "Quantum-enhanced" is not an answer.
+2. **Which hardware, and how large?** Ask whether the work ran on physical quantum hardware, on a simulator running on classical computers, or on a quantum-inspired classical algorithm. The third is legitimate and common; describing it as quantum computing is not.
+3. **What is the size of the claimed gain?** Quadratic is the honest answer for the proven cases. Anyone claiming exponential improvement on general market prediction is describing something that does not exist.
+4. **What is the classical baseline?** If a well-implemented classical solver has not been benchmarked against it, no comparison has been made.
+
+Further disambiguation of the term itself, including the entirely separate use of "quantum" as mystical branding, is set out in [Quantum Finance Explained for Nepali Investors](/blogs/quantum-finance-explained-for-nepali-investors).
+
+## What to watch for, and what to ignore
+
+Watch the cryptography migration. If you work at a broker, a bank, a fund or the depository, ask your technology provider what their post-quantum plan is and when it starts. Standards bodies have already selected algorithms designed to resist quantum attack, and the transition is an engineering programme with a long lead time. Encrypted traffic captured today can be decrypted later, which is why the work begins before the machines arrive.
+
+Ignore everything else, for now. No investment decision in Nepal should change because of quantum computing, and no product in this market has a defensible quantum claim to make. The underlying technology is real and worth following on its own terms — the physics is explained in [What Is Quantum Computing and Could It Change Nepal Stock Market?](/blogs/what-is-quantum-computing-and-could-it-change-nepal) — but the honest position is that its financial applications remain research, its most useful outputs so far run on classical machines, and its only certain effect on Nepal's market is a security upgrade nobody will advertise.

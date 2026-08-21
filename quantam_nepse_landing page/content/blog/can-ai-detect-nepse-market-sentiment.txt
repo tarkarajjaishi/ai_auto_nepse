@@ -1,0 +1,86 @@
+title: Can AI Detect NEPSE Market Sentiment?
+slug: can-ai-detect-nepse-market-sentiment
+description: AI can measure NEPSE sentiment from market behaviour, broker positioning and Nepali text — but measuring mood is not forecasting it. What each source honestly tells you.
+category: nepse-analysis
+tags: NEPSE Sentiment, Nepal Stock Exchange, Artificial Intelligence, Natural Language Processing, Market Analysis, Investor Behaviour
+---
+Yes — with an important qualification. A machine can measure market sentiment on the Nepal Stock Exchange far more consistently than a person can. What it cannot do is turn that measurement into a reliable forecast, because by the time a mood is measurable it is usually already reflected in prices.
+
+That distinction is the whole subject. Sentiment analysis is a **description** problem, not a prediction problem. Describing accurately is valuable: it tells you whether a rally is broad or narrow, whether buying is concentrated in a few hands, whether the excitement around a sector is showing up in trades or only in conversation. Those are real, checkable things. Treating the same output as a buy signal is where most sentiment tools quietly stop being useful.
+
+This article separates the three different things Nepali investors call "sentiment", explains what a machine can genuinely extract from each, and is honest about where the approach breaks down in a market like ours.
+
+## Three different things people call sentiment
+
+The word gets used for at least three unrelated measurements, and conflating them is the first mistake.
+
+1. **Revealed sentiment** — what the market's own trading behaviour shows: breadth, turnover, participation, how gains are distributed across sectors. This is the most reliable because it is derived from completed transactions, not from opinions.
+2. **Positioning sentiment** — who is on which side. On NEPSE this means the broker-level floorsheet: which brokers are accumulating, whether a stock's volume is concentrated or spread out, whether today's activity is unusual for that particular stock.
+3. **Expressed sentiment** — what people say, in news articles, company disclosures, YouTube commentary, Facebook groups and Viber communities. This is the noisiest of the three and the one most people mean when they say "sentiment analysis".
+
+A serious system measures all three separately and never averages them into a single mood number. They disagree often, and the disagreement is the interesting part.
+
+## What the market's own behaviour reveals
+
+Revealed sentiment is the least glamorous and most trustworthy layer. It is arithmetic, not inference.
+
+A machine reading the daily archive can answer questions a human eyeballing the index cannot:
+
+- Is the index rising because most stocks are rising, or because a handful of large-capitalisation names are carrying it?
+- Is turnover expanding with price, or is the move happening on thinning participation?
+- Are the advancing stocks clustered in one sub-index, or is the strength general across banking, hydropower, microfinance and insurance?
+- How does today's activity compare with each stock's own recent range, rather than with the market's average?
+
+That last question matters more than it sounds. Comparing a thinly traded stock's turnover with a heavily traded one tells you almost nothing. Comparing it with its own history tells you whether something changed. Machines do this per-stock normalisation reliably; humans almost never do it consistently. The same logic underlies [how to read a NEPSE trading session properly](/blogs/nepse-today-how-to-read-a-trading-session-properly).
+
+## Reading positioning from the floorsheet
+
+NEPSE publishes broker-level trade data that many larger markets do not make public. It is the richest sentiment source a Nepali investor has, and it is under-used simply because reading it by hand is impractical.
+
+Machine processing lets you ask whether buying in a stock is broad or narrow, whether a particular broker's activity in it is out of character, and whether concentration is rising or falling over a window of sessions.
+
+But there is a hard limit, and any honest tool states it: **the floorsheet identifies brokers, not clients.** One broker's net buying can be a hundred unrelated retail accounts. Reading a single broker's activity as "one operator accumulating" is an inference, not an observation, and it is wrong more often than the confident version of the story admits.
+
+There is also an identity that kills a whole family of tempting metrics. Every share bought is sold. Market-wide net buying and net selling are equal by construction, so any indicator claiming to show a hidden net buyer across the entire market is re-describing turnover in disguise. If a sentiment product shows you "smart money is net buying the market", it is measuring activity, not direction.
+
+> The floorsheet tells you how a move happened. It does not tell you why, and it never tells you who.
+
+## The text problem, and why Nepal makes it harder
+
+Expressed sentiment is where language models come in, and where the difficulty is genuinely underestimated.
+
+Nepali market discussion is multilingual and messy. It moves between Nepali script, romanised Nepali, English, and a code-switched mixture inside a single sentence. Company names appear as scrip symbols, full legal names and colloquial short forms. Sarcasm, group hype and forwarded rumour look identical to genuine information at the level of individual words.
+
+General-purpose sentiment models trained on English product reviews handle almost none of this. A model that scores "hold garne ho ki bechne" correctly needs exposure to how Nepali investors actually write, not a translated dictionary of positive and negative words. This is solvable — modern multilingual models are far better than word-list approaches — but it requires deliberate work, and any platform claiming instant, accurate Nepali sentiment without it is overselling. The mechanics are covered further in [how natural language processing can analyse Nepal stock market news](/blogs/how-natural-language-processing-can-analyze-nepal-stock-market).
+
+## The labelling problem nobody mentions
+
+Suppose you fix the language problem. You still need to know what "positive" means, and this is where most sentiment projects fail silently.
+
+To train or evaluate a sentiment model you need labelled examples: text that a human has marked as bullish, bearish or neutral. Who labels it? Two experienced investors will disagree on the same paragraph, because a disclosure that is bad for earnings can be good for the price if it was already expected. Sentiment about a company is not the same as sentiment about its stock.
+
+Worse, online commentary is a biased sample of the market. The people who post are not the people who trade the most volume, and posting volume rises with excitement, so text sentiment is structurally most bullish exactly when it is least informative.
+
+The practical response is modest: use text sentiment as a **volume and attention indicator** rather than a direction indicator. Knowing that discussion about a stock has jumped sharply is a fact. Knowing that the discussion is 70 per cent positive is barely a fact at all.
+
+## Why a good sentiment reading rarely predicts
+
+Even a perfect sentiment measurement has a timing problem. Mood becomes measurable through trades, and trades are prices. By the time optimism is visible in turnover and commentary, it has already been paid for.
+
+This is why sentiment is most often used as a **contrarian context** rather than a signal — extreme readings mark conditions where the market has less room to be surprised in the same direction. But "extreme" only means something against a long history of the same measurement on the same market, and that history has to be assembled honestly, without look-ahead. The broader argument about prediction limits is in [can AI really predict NEPSE](/blogs/can-ai-really-predict-nepse-separating-technology-from-hype).
+
+## How to use a sentiment reading properly
+
+If you are evaluating a NEPSE sentiment tool, or building one, these are the questions that separate a useful instrument from a mood ring.
+
+- **Which of the three sentiments is this?** If the tool cannot say whether it is reading trades, positioning or text, it is not measuring carefully.
+- **What is it compared against?** A sentiment score with no historical distribution behind it has no scale. "Bullish" is meaningless without knowing how often the reading has been this bullish before.
+- **Is it normalised per stock?** Cross-stock comparisons on raw activity mostly rank stocks by size and price, not by interest.
+- **Does it show its inputs?** You should be able to see which sessions, which brokers, which documents produced the number.
+- **Does it label recency?** A sentiment reading from an older session presented as current is worse than no reading.
+
+## What to watch for
+
+Use sentiment to check the quality of a move you already see, not to find moves. When a stock rises, ask whether participation widened or narrowed. When a sector runs, ask whether the strength is broad across its constituents or concentrated in two names. When commentary explodes, treat it as evidence of attention, and then go and look at whether the trades agree.
+
+The most useful sentiment finding is a contradiction: heavy discussion with no turnover, a rising price with narrowing participation, or a quiet stock whose activity has quietly changed character. Those gaps are where a machine's consistency actually earns its place — and they are the only kind of sentiment reading worth acting on.

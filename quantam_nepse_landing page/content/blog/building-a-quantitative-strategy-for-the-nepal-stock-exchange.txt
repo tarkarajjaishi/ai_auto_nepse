@@ -1,0 +1,83 @@
+title: Building a Quantitative Strategy for the Nepal Stock Exchange
+slug: building-a-quantitative-strategy-for-the-nepal-stock-exchange
+description: A blueprint for a rules-based NEPSE strategy — universe, liquidity filter, signal, sizing, rebalancing and costs — plus the local constraints that break imports.
+category: data-and-research
+tags: Quantitative Investing, NEPSE Strategy, Nepal Stock Exchange, Systematic Trading, Risk Management
+---
+A quantitative strategy is not a prediction. It is a set of rules complete enough that two people running them on the same data would place the same orders. That is the whole idea: replace a judgement that varies with mood and memory with a procedure that can be examined, argued with, and tested against history.
+
+Most people who try this on the Nepal Stock Exchange start at the wrong end. They begin with a signal — an indicator, a broker-flow score, a screen — and then discover that the difficult parts are everywhere else: which stocks are even eligible, how much to put in each, when to rebalance, and what the whole thing costs to run. The signal is perhaps a quarter of the work and rarely the part that decides whether the strategy survives.
+
+This is a blueprint for the other three quarters, written for the market you actually trade in rather than the deep, liquid, shortable market that textbooks assume.
+
+## Start with the universe, not the signal
+
+Your universe is the list of stocks the strategy is allowed to touch. Getting this wrong invalidates everything downstream, because a strategy tested on stocks that were not tradeable is not a strategy.
+
+Two filters do most of the work:
+
+- **A liquidity floor.** Require a minimum median daily traded value over the last few months, and a minimum number of sessions actually traded in that window. A stock that trades on half the days cannot be entered or exited on schedule, and any backtest that assumes otherwise is fiction.
+- **A size or listing filter.** Newly listed instruments, and companies in the middle of a corporate restructuring, behave differently enough to distort a test built on ordinary price behaviour.
+
+The subtle trap is **point-in-time construction**. If you build today's liquidity list and apply it to five years of history, you have used the future: you have quietly excluded companies that later became illiquid or were delisted, and included ones that were tiny back then. This single mistake manufactures performance out of nothing, and it is easy to make without noticing. Rank the universe as it stood on each historical date, using only data available then.
+
+## Choose a signal you can defend in one sentence
+
+A signal is a number that ranks eligible stocks against each other. The best ones have a plain-language rationale you would still believe if the backtest disappeared.
+
+Families worth testing on NEPSE, in rough order of how well they tend to hold up in markets generally:
+
+1. **Trend and momentum.** Recent relative strength over a multi-month window, skipping the most recent few sessions to avoid short-term reversal effects.
+2. **Volatility and risk.** Lower-volatility stocks behaving better than their risk suggests is one of the most persistent effects found across markets.
+3. **Value.** Price relative to book value or earnings, with the caveat that a market dominated by financial institutions has structural differences in how those ratios behave across sectors.
+4. **Liquidity and participation.** Unusual turnover relative to a stock's own history — an activity flag rather than a directional forecast.
+5. **Floorsheet-derived flow.** NEPSE publishes broker-level trade data that most retail investors never touch. It is genuinely rich, and genuinely easy to misuse.
+
+That last one deserves a warning. **Every share bought is sold.** Across the whole market, net buying and net selling are identically zero — not approximately, exactly, by construction. Any metric that appears to reveal a hidden net accumulator across the entire market is re-describing turnover in a more flattering vocabulary. Broker flow can be informative at the level of an individual stock over a window, but the moment a measure sums across the market it is measuring activity, not intent.
+
+> A signal that only works because you forgot who was on the other side of the trade is not a signal. It is an accounting error with a chart.
+
+## Combine signals by rank, not by raw value
+
+If you use more than one signal, do not add the raw numbers together. A momentum figure and a price-to-book figure live on different scales, and the one with the larger spread will silently dominate the combined score.
+
+Convert each signal to a cross-sectional rank or z-score computed on that day, across that day's universe, then average the ranks. This has three benefits: the weighting is what you intended, the market-wide move is removed automatically, and the combined score is interpretable — a stock in the top decile is genuinely in the top decile on the things you chose to measure.
+
+Also check that your signals are not the same thing wearing two names. Two metrics with different definitions can produce nearly identical numbers, which quietly doubles a weight you thought you had split. Compare their values across the universe, not their descriptions.
+
+## Position sizing decides your outcome more than the signal does
+
+Given a ranked list, you still have to decide how much of each to hold. This is where most retail strategies fall apart, because the temptation is to concentrate in the top-ranked name.
+
+A defensible default: hold a basket of the top-ranked names, sized so that no single position can meaningfully damage the portfolio. Equal weighting is a reasonable starting point and is hard to beat without adding assumptions. Volatility-scaled weighting — smaller positions in more volatile stocks — is the one refinement usually worth its complexity, because it makes each position contribute a similar amount of risk rather than a similar amount of money.
+
+Set a maximum position size and a maximum sector exposure before you look at any results. On a market with strong sector blocks, an unconstrained ranking will often hand you a portfolio that is entirely banks or entirely hydropower, which means you are not running the strategy you designed — you are running a sector bet. The differences between those blocks are covered in [NEPSE Sector Analysis](/blogs/nepse-sector-analysis-how-nepal-market-sectors-behave-differently).
+
+## The constraints that break imported strategies
+
+Strategies copied from international sources assume conditions that do not hold in Kathmandu. Four of them matter enough to redesign around.
+
+- **Long only.** There is no practical way for an ordinary investor to take a short position. Every market-neutral construction, every long-short factor portfolio, every hedged pair trade in the literature is unavailable. Your strategy is long stocks or in cash, which means it carries the market's direction whether you want it to or not.
+- **Circuit limits.** A daily cap on how far a single stock can move means that on the days you most want to exit, you may not be able to. A backtest that fills at the closing price on a limit-move day is recording a trade that could not have happened.
+- **Settlement and timing.** Shares are not available to sell the instant they are bought. Any rule that assumes same-day round trips is describing a different market.
+- **Transaction costs and taxes.** Commission, regulatory charges and capital gains treatment are real and asymmetric across holding periods. Model them explicitly rather than as a token deduction, and check whether the strategy still works when the turnover is expensive.
+
+## Rebalancing and turnover
+
+How often you refresh the portfolio is a strategy parameter, not an afterthought. Rebalancing daily gives the signal maximum freshness and hands most of the benefit to costs. Rebalancing rarely keeps costs low and lets stale positions accumulate.
+
+Two techniques reduce turnover without weakening the signal. **Buffering**: buy into the top decile but only sell when a holding drops out of the top third, so a name hovering at the boundary does not churn. **Scheduled rebalancing**: act on a fixed cadence — weekly, fortnightly, monthly — rather than reacting to every daily change in the ranking. Test the strategy across several cadences. If it only works when rebalanced daily, the effect is probably too short-lived to survive real costs.
+
+## Write down the rules before you test them
+
+The single most valuable discipline in quantitative work is committing to the specification before seeing the results. Write down the universe, the signal, the weights, the rebalancing rule, the position limits and the cost assumptions. Then test. If you change the rules after seeing the outcome and re-test, you are no longer measuring a strategy — you are fitting one, and the second test is not evidence.
+
+Keep a log of every variant you tried, including the failures. If you tested twenty parameter combinations and one looks excellent, that is roughly what pure chance would produce, and the honest conclusion is that you have found nothing. This is the same logic that governs [How Quantitative Analysis Can Improve NEPSE Stock Research](/blogs/how-quantitative-analysis-can-improve-nepse-stock-research).
+
+## What to do first
+
+Do not start by building a system. Start by picking one signal you believe in, defining a universe of the most liquid names, and checking whether the top-ranked group has behaved differently from the bottom-ranked group in each individual year of available history. Not on average across the whole sample — year by year. Most ideas die at that single test, and dying there costs you an afternoon rather than a year of capital.
+
+If it survives, add costs and re-check. If it still survives, run it on paper with real timestamps before it touches money. The full mechanics of that testing process are set out in [Backtesting a NEPSE Trading Strategy](/blogs/backtesting-a-nepse-trading-strategy-complete-beginner-guide), and if you are new to the approach entirely, [Quantitative Investing in Nepal](/blogs/quantitative-investing-in-nepal-a-beginner-guide) is the better starting point.
+
+The expected result is that most ideas fail. A process that reliably produces winners has usually stopped testing honestly.

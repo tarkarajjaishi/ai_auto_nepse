@@ -1,0 +1,73 @@
+title: NEPSE AI: How Artificial Intelligence Is Changing Nepal's Stock Market
+slug: nepse-ai-changing-nepal-stock-market
+description: Artificial intelligence is reshaping how the Nepal Stock Exchange is analysed — from floorsheet and broker-flow data to sentiment and risk. Here is what actually changes for a Nepali investor, and what does not.
+category: ai-and-nepse
+tags: NEPSE AI, Nepal Stock Exchange, Machine Learning, Market Analysis, Investing in Nepal
+---
+For most of its history, analysing the Nepal Stock Exchange has been a manual craft. An investor opens the day's floorsheet, scrolls a broker-wise summary, checks a company's quarterly report, reads a few headlines, and forms a view. That process works. It is also slow, inconsistent between people, and almost impossible to repeat identically tomorrow.
+
+Artificial intelligence changes the economics of that work. It does not make the market predictable — no technology does — but it removes the ceiling on how much evidence one person can weigh before making a decision. This article explains what AI genuinely changes for NEPSE analysis, where it is oversold, and how a Nepali investor should think about it.
+
+## What "AI for NEPSE" actually means
+
+The phrase is used loosely, so it is worth being precise. In the context of the Nepal Stock Exchange, AI usually refers to four distinct capabilities, and they are not equally mature.
+
+1. **Pattern recognition on price and volume.** Statistical and machine-learning models that read historical daily bars and look for structure — trends, volatility regimes, unusual activity.
+2. **Structured analysis of the floorsheet.** NEPSE publishes broker-level trade data. Machines can aggregate months of it in seconds and surface concentration, churn and flow that no human reads at scale.
+3. **Language models over unstructured text.** Quarterly reports, company disclosures, and news are text. Modern models can extract figures and summarise tone across hundreds of documents.
+4. **Rule-driven execution and risk.** Once a view exists, software can apply position sizing and risk limits identically every time, without the discipline problems humans have.
+
+Only the fourth is close to solved. The first is the hardest, and the most frequently exaggerated.
+
+## The real advantage is consistency, not prediction
+
+The popular framing is that AI predicts prices. That is the wrong mental model, and it sets investors up for disappointment.
+
+The durable advantage is **consistency**. A model applies the same rule to every stock, every day, without fatigue, without yesterday's loss colouring today's judgement, and without quietly skipping a step. When a human analyst says "this looks like accumulation", they are applying an intuition that varies with mood and memory. When a model says it, the definition is fixed and can be examined, argued with, and tested against history.
+
+> The value of a quantitative process is not that it is smarter than you. It is that it is the same on your worst day as on your best.
+
+That matters more in a market like NEPSE than in a deeply researched one. Where coverage is thin and information travels unevenly, the investor who processes the available public data thoroughly has an edge over the investor who processes a fraction of it well.
+
+## What the floorsheet makes possible
+
+NEPSE's broker-level floorsheet is unusual. Many markets do not publish trade-level broker identifiers to the public at all. It is the single richest dataset a Nepali retail investor has access to, and it is almost entirely unexploited because reading it by hand is impractical.
+
+With machine processing you can ask questions that are otherwise unanswerable:
+
+- Which brokers were net buyers of a stock over the last five sessions, and is that unusual for them?
+- Is today's volume concentrated in a few brokers, or spread across many?
+- How does today's turnover compare with the stock's own typical range, rather than with the market's?
+
+These are descriptive questions, not predictions. They tell you what happened with precision. That is a lower bar than forecasting, and a far more reliable one.
+
+### A caution that matters
+
+It is easy to find patterns in floorsheet data that look profound and are arithmetic. If every share bought is also sold, then any "net buying" measured across the whole market is zero by construction. Metrics that appear to reveal a hidden buyer often just re-describe turnover. Any serious system has to test whether a signal survives once the obvious explanation is removed — and most do not.
+
+## Where AI is oversold in Nepal
+
+Three claims deserve scepticism.
+
+**"The model predicts tomorrow's price."** Short-horizon price prediction is close to a coin flip in every liquid market studied. NEPSE is not exempt. A system that claims high accuracy is usually measuring something trivial, such as predicting that a stock will stay in its recent range.
+
+**"It was backtested and returned X%."** A backtest is a hypothesis, not evidence, until it survives out-of-sample. A strategy tuned on the same history it is measured against will always look excellent. The honest question is how it performed on data the designer had never seen.
+
+**"AI removes risk."** It relocates risk. A model that sizes positions mechanically can lose money mechanically. What good software does is make the risk explicit and bounded, not absent.
+
+## What this means for a Nepali investor
+
+You do not need to build models to benefit from this shift. What you should expect from any tool claiming to use AI on NEPSE:
+
+- It should tell you **what its numbers mean** and which session they come from. A stale figure presented as current is the most common failure in market software.
+- It should separate **description from prediction**. "This broker bought 40% of today's volume" is a fact. "Therefore the stock will rise" is a claim requiring evidence.
+- It should show you **when it is uncertain**. A system that always has a confident answer is not measuring anything.
+- It should be **reproducible**. The same inputs should give the same output tomorrow.
+
+## The realistic outlook
+
+Nepal's market is small, relatively young, and dominated by retail participation. That combination means information advantages come less from exotic modelling and more from doing the ordinary work completely: reading every floorsheet, tracking every disclosure, measuring every stock against its own history rather than against a vague sense of the market.
+
+That is precisely the work computers are good at and humans are not. The near-term future of NEPSE analysis is not a machine that tells you what to buy. It is a machine that ensures you have actually looked at everything before you decide.
+
+That is a smaller promise than the marketing usually makes. It is also the one worth building on. Read more in [AI-Powered NEPSE Analysis: A New Era for Nepali Investors](/blogs/ai-powered-nepse-analysis-new-era) and [Can Artificial Intelligence Predict NEPSE?](/blogs/can-ai-predict-nepse).

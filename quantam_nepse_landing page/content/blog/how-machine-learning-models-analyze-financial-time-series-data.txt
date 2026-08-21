@@ -1,0 +1,78 @@
+title: How Machine Learning Models Analyze Financial Time-Series Data
+slug: how-machine-learning-models-analyze-financial-time-series-data
+description: How machine learning handles price and volume series — features, labels, walk-forward validation and leakage — and why financial data breaks the usual assumptions.
+category: data-and-research
+tags: Machine Learning, Time Series Analysis, NEPSE Data, Quantitative Research, Model Validation
+---
+A machine learning model does not see a chart. It sees a table of numbers in which each row is a moment in time and each column is something you decided to measure. Everything that makes financial prediction hard happens in the gap between those two things — between the market a human reads and the table a model is handed.
+
+Financial time-series data also breaks the assumptions most machine learning was designed around. Standard models assume rows are independent, that the pattern learned yesterday still applies tomorrow, and that there is a strong signal to find. Price series violate all three. Returns are close to unpredictable, volatility clusters, relationships drift, and the same input can precede a rise one year and a fall the next.
+
+This article walks through what a model actually does with a price series, in the order the work happens, and flags the places where the process silently goes wrong. Most failed models are not failures of algorithm choice. They are failures at steps that happen before any algorithm is chosen.
+
+## Step one: turning a price series into features
+
+Raw closing prices are almost useless as model inputs. A price of 450 means nothing on its own; it is not comparable across stocks, and the level itself trends, so a model trained on one price range fails on another. The first job is to convert levels into quantities that are comparable across time and across stocks.
+
+- **Returns rather than prices.** Percentage or log change over one, five, twenty sessions. These are roughly scale-free and comparable between a hydropower stock at 200 and a bank at 400.
+- **Volatility measures.** Standard deviation of recent returns, average true range, or the ratio of a short window's volatility to a long one. Volatility is one of the genuinely forecastable properties of a price series.
+- **Relative position.** Where the price sits inside its recent range, or its distance from a moving average expressed in standard deviations rather than rupees.
+- **Volume and turnover.** Today's volume against its own recent median, which measures unusual participation rather than the size of the company.
+- **Cross-sectional ranks.** Instead of asking "is this return large", ask "is this the largest return among all stocks today". Ranking neutralises the market-wide move and is one of the most robust transformations available.
+
+Two rules matter more than the specific list. Every feature must be computable using only information available at the moment it is stamped — this is the leakage rule, and it is where most amateur models die. And every feature should be normalised in a way that does not depend on the future: dividing by a full-sample average quietly tells the model something it could not have known.
+
+> If a feature could not have been calculated on the morning of that trading day, using only what was public that morning, it does not belong in the table.
+
+## Step two: defining what you are predicting
+
+Beginners jump to models. Professionals spend most of their time on the label — the thing the model learns to predict. That choice determines what the model can possibly be good at.
+
+The naive label is "tomorrow's return". It is a poor choice: single-day returns are dominated by noise, so the model spends its capacity learning randomness. Better labels compress the question into something with more signal per observation:
+
+1. **Forward return over a horizon** — the change over the next ten or twenty sessions. Longer horizons average out noise, at the cost of fewer independent observations.
+2. **Direction, not magnitude** — a binary up or down, which turns the problem into classification and makes the results easier to evaluate honestly.
+3. **Relative outperformance** — did this stock beat the market or its sector over the horizon? On a market where most stocks move together, this is often the only question with a real answer.
+4. **Risk-adjusted outcome** — the forward return divided by the volatility over that window, so a violent 10% and a calm 10% are not treated as identical successes.
+
+Whichever label you pick, note the horizon carefully. A twenty-session label means consecutive rows overlap heavily and are not independent observations — a fact that will inflate every statistical test you run unless you account for it.
+
+## Step three: splitting the data without cheating
+
+This is the step where honest work separates from wishful work. In ordinary machine learning you shuffle the rows and hold out a random 20% for testing. In finance, shuffling is fatal. It lets the model learn from Thursday to predict Wednesday, and produces accuracy figures that cannot survive contact with a live market.
+
+The correct approach is **walk-forward validation**: train on an early block of history, test on the block immediately after it, then roll the window forward and repeat. You end up with a series of out-of-sample results across different market conditions rather than one number from one period.
+
+Two refinements are worth the effort. **Purging** removes training rows whose label horizon overlaps the test period, so the model cannot learn from an outcome that has bled across the boundary. **Embargoing** drops a small gap of rows immediately after the test window before training resumes, which prevents leakage in the other direction. Both sound pedantic. Both routinely turn an apparently profitable model into a flat one, which is exactly what you want to discover before risking money.
+
+## Why deep learning is usually the wrong first tool
+
+Neural networks — LSTMs, transformers, and their descendants — are the headline technology, and the temptation is to reach for them first. For most market data they are a poor starting point.
+
+The reason is the ratio of parameters to signal. A market with a few decades of daily bars and a few hundred listed instruments does not contain enough independent observations to constrain a model with millions of parameters. The network will find structure, because it always does, and most of that structure will be noise memorised in a form that looks convincing on a chart.
+
+Simpler methods are better matched to the problem. Regularised linear models, gradient-boosted trees on a small feature set, or even a hand-specified rule with two conditions will often perform as well out of sample and can be examined when they fail. If a linear model on ten features shows nothing, a neural network on the same data is rarely hiding a discovery — it is more likely hiding an error. This is the same discipline discussed in [Time-Series Analysis of NEPSE Stocks Explained](/blogs/time-series-analysis-of-nepse-stocks-explained).
+
+## The Nepal-specific problems a generic model ignores
+
+Textbook methods assume a deep, continuously traded market. The Nepal Stock Exchange is not that, and a model ignoring the difference produces numbers that are technically correct and practically wrong.
+
+- **Thin trading.** Many listed stocks do not trade every session. A gap in the series is not a flat price, and forward-filling it creates fake zero-return days that suppress measured volatility.
+- **Circuit limits.** A daily cap on how far a single stock may move truncates the return distribution. A model trained on truncated returns will systematically underestimate tail risk.
+- **Corporate action restatements.** Bonus shares and rights issues change the price scale overnight. An unadjusted series shows a crash that never happened, and any model reading it learns a pattern that does not exist.
+- **Short history and few names.** With a modest number of liquid instruments, cross-sectional tests have limited statistical power. A strategy that looks strong on thirty stocks may be one good year in disguise.
+- **A retail-dominated flow structure.** Participation and reaction patterns differ from institution-heavy markets, so imported factor definitions should be re-tested locally rather than assumed.
+
+## Judging a model honestly
+
+Accuracy is the most misleading metric in this field. If the market rises on 55% of days, a model that always predicts "up" is 55% accurate and worth nothing. Judge a model on what it adds beyond the naive alternative, and on whether the advantage survives in periods the model never saw.
+
+Useful checks: does the effect appear in every year separately, or is it carried by one exceptional stretch? Does it survive after subtracting realistic transaction costs? Does it hold when you rank stocks against each other on the same day, removing the market-wide move? Does the top-ranked group actually outperform the bottom-ranked group, or is the whole result driven by a handful of extreme names?
+
+The honest expected outcome of a first serious modelling effort is that nothing works. That is not failure; it is the market being efficient enough to give you a fair test. A research process that never returns a negative result is not finding edges — it is failing to look for them properly, a point examined in [Can Artificial Intelligence Predict NEPSE?](/blogs/can-artificial-intelligence-predict-nepse).
+
+## What to do next
+
+If you are building your own model, work in this order and refuse to skip forward: get clean adjusted price data first, build five features you can explain in a sentence each, pick one label with a horizon you would actually trade, split the data by time with a purge gap, and run the simplest model that fits. Only then consider whether complexity is buying anything.
+
+If you are evaluating someone else's model, ask three questions: what exactly is it predicting, over what horizon; how was the out-of-sample period chosen; and what does its performance look like broken down by year. An answer that avoids all three is a sales pitch. A model is only as good as the test you subject it to: see [Backtesting a NEPSE Trading Strategy](/blogs/backtesting-a-nepse-trading-strategy-complete-beginner-guide) and [Technical Indicators Every AI Stock Model Should Understand](/blogs/technical-indicators-every-ai-stock-model-should-understand).

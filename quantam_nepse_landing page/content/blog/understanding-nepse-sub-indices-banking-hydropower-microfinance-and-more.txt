@@ -1,0 +1,74 @@
+title: Understanding NEPSE Sub-Indices: Banking, Hydropower, Microfinance and More
+slug: understanding-nepse-sub-indices-banking-hydropower-microfinance-and-more
+description: What a NEPSE sub-index actually measures, how capitalisation weighting distorts it, what drives each sector group, and the mistakes that make sub-index readings misleading.
+category: sectors
+tags: NEPSE Sub-Indices, Sector Indices, Nepal Stock Exchange, Hydropower, Microfinance, Market Analysis
+---
+A NEPSE sub-index is a single number summarising one group of listed companies. That is all it is. It is not an average of how the sector's stocks performed, it is not a measure of how many companies rose, and it is not a fund you can hold. Treating it as any of those three produces confident wrong conclusions, and most retail commentary about "the hydropower index" makes at least one of them.
+
+The exchange divides its listed companies into groups — commercial banking, development banks, finance, microfinance, life insurance, non-life insurance, hydropower, hotels and tourism, manufacturing and processing, trading, investment, mutual funds, and others — and publishes a sub-index for each. This article explains how to read those numbers correctly and what actually drives each group.
+
+## How a sub-index is built, and why that matters
+
+Sub-indices are capitalisation-weighted. Each company's influence is proportional to its market value, not to its stock price and not to one company one vote. The consequence is direct and often ignored: **the largest company in a sub-index can move it on a day when most members of that sub-index fell.**
+
+Work through the arithmetic once and you never forget it. If a sub-index has fifteen members and the largest is worth more than several of the others combined, then that one company's move dominates the number. The sub-index rose by two per cent. Eleven of the fifteen stocks fell. Both statements are true simultaneously, and only the first one gets reported.
+
+Two other construction details are worth knowing:
+
+- **New listings and corporate actions do not create index moves.** When a company lists, or issues bonus shares or rights, the index calculation is adjusted so the mechanical change in capitalisation does not appear as a price move. If you see a sub-index jump that no stock explains, an adjustment is usually the reason.
+- **Free float matters.** In markets where a large share of a company's capital is held by promoters and does not trade, total capitalisation overstates how much of that company is actually available to the market. If your data source offers a float-based variant of an index, it usually describes tradable reality better than the total-cap version.
+
+> A sub-index is the story of its heavyweights. The story of its members is a breadth count, and you have to look that up separately.
+
+## What actually drives each group
+
+The sub-indices differ because the businesses differ. Here is what each group responds to.
+
+**Commercial banking.** The heavyweight group. Driven by credit growth, deposit costs, liquidity in the banking system and provisioning. Because these are the largest listed companies, this sub-index has a strong influence on the headline index, and a banking-led day frequently gets described as a market-wide day.
+
+**Development banks and finance.** Structurally similar to commercial banks but smaller, more regionally concentrated and generally more volatile. They often move in sympathy with commercial banking, but with different amplitude and sometimes with a lag. Their divergence from the larger banks is informative when it happens.
+
+**Microfinance.** Lends to a different client base under a different regulatory regime. Sensitive to funding costs and to policy affecting lending rates and spreads. It carries its own risk profile — credit quality in this group behaves differently from commercial bank credit quality — and should never be treated as a proxy for the wider banking complex.
+
+**Life insurance and non-life insurance.** Separate sub-indices, correctly so. Life insurers are long-duration savings businesses whose economics depend heavily on premium growth and on the returns earned on invested funds. Non-life insurers are underwriting businesses where claims experience dominates. They share a regulator and very little else.
+
+**Hydropower.** The largest group by number of listed companies and the most heterogeneous. A hydropower share is effectively a claim on a project, and what matters is where that project is: under construction, newly commissioned, or operating. Generation is seasonal, construction timelines slip, and the terms of power purchase arrangements shape economics. This is the sub-index where the group number tells you least about any individual member.
+
+**Hotels and tourism.** Small in number, driven by arrivals, occupancy and discretionary spending. Its rhythm is unconnected to credit conditions, which makes it one of the more genuinely independent groups.
+
+**Manufacturing and processing, and trading.** Very few listed companies. A single company's circumstances can define the sub-index, so a move here is usually a company story, not a sector story. Check membership before drawing any conclusion.
+
+**Investment.** Holding companies whose value derives from stakes in other listed and unlisted businesses. This group is partly a leveraged reflection of the rest of the market, which makes its moves easy to misread as independent information.
+
+**Mutual funds.** Closed-end schemes trading at prices that can sit above or below the value of what they hold. Their behaviour is driven as much by the discount or premium to net asset value as by the underlying portfolio.
+
+## The five mistakes that make sub-index readings wrong
+
+1. **Reading the sub-index as the average stock.** It is a weighted number. Always pair it with a count of how many members rose and fell.
+2. **Comparing sub-index levels to each other.** The levels have different bases and different histories. Only percentage changes over the same window are comparable, and even then the composition differs.
+3. **Assuming a sub-index is investable.** You cannot buy it. Reproducing it requires holding every member at capitalisation weight, which for a retail portfolio is neither practical nor desirable.
+4. **Reading small-group sub-indices as sector information.** Where a group has only a handful of members, the sub-index is a company signal in disguise.
+5. **Ignoring membership changes.** Companies list, merge and change groups. A long-run sub-index chart is not a fixed basket, and the further back you look the less the composition resembles today's.
+
+## How to use sub-indices well
+
+They are most useful for three specific jobs.
+
+**Attribution.** When the headline index moves, sub-indices tell you which group was responsible. That converts "the market fell" into a testable statement about a particular sector's day.
+
+**Divergence detection.** Related groups usually move together. When development banks separate from commercial banks, or life separates from non-life, something specific is happening. Divergence between structurally linked groups is more informative than either group's absolute move.
+
+**Benchmarking a single stock.** The right comparison for a bank is its sub-index, not the headline index. A bank up one per cent on a day its sub-index rose three per cent underperformed, even though the ticker was green. This single habit changes how a portfolio reads.
+
+## What to watch, in order
+
+- The sub-index percentage change, alongside the number of members that advanced and declined.
+- Whether the group's largest member explains most of the move.
+- Turnover in that group as a share of the day's total turnover value, which tells you where attention actually went.
+- Whether related sub-indices agree or diverge.
+- Whether any move coincides with a known adjustment — a new listing, a bonus issue, a rights issue — before you attribute it to sentiment.
+
+The sub-indices are among the most useful data NEPSE publishes and among the most casually misquoted. Read them as what they are — capitalisation-weighted summaries dominated by their largest members — and they become a precise tool. Read them as sector averages and they will mislead you regularly and confidently.
+
+For how these groups behave relative to one another, read [NEPSE Sector Analysis: How Nepal Market Sectors Behave Differently](/blogs/nepse-sector-analysis-how-nepal-market-sectors-behave-differently). For the underlying mechanics of the exchange, see [How Does the Nepal Stock Exchange Work?](/blogs/how-does-the-nepal-stock-exchange-work), and for the valuation metric most often misused across sectors, [What Is Market Capitalization in NEPSE?](/blogs/what-is-market-capitalization-in-nepse).

@@ -1,0 +1,87 @@
+title: NEPSE Sector Analysis: How Nepal Market Sectors Behave Differently
+slug: nepse-sector-analysis-how-nepal-market-sectors-behave-differently
+description: Banking, hydropower, microfinance and insurance do not move for the same reasons or at the same speed. How to read NEPSE sector behaviour without mistaking rotation for a trend.
+category: sectors
+tags: NEPSE Sectors, Sector Analysis, Nepal Stock Exchange, Hydropower Stocks, Banking Stocks, Investing in Nepal
+---
+Most investors treat NEPSE as one thing that goes up or down. It is not. It is a set of sectors with genuinely different economics, different sensitivities and different typical behaviour, sitting under a single headline index. Two stocks can move opposite ways on the same day for reasons that have nothing to do with either company and everything to do with which sector they sit in.
+
+Understanding that is the difference between "the market fell today" and "the heavyweight sector fell and dragged the index while most stocks were flat". Those are different facts and they lead to different decisions.
+
+This article covers what actually distinguishes NEPSE's sectors from each other, why the index can mislead you about breadth, and how to compare stocks without accidentally comparing sectors.
+
+## The sectors are not interchangeable buckets
+
+NEPSE groups listed companies into sub-indices: commercial banking, development banks, finance, microfinance, life insurance, non-life insurance, hydropower, hotels and tourism, manufacturing and processing, trading, investment, mutual funds, and others.
+
+These are not cosmetic categories. Each one has a distinct engine:
+
+- **Banking and finance** are interest-rate and liquidity businesses. Their earnings, and the market's appetite for them, respond to the cost and availability of money in the system.
+- **Microfinance** shares that sensitivity but operates on a different client base and a different regulatory footing, so it does not simply track its larger cousins.
+- **Insurance** — life and non-life are separate sub-indices for good reason — runs on premium growth and on the returns from investing the float, which links it back to rates from a different direction.
+- **Hydropower** is a project business. What matters is construction progress, commissioning, seasonal generation and power purchase arrangements — none of which is a monthly financial metric.
+- **Hotels and tourism** track arrivals and discretionary spending, a rhythm unrelated to credit conditions.
+- **Manufacturing and trading** are small in number and idiosyncratic; a single company's situation can define the sub-index.
+
+Because the engines differ, so does the timing. A sector driven by a policy or rate change can move as a bloc within days. A sector driven by project milestones moves stock by stock over months. Applying one mental clock to both produces bad reads.
+
+## Weight is why the index lies to you
+
+The headline index is capitalisation-weighted. That means the largest companies move it and the smallest barely register. In a market where banking carries a heavy share of total listed capitalisation, the index is substantially a report on that one sector's day.
+
+The practical consequences are worth stating plainly:
+
+1. **The index can rise on a day most stocks fell.** A few heavyweights up, a long tail down. Advance/decline counts and the sub-indices tell you this; the index alone hides it.
+2. **A "flat" day can be violent underneath.** One sector strongly up, another strongly down, netting to nothing at the headline.
+3. **A sector rally in a small sub-index barely shows.** A powerful move in a lightly capitalised group can be invisible in the main number while being the most important thing that happened.
+
+> The index tells you what the largest companies did. Breadth and sub-indices tell you what the market did. They are not the same question and they frequently disagree.
+
+If you only ever look at one extra number beyond the index, make it the ratio of advancing to declining stocks. It takes seconds and it repeatedly contradicts the headline.
+
+## Dispersion: the property that decides your strategy
+
+The single most useful sector concept is **dispersion** — how differently the stocks inside a sector behave from each other.
+
+Some sectors are internally tight. The companies are structurally similar, regulated the same way, and exposed to the same conditions, so they tend to move together. In a tight sector, picking the exact company matters less than getting the sector call right, and diversifying across five names in that sector gives you less protection than it looks like.
+
+Other sectors are internally scattered. Individual company situations dominate, and knowing the sector is doing well tells you very little about any one member. In a scattered sector, stock selection is most of the work and a sector-level view is close to useless on its own.
+
+You can measure this for yourself without any special tools: over a chosen window, list the returns of every stock in a sub-index and look at how widely they spread around the sub-index itself. Do it for two sectors and the difference in character is usually obvious. Do not assume it is stable — dispersion widens and narrows with conditions, and a sector that traded as a bloc through one stretch can fragment in the next.
+
+## Rotation, and why it looks like alpha when it is not
+
+Retail-dominated markets show attention rotation: participation crowds into one sector, then moves on. It is real, it is visible in turnover, and it is one of the easiest things in market analysis to over-interpret.
+
+Two cautions before you build anything on it.
+
+**Share-of-market is not the same as flow.** Because every share bought is also sold, there is no such thing as net money entering the market as a whole — that quantity is zero by construction. What changes is the distribution of turnover between sectors. "Money is rotating into hydropower" is a claim about attention share, not about a net inflow, and the honest version of it is measured as a share of turnover, not as a rupee inflow.
+
+**Sector membership has to be complete.** If your sector mapping covers only part of the listed universe, every "share of market" figure computed from it is distorted, and the distortion moves whenever coverage changes. A rotation chart built on partial mapping can manufacture a trend out of nothing but a classification gap.
+
+**Rotation is descriptive, not predictive.** That attention moved into a sector last week is a fact about last week. Whether it continues is an entirely separate claim, and one that is hard to support. Frequent rotation in a retail market is at least as consistent with attention moving on quickly as with a durable trend forming.
+
+## How to compare stocks without comparing sectors by accident
+
+This is where sector awareness becomes practical. Most naive screens are secretly sector screens.
+
+- Screen for low P/E across all of NEPSE and you will mostly surface whichever sector currently trades at structurally lower multiples. That is a sector fact, not a value discovery. Compare a bank's P/E with other banks.
+- Screen for dividend yield across everything and you rank sectors by payout convention.
+- Screen for high volume in share counts rather than value and you rank by low price, because a cheap stock trades more shares for the same rupee amount.
+- Rank on book value across sectors and you compare balance sheets that mean different things — a bank's book and a hydropower project's book are not the same kind of number.
+
+The fix is the same in every case: **rank within the sub-index first**, then compare the winners across sectors with your eyes open about what differs. If you want a market-wide ranking, neutralise the sector effect by scoring each stock against its own sector's distribution rather than against everything.
+
+## What to actually watch
+
+A workable weekly sector routine, in order:
+
+1. **Sub-index moves, not just the index.** Which groups led and lagged, and by how much.
+2. **Breadth inside the leading sector.** Did most of its members participate, or did one heavyweight carry it? A one-stock sector move is a company story wearing a sector costume.
+3. **Turnover share.** Which sectors absorbed attention, expressed as a percentage of the day's total turnover value.
+4. **Divergence between related sectors.** Development banks moving apart from commercial banks, or life apart from non-life, is a signal that something specific is happening rather than a general mood shift.
+5. **Whether the driver is structural or a single event.** A rate or policy change affects a whole sector's economics. A single company's disclosure does not, however loudly it is discussed.
+
+Sector analysis will not tell you what to buy. Used properly it does something more valuable: it stops you attributing to a company what belongs to its sector, and it stops you reading the index as if it described the market.
+
+For the mechanics of each group, read [Understanding NEPSE Sub-Indices: Banking, Hydropower, Microfinance and More](/blogs/understanding-nepse-sub-indices-banking-hydropower-microfinance-and-more). For the valuation metrics used in within-sector comparison, see [What Is P/E Ratio and How Does It Help NEPSE Investors?](/blogs/what-is-p-e-ratio-and-how-does-it) and [How to Analyze a NEPSE Stock Before Buying](/blogs/how-to-analyze-a-nepse-stock-before-buying).

@@ -1,0 +1,104 @@
+title: How to Analyze a NEPSE Stock Before Buying
+slug: how-to-analyze-a-nepse-stock-before-buying
+description: A seven-step routine for checking a NEPSE stock before you buy: liquidity, statements, earnings quality, valuation, pending rights and bonus, and the floorsheet.
+category: nepse-analysis
+tags: NEPSE Analysis, Stock Research, Fundamental Analysis, Investing In Nepal, Floorsheet
+---
+Analysing a NEPSE stock properly takes about two hours the first time and forty minutes once you have a routine. The routine matters more than any individual metric, because the failure mode in Nepal is not choosing the wrong ratio. It is checking three numbers, feeling informed, and skipping the two checks that would have stopped the purchase.
+
+What follows is a sequence, ordered so the cheapest disqualifying tests come first. If a stock fails the first test, you never need to open its financials at all.
+
+## Be clear which question you are asking
+
+There are two entirely different questions, and mixing them is why so much retail analysis goes nowhere.
+
+The first is whether this is **a good business at a sane price** that you are willing to own through several quarters. That is answered with financial statements, sector conditions and valuation.
+
+The second is whether **something is happening in this stock right now**. That is answered with price, volume and floorsheet data, and it has a much shorter shelf life.
+
+Both are legitimate. Answering the second and then holding as though you had answered the first is how positions become long-term investments by accident.
+
+## Test one: can you get out?
+
+Before anything else, check liquidity. Over the last month or so, look at how many sessions the stock traded at all, its typical daily turnover, and whether that turnover came from many trades or a handful of large ones.
+
+An illiquid stock is not merely inconvenient. It means your buy pushes the price against you and your sell does the same. It means the last traded price may be days old and is telling you almost nothing. And it means bad news arrives as a price you cannot trade at, because the stock locks at its lower band with no buyers on the other side.
+
+If a stock cannot absorb the size you intend without moving, either cut the size or move on. That decision is cheap now and expensive later.
+
+## Test two: read the report, not the headline
+
+Quarterly and annual disclosures are published. The summaries circulating on social media are not the same thing. Open the actual statements and look, in this order, for:
+
+1. **The revenue or net interest income trend** across several periods, never one.
+2. **The profit line and what moved it.** Did operating performance improve, or did a provision reverse, an asset get revalued, or a one-off gain land?
+3. **The balance sheet's direction.** Rising borrowings, rising receivables, or inventory growing faster than sales each need an explanation.
+4. **Cash.** Profit is an opinion formed under accounting rules. Cash generation is harder to dress up.
+
+A structured route through the statements themselves is in [how to read a NEPSE company financial report](/blogs/how-to-read-a-nepse-company-financial-report).
+
+## Test three: is the earnings number real?
+
+This is where analysis should slow down, and where it usually speeds up.
+
+> Most retail analysis stops at whether the stock looks cheap. The harder question is whether the earnings you are pricing are real.
+
+Things that make a reported [EPS](/blogs/what-is-eps-in-nepal-stock-market) worth less than it appears:
+
+- **Annualised quarterly figures.** Nepali quarterly disclosures commonly present an annualised earnings number, extrapolating a single quarter across a whole year. For a seasonal or lumpy business that figure is close to fiction.
+- **One-off items.** An asset sale, a write-back, a revaluation. Strip them out and ask what the underlying run rate is.
+- **Regulatory adjustments in financial institutions.** For banks and similar institutions, reported profit and distributable profit are different figures once regulatory reserves are set aside. Strong earnings and limited capacity to distribute can coexist.
+- **Profit rising while cash falls.** Not automatically damning, but always worth an explanation you can actually find.
+
+## Test four: value it against itself before comparing it to anyone
+
+The default retail move is to compare a stock's [P/E ratio](/blogs/what-is-p-e-ratio-and-how-does-it) with a sector average and pronounce it cheap or expensive. On its own that is a weak test. Sector averages in a small market are dragged around by a few large constituents, and a low multiple is very often correct pricing of a deteriorating business.
+
+A better sequence:
+
+- Compare the multiple with **the same company's own range** across past periods. A company trading well above its own historical band needs a reason you can name.
+- Compare price with **book value**, especially for financial institutions, where book equity is economically meaningful and earnings are volatile.
+- Only then compare with peers, and only with peers that genuinely resemble it. A large commercial bank and a small development bank are not comparable merely because they share a sub-index.
+- Finally, ask what has to be true for today's price to make sense. If the answer requires uninterrupted growth, you have located the risk.
+
+## Test five: what is pending in the capital structure
+
+This step is Nepal-specific and it is skipped constantly.
+
+- Is a **right issue** proposed or approved? If so, you will be asked for cash or diluted.
+- Is a **bonus issue** pending? The share count will rise and every per-share figure will fall mechanically.
+- When is **book closure**? Buying just after it means missing this cycle's entitlement.
+- What proportion of shares is **promoter-held and not freely tradable**? A small free float means modest amounts of money move the price a long way, in both directions.
+
+None of this is analysis of the business. All of it changes what you actually receive.
+
+## Test six: the floorsheet check, done honestly
+
+NEPSE publishes broker-level trade data, which is unusual and genuinely useful. Used properly, it answers descriptive questions:
+
+- Was today's volume spread across many brokers, or concentrated in a few?
+- Is the current activity unusual **for this stock**, measured against its own history rather than the market's?
+- Did turnover expand before the price move, or only after it?
+
+Used improperly it generates stories. Two guardrails. Brokers are identified but their clients are not, so one broker's net position is a mixture of many people with unrelated motives. And every share bought was sold, so any net imbalance measured across the whole market is zero by construction. A metric that appears to reveal a hidden accumulator across the market is almost always re-describing turnover. Treat the floorsheet as a measurement of activity, never as a window into intent.
+
+## Test seven: write the disconfirming note
+
+Before you place the order, write two or three sentences: what you believe, and what observable event would tell you the belief was wrong. Real examples are specific. The next two quarters do not show the margin recovery I am assuming. The right issue is larger than expected. Receivables keep growing faster than revenue.
+
+This takes five minutes and does more for outcomes than any ratio, because it converts a vague sense of conviction into something falsifiable. It also blocks the most expensive habit in retail investing, which is quietly changing your reason for holding after the price has fallen.
+
+## The working checklist
+
+Run these in order, and stop at the first hard failure.
+
+1. Liquidity adequate for the size you intend.
+2. Statements read directly, over several periods, not a summary.
+3. Earnings quality examined, including one-offs, annualisation and distributable profit.
+4. Valuation compared with the company's own history first, then with genuine peers.
+5. Pending rights, bonus and book closure all checked.
+6. Floorsheet read descriptively, for activity and concentration only.
+7. Disconfirming conditions written down before buying.
+8. Position sized so that being wrong is survivable.
+
+Nothing in that list predicts a price, and that is the point. A good process does not tell you what a stock will do. It tells you whether you understand what you are buying, and how much you should be willing to risk on being wrong. The sector context that shapes several of these tests is covered in [NEPSE sector analysis](/blogs/nepse-sector-analysis-how-nepal-market-sectors-behave-differently).

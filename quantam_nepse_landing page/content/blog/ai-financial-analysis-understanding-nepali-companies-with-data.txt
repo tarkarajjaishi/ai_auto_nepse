@@ -1,0 +1,83 @@
+title: AI Financial Analysis: Understanding Nepali Companies With Data
+slug: ai-financial-analysis-understanding-nepali-companies-with-data
+description: How machine analysis of NEPSE company reports helps: extraction, normalisation and peer comparison, plus the rules that stop a model inventing figures.
+category: companies
+tags: Financial Analysis, NEPSE Companies, Artificial Intelligence, Fundamental Analysis, Investment Research
+---
+The bottleneck in analysing a Nepali listed company is not intelligence. It is retrieval. The figures you need are published, but they arrive as documents — quarterly and annual reports, disclosures, corporate action notices — one company at a time, in inconsistent layouts. Comparing thirty companies properly means opening thirty documents and copying numbers by hand, and almost nobody does it, which is precisely why the comparison is worth doing.
+
+Machine analysis attacks that bottleneck. Its genuine contributions are extraction, normalisation, comparison and change detection. None of those is a prediction. All of them free you to spend your judgement on the part that needs judgement.
+
+The catch is specific and serious: a language model asked for a number will produce one whether or not it read it. Every figure has to remain traceable to its source, or the whole exercise is worse than useless. That constraint shapes everything below.
+
+## The four jobs machines do well on company reports
+
+**Extraction.** Pulling the reported line items out of a document into a table — revenues, costs, profit, assets, liabilities, equity, share count. Straightforward in principle, fiddly in practice because layouts vary between companies and between periods for the same company.
+
+**Normalisation.** Making extracted figures comparable. Same units, same period definitions, same treatment of a quarter versus a cumulative figure. Cumulative-to-date reporting is a classic source of error: subtracting the previous quarter to get a standalone quarter is correct only if both figures are on the same basis.
+
+**Comparison.** Ranking a company against its own history and against its sector peers on the same definitions, on the same date. This is where the value concentrates, because a ratio in isolation means very little.
+
+**Change detection.** Flagging what moved materially since the last report — a line item that jumped, a ratio that broke its own range, wording in the narrative that shifted. Machines are patient enough to diff every company every quarter. People are not.
+
+> A model that tells you a company's margin is 14 per cent has told you nothing. A model that tells you the margin has fallen for three consecutive periods while every peer's rose has told you where to start reading.
+
+## Why the peer set is the whole game
+
+Comparing a bank against a hydropower developer on the same ratios produces noise. Their financial statements are structured differently for structural reasons: a bank's business is the spread between what it pays for deposits and earns on lending, with provisioning against bad loans as a central line item; a hydropower company's economics turn on generation, its power purchase arrangements and the debt taken on to build the plant; an insurer's turn on premium growth and claims. Their assets do not mean the same thing.
+
+So any automated analysis must define the comparison group before it computes anything, and it should compare within the sub-index the company actually belongs to — banking, development banks, finance, hydropower, microfinance, life or non-life insurance, hotels and tourism, manufacturing, trading, investment, mutual funds, or others.
+
+Two further rules keep peer comparison honest.
+
+- **Compare at the same date.** A company reporting later than its peers is compared against their older figures unless the dates are aligned deliberately.
+- **State the peer set.** "Above average" is meaningless until you know average of what. A list of five names is not a sector.
+
+## The ratios everyone uses, and what they hide
+
+Retail analysis in Nepal centres on a small set of numbers: last traded price, market capitalisation, EPS, P/E and book value. They are reasonable starting points and each has a specific blind spot that automation makes easier to check.
+
+1. **EPS** is sensitive to share count, and share count changes with bonus and rights issues. Comparing EPS across a period containing a corporate action without adjusting is comparing two different things. [What EPS means in the Nepal stock market](/blogs/what-is-eps-in-nepal-stock-market) covers the mechanics.
+2. **P/E** inherits every EPS problem and adds one of its own: it is low both when a company is cheap and when its earnings are about to fall. On its own it cannot distinguish the two.
+3. **Book value** describes accounting equity, not what the assets would fetch. Its usefulness varies enormously by sector.
+4. **Market capitalisation** measures size, not value, and in a market with limited free float the traded price may reflect a small proportion of the shares.
+
+A well-built automated analysis shows the ratio next to its own history and its peer distribution, so you can see immediately whether a number is genuinely unusual or merely normal for that sector.
+
+## The hallucination problem, and the only workable answer
+
+Large language models are strong at reading and summarising documents and weak at arithmetic they were not shown. Asked for a figure not present in the text they were given, they will frequently produce a plausible one. In financial analysis that is catastrophic, because a plausible wrong number is indistinguishable from a right one on the page.
+
+The rules that make this safe are not sophisticated, but they are absolute.
+
+- **Every figure must cite its source location** in the document it came from. No citation, no figure.
+- **Arithmetic happens outside the model.** The model extracts inputs; ordinary code computes ratios. Never ask a language model to calculate a growth rate.
+- **Reconcile automatically.** Assets should equal liabilities plus equity; the components of a total should sum to it. Failures indicate an extraction error, and should surface as an error rather than as an analysis.
+- **Fail loudly.** A field that could not be found must be reported as missing, never estimated. Silent estimation is the worst possible behaviour.
+- **Spot-check by hand.** Before trusting a pipeline across a sector, verify a handful of companies against the original documents yourself.
+
+Where models are genuinely strong is on the text rather than the tables: summarising management commentary, comparing the tone of successive reports, and flagging language about risks or contingencies that changed. Even there, treat tone as a prompt to read the original, not as a conclusion.
+
+## What automation cannot see
+
+Be clear about the boundary, because the output looks authoritative regardless of what went into it.
+
+- **Accounting quality.** Whether reported figures fairly represent the business is a judgement about policy and intent. A model reads what is reported, and reads a well-presented weak business exactly as it reads a strong one.
+- **Governance and management.** Track record, capital allocation discipline and the relationship between promoters and minority shareholders leave few traces in the statements until something goes wrong.
+- **Regulatory change.** Rules affecting capital, provisioning or licensing can reshape a sector's economics in a way no historical model anticipates.
+- **What is not disclosed.** The absence of a figure is information, and machines are poor at noticing absences.
+
+## A workable process
+
+Use the machine for breadth and yourself for depth.
+
+1. Extract and normalise the reported figures across the sector you care about, with every number linked to its source.
+2. Look at the distribution before the individual company. Understand what normal looks like for that sector this period.
+3. Let change detection produce a shortlist — companies whose figures or language moved materially against the peer pattern.
+4. Read the actual reports for those few companies, including the notes, which is where the interesting detail usually sits.
+5. Write down what would change your mind, before you take a position.
+6. Re-run the same comparison next quarter and see whether the pattern held. That loop is what turns analysis into learning.
+
+The realistic promise here is modest and worth having: you get to consider every company instead of the ones you already know about, on consistent definitions, with the arithmetic done reliably. What the numbers mean, and whether the business deserves your money, remains yours to decide.
+
+For the underlying skill that all of this assumes, read [how to read a NEPSE company financial report](/blogs/how-to-read-a-nepse-company-financial-report). For the balance-sheet measure most often misread, see [what book value means in NEPSE stocks](/blogs/what-is-book-value-in-nepse-stocks), and for the strengths and limits of language models in research, [how generative AI can help Nepali investors research companies](/blogs/how-generative-ai-can-help-nepali-investors-research-companies).

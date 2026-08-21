@@ -1,0 +1,80 @@
+title: AI vs Human Stock Analysis: Which Is Better for NEPSE?
+slug: ai-vs-human-stock-analysis-which-is-better-for
+description: A practical comparison of machine-driven and human analysis on the Nepal Stock Exchange, covering where each one genuinely wins, where both fail, and how to combine them.
+category: quantitative-finance
+tags: NEPSE AI, Quantitative Analysis, Nepal Stock Exchange, Investment Research, Machine Learning
+---
+The honest answer is that they are good at different jobs, and the question "which is better" hides the one that matters: better at what. A machine is better at reading every floorsheet in the archive. A person is better at knowing that a company's promoter group has changed and that the reported figures no longer mean what they meant last year. Neither of those abilities substitutes for the other.
+
+On the Nepal Stock Exchange the split is sharper than in larger markets, because NEPSE publishes an unusual amount of raw, structured data and an unusually small amount of analysis around it. The broker-level floorsheet is machine-shaped work sitting untouched. Company context, on the other hand, often lives in relationships, local knowledge and disclosures written in prose rather than in any dataset.
+
+This article sets out what each side actually does well, where both go wrong in the same way, and how to build a process that uses both rather than picking a winner.
+
+## What machines genuinely do better
+
+Not intelligence. Throughput and consistency.
+
+- **Coverage.** There are hundreds of listed instruments on NEPSE. A person tracking twenty of them properly is doing well. A model applies the same measurement to all of them, every session, without choosing favourites.
+- **Repeatability.** A rule executed by software returns the same answer on the same inputs tomorrow. A human judgement will not, and the drift is invisible to the person making it.
+- **Memory.** A model comparing a stock's turnover with its own history over years is doing something a human cannot approximate. Recency bias makes "unusual volume" mean "unusual compared with what I remember", which is usually the last two weeks.
+- **Aggregation.** Broker-level data is the clearest example. Counting who traded what across months of sessions is trivial for a machine and impossible by hand.
+- **Discipline.** A rule that sizes a position at a fixed fraction of capital does so after a losing streak too. This is where most retail damage in any market actually happens.
+
+None of that is prediction. It is bookkeeping done thoroughly, and it is the part of analysis that most investors skip because it is dull.
+
+## What humans genuinely do better
+
+- **Interpretation of the unmodelled.** A regulatory change, a rights issue, a merger between two banks, a change in interest-rate policy — these break the historical relationships a model learned from, and a model has no way of knowing they happened.
+- **Judging data quality.** A person who has read a company's reports can tell that a figure looks wrong. A model treats a corrupt input as a fact and propagates it confidently.
+- **Framing the question.** Deciding which questions are worth asking is not something a model does. Every model answers the question it was given, which is why so many of them answer trivial ones precisely.
+- **Knowing when the past does not apply.** A market that has grown and changed structurally does not necessarily behave the way its early history did. A human can say "that era is not comparable". A model, by default, will average it in.
+
+> A model can tell you that something is unusual. It cannot tell you that this time it does not matter.
+
+## Where both fail identically
+
+This is the part most comparisons leave out, and it is the reason "which is better" is a poor framing.
+
+**Both overfit.** A human who has watched a stock for two years has fitted a story to it just as surely as a model fitted to two years of bars. Neither story has been tested against data it did not see. If you want to know whether an idea has anything in it, you have to test it out of sample, which is the same discipline in both cases. [Backtesting a NEPSE Trading Strategy: Complete Beginner Guide](/blogs/backtesting-a-nepse-trading-strategy-complete-beginner-guide) covers how that goes wrong in practice.
+
+**Both mistake turnover for information.** A widely observed trap in floorsheet analysis is that many apparently sophisticated broker metrics turn out to be restatements of how much a stock traded. Because every share bought is also sold, market-wide net buying is zero by construction, and a metric that seems to reveal a hidden net accumulator is often just measuring activity. A human eyeballing the same data reaches the same wrong conclusion, more slowly.
+
+**Both are drawn to the confident answer.** People prefer analysis that resolves uncertainty. Models can be tuned until they produce it. A system that always has a view is not measuring anything, whether the system is software or a person.
+
+**Both go stale.** A number computed from last week's session, presented as if it were current, is wrong in the same way regardless of who computed it. Any tool you use should tell you which session its figures come from.
+
+## The comparison that actually matters for NEPSE
+
+Score them on the tasks a Nepali investor actually performs, and the picture is not close on either side.
+
+1. **Screening the universe for something worth a closer look.** Machine, decisively. This is search over hundreds of instruments, and it is mechanical.
+2. **Reading the floorsheet for concentration and flow.** Machine. The data volume rules out doing it by hand.
+3. **Reading a quarterly report and judging whether the earnings are real.** Human, with machine help for extraction. Software can pull the figures; deciding whether a provision was aggressive is judgement.
+4. **Deciding position size and honouring a stop.** Machine, or at least a written rule. This is the failure mode humans have most reliably.
+5. **Deciding whether a sector's story has changed.** Human. Sector behaviour in NEPSE responds to policy and credit conditions that are not in the price history.
+6. **Predicting next week's price.** Neither. This is close to a coin flip in every market studied, and NEPSE is not exempt.
+
+That last point deserves emphasis, because it is where most claims on both sides collapse. See [Can AI Really Predict NEPSE? Separating Technology From Hype](/blogs/can-ai-really-predict-nepse-separating-technology-from-hype) for a longer treatment.
+
+## How to combine them without fooling yourself
+
+The workable arrangement is a division of labour with a clear boundary: the machine describes, the human decides, and the machine enforces the decision.
+
+- Let software produce facts, not verdicts. "This broker accounted for a large share of today's volume" is a fact. "Therefore accumulate" is a claim needing evidence.
+- Require every machine-produced number to carry its own context — compared with what, over what window, from which session. A figure without a baseline is not information.
+- Write your reasoning down before you act. This is how you find out later whether your judgement or the model's measurement was the part that failed.
+- Give the machine the risk rules. Sizing, stop levels and maximum exposure are exactly where human discretion destroys returns, and exactly where a rule is easy to write.
+- Be sceptical of anything that only works in the sample it was built on. That test applies equally to your own intuition.
+
+If you want the mechanics of building the descriptive layer yourself, [How to Build an AI Model for NEPSE Stock Analysis](/blogs/how-to-build-an-ai-model-for-nepse-stock) walks through the pipeline and the traps.
+
+## What to do next
+
+Stop asking which one is better and start auditing your own process for the tasks each side is bad at. Specifically:
+
+- Count how many instruments you genuinely monitor. If it is fewer than twenty, your coverage problem is a machine problem.
+- Check whether any rule you follow has ever been tested on data you had not already seen. If not, it is a story, not a strategy.
+- Check whether your position sizing changes after a loss. If it does, that is the first thing to hand to a rule.
+- Ask of every tool you use: which session is this from, compared with what, and what would make this number wrong.
+
+The investor who wins in a market like Nepal's is rarely the one with the cleverest model. It is the one who has actually looked at everything before deciding, and who knows which part of their process is judgement and which part is arithmetic.

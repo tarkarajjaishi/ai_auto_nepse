@@ -1,0 +1,96 @@
+title: Time-Series Analysis of NEPSE Stocks Explained
+slug: time-series-analysis-of-nepse-stocks-explained
+description: A plain explanation of time-series analysis for NEPSE data: returns versus prices, stationarity, autocorrelation, volatility clustering, and validating by time.
+category: data-and-research
+tags: Time Series Analysis, NEPSE Data, Quantitative Analysis, Nepal Stock Exchange, Statistics
+---
+A time series is nothing more than measurements taken in order, where the order carries information. A stock's closing prices are a time series; the same prices shuffled into random order are not, because the thing that made them meaningful — what came before what — has been destroyed. Almost everything specialised about time-series analysis follows from that one property.
+
+For NEPSE stocks this matters in a very practical way. The standard statistical toolkit assumes observations are independent and identically distributed. Daily prices are neither. Applying ordinary methods to them produces confident nonsense, and most of the technique below exists to repair specific consequences of that mismatch.
+
+This is an explanation of the concepts you actually need, in the order they become relevant, with the NEPSE-specific complications attached.
+
+## First: analyse returns, not prices
+
+Raw prices are a poor object of study. They wander without a fixed level, their scale differs across stocks, and their statistical properties change as the level changes. A move of ten rupees means something completely different on a stock trading at eighty than on one trading at eight hundred.
+
+Returns fix all three. Convert to the percentage change from one session to the next, or to the logarithmic change, which has the convenient property that multi-day returns are simply the sum of daily ones. Once you are working in returns, stocks become comparable, and the series becomes far closer to something statistics knows how to handle.
+
+Two NEPSE-specific cautions before you compute a single return:
+
+- **Adjust for corporate actions.** Bonus and rights issues restate the price. An unadjusted return series will contain enormous fictitious losses on those days, and any model will happily learn from them.
+- **Mind the calendar.** The exchange does not trade every weekday, and holidays interrupt the series. Most time-series tooling assumes a regular grid. Index by trading session rather than by date, or a gap becomes a fake price move.
+
+## Stationarity, and why everyone insists on it
+
+A series is stationary if its statistical behaviour does not depend on when you look at it — the mean and variance are stable over time. Price levels are strongly non-stationary. Returns are much closer to stationary, though not perfectly so, because volatility itself changes over time.
+
+Why does it matter? Because relationships fitted on non-stationary series are frequently spurious. Two unrelated stocks that both drifted upward over the same period will appear correlated, and a regression will report a strong relationship that is entirely an artefact of shared drift. Working in returns removes most of that trap.
+
+Perfect stationarity is not achievable in markets and is not the goal. The goal is to know which of your inputs are stable enough to reason about and which are not.
+
+## Autocorrelation: does the past predict the immediate future
+
+Autocorrelation asks how much a series resembles itself shifted by one or more periods. It is the direct statistical version of the question every trader asks: does today tell me anything about tomorrow.
+
+Two findings recur across markets and are worth testing on any NEPSE stock yourself:
+
+1. **Return autocorrelation is weak.** Whatever it is, it is small, unstable across periods, and easily wiped out by transaction costs. Do not expect otherwise.
+2. **Absolute return autocorrelation is strong and persistent.** The size of moves, ignoring direction, clusters heavily. Turbulent sessions follow turbulent sessions.
+
+That second point is the most reliably useful fact in the entire field. It says direction is close to unforecastable while risk is substantially forecastable, which should shape what you build.
+
+> Volatility is the part of a market that has a memory. Direction mostly does not.
+
+## Volatility clustering and what to do with it
+
+Because volatility clusters, a single fixed idea of "a big move" is wrong. A three per cent day is unremarkable in a turbulent stretch and extraordinary in a calm one. Any threshold you set — for a stop, for an alert, for what counts as unusual — should be expressed relative to the stock's recent volatility rather than as a fixed percentage.
+
+This is also where a common modelling error lives. When normalising a quantity, divide by a measure of spread such as the standard deviation, not by the mean of absolute values. Dividing a slope by the average magnitude of the underlying level compares a change with a level, and a dead band applied to that ratio will classify almost everything as flat. It is an easy mistake to make and it silently kills a feature.
+
+## Trend, mean reversion, and the horizon question
+
+Whether a series trends or reverts is not a fixed property of a stock. It depends on the horizon you look at. The same instrument can revert over a few sessions and trend over several months, and a model that mixes horizons will find neither.
+
+Decide your horizon before you look at the data, and hold it fixed. Then measure, per horizon:
+
+- Whether above-average moves tend to continue or reverse.
+- Whether that answer is the same in each year of your sample.
+- Whether it survives after removing the market-wide move for the same day, which is the majority of most stocks' variation.
+
+That last step — demeaning across all stocks by date — is essential in a market this correlated. Without it, you will conclude that your signal picks stocks when it is actually picking days.
+
+## Smoothing, and the lag it buys
+
+Moving averages, exponential smoothing and similar filters reduce noise. They do it by mixing in the past, which means every smoothed series lags the thing it describes. That trade-off is not avoidable, only chosen.
+
+Two rules keep it honest. First, a smoothed value must never include future observations — a centred moving average is fine for describing history and catastrophic inside a model. Second, smooth before you classify a regime, not after: a raw daily reading flips state constantly, and a short smoothing window on the input produces a regime label that means something.
+
+## The classical models, briefly
+
+You will encounter these names. They are worth understanding conceptually even if you never fit one.
+
+- **Autoregressive models** predict the next value from a weighted combination of recent values. Simple, transparent, and a reasonable baseline that more complex models often fail to beat.
+- **Moving-average and ARIMA models** extend that to shocks and to differencing a non-stationary series into a stationary one. On daily equity returns their forecasting power is typically slight.
+- **GARCH-family models** forecast volatility rather than direction, and they exist precisely because of the clustering described above. This is where the classical toolkit genuinely earns its keep.
+- **Machine-learning models** trade interpretability for flexibility. They do not repeal any of the constraints above, and their extra capacity mostly gives them more ways to fit noise. [How Machine Learning Models Analyze Financial Time-Series Data](/blogs/how-machine-learning-models-analyze-financial-time-series-data) covers that side.
+
+## Validation is where time-series work is won or lost
+
+The single most damaging error in applied work on market data is a random train-test split. Because neighbouring observations are similar, random splitting places near-duplicates on both sides and lets the model see the future. Results look superb and mean nothing.
+
+The correct approach is chronological. Train on an earlier window, test on a later one, and if you re-fit periodically, do it walking forward so that no fit ever uses data from after the period it is evaluated on. Leave a gap between the end of training and the start of testing equal to your prediction horizon, otherwise the labels overlap the training window.
+
+Then check the result in each year separately. Financial relationships are unstable, and an aggregate figure will happily conceal several losing years behind one exceptional one.
+
+## What to actually do with this on NEPSE
+
+A short programme that will teach you more than any model:
+
+- Build an adjusted return series for a stock you follow, indexed by session rather than by date.
+- Plot the autocorrelation of returns and of absolute returns, and see the asymmetry for yourself.
+- Compute a rolling volatility and re-express your usual "big move" threshold as a multiple of it.
+- Demean returns by date across the market and see how much of your stock's movement is left once the market is removed.
+- Repeat every measurement year by year and note how much the answers change.
+
+That last exercise is the point of all of it. Time-series analysis on a market like Nepal's is less about finding a forecast and more about learning how unstable the ground is — and building processes that survive on unstable ground. For the indicator layer that sits on top of these series, read [Technical Indicators Every AI Stock Model Should Understand](/blogs/technical-indicators-every-ai-stock-model-should-understand), and for what the archive can support statistically, [Historical NEPSE Data and Machine Learning: What Can We Learn?](/blogs/historical-nepse-data-and-machine-learning-what-can-we).

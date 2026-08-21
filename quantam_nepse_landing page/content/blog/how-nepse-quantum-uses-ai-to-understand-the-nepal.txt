@@ -1,0 +1,86 @@
+title: How NEPSE Quantum Uses AI to Understand the Nepal Share Market
+slug: how-nepse-quantum-uses-ai-to-understand-the-nepal
+description: What understanding means when a machine reads NEPSE data: the model families that apply, why ranking beats prediction, and the validation that keeps a model honest.
+category: nepse
+tags: NEPSE AI, Machine Learning, Nepal Share Market, Quantitative Research, Model Validation, NEPSE Quantum
+---
+When a system claims to understand a market, it is worth asking what the word is doing. A model does not understand NEPSE the way an experienced investor does. It has no concept of a promoter's reputation, no sense of what a policy announcement means for credit growth, no intuition about which stories are being manufactured.
+
+What it does have is an exact memory of every session, an ability to compare any stock against its own history and against every other listed company simultaneously, and complete indifference to which outcome would be more convenient. Understanding, in this context, means one narrow thing: reliably answering "how unusual is this, relative to everything comparable?"
+
+That question is smaller than the marketing usually implies. It is also the only question in this space that can be answered with evidence, which is why a serious system builds around it.
+
+## Four families of model, and what each is honestly good for
+
+AI is not one technique. For share market data in Nepal, four distinct families apply, and confusing them is the source of most bad claims.
+
+1. **Supervised learning.** Train on historical examples where the outcome is known, and learn a mapping from today's features to a future quantity. Good for relative ranking. Poor for precise price forecasts.
+2. **Unsupervised learning.** No outcome labels. Find structure — which stocks move together, which sessions resemble each other, which volatility regime the market is in. Genuinely useful, and much less oversold than the first family.
+3. **Language models.** Read text at scale: quarterly reports, disclosures, notices, news. Extract figures, summarise tone, flag what changed since the last filing. This is where the recent leap in capability has been largest.
+4. **Rule and optimisation engines.** Not statistical learning at all, but usually bundled under the same label. Position sizing, risk limits, portfolio construction. The most mature part of the stack and the least glamorous.
+
+Notice that only one of these attempts to say anything about the future, and even that one works best when it refuses to name a price.
+
+## Ranking beats predicting
+
+The instinctive framing — the model predicts tomorrow's close — is the wrong target, and it fails for a reason that is structural rather than technical. Short-horizon price movement is dominated by noise in every liquid market that has been studied properly. NEPSE is not exempt.
+
+Ranking is a different task with a much better signal-to-noise profile. Instead of asking what a stock will do, ask which of six hundred stocks currently sit in the most unusual part of their own distribution on a stated set of measurements. That is answerable. It also degrades gracefully: a ranking that is only slightly better than random still has value when applied consistently across many decisions, whereas a price forecast that is slightly wrong is simply wrong.
+
+> A model that outputs a price invites you to believe it. A model that outputs an ordering invites you to check it.
+
+## Features: describing a stock in numbers a model can compare
+
+A model sees only what it is given. For NEPSE, the useful description of a stock on a given day draws on:
+
+- **Trend and volatility**, measured against the stock's own history rather than a rupee threshold that suits one company and not another.
+- **Liquidity**, expressed as turnover relative to that symbol's own normal range, plus how many brokers were actually active.
+- **Broker flow from the floorsheet** — net positions over a window, churn, and how concentrated the session's volume was.
+- **Fundamentals** — earnings, book value and derived multiples, aligned to the date a report was published rather than the period it covers.
+- **Text-derived signals** — what the company disclosed and how the tone changed.
+
+Two disciplines matter here more than any modelling choice. Normalise everything against the instrument itself, because a market of banks and small hydropower companies has no common scale. And check whether two features are secretly the same number: share-count measures are frequently an inverse price proxy, and broker-network measures are frequently gross quantity in disguise. Feed the model both and you have doubled a weight while believing you added evidence.
+
+## Labels: the choice that quietly decides everything
+
+The label is what the model is trained to predict, and it is where most of the real decisions are made — usually without anyone noticing.
+
+Over what horizon? Five sessions and sixty sessions are different problems with different drivers. Against what benchmark? Absolute return bakes in the market's direction; return relative to the market isolates stock selection. What is the outcome — a number, or a category such as "top fifth of the cross-section"? Categories are more robust, because they stop a handful of extreme moves from dominating the fit.
+
+Change the label and the same features produce a different model with a different character. Any system that will not tell you its horizon and its benchmark is not describing a method, it is describing a mood.
+
+## Why NEPSE is a hard place to train a model
+
+Several structural features make this market unforgiving for machine learning, and they should be stated plainly rather than engineered around in silence.
+
+- **The sample is small.** A few hundred listed companies over a limited history is not a large dataset by machine learning standards, and cross-sectional observations are far from independent — when the market moves, most stocks move together.
+- **Daily price limits truncate outcomes.** A capped session compresses the very moves a model is trying to learn from, and a sequence of capped sessions is a different phenomenon from an ordinary move.
+- **Corporate actions restate history.** Bonus issues, rights and splits change the price series retrospectively. Detect them by the gap at the open rather than by the size of a fall, or the model learns crashes that never occurred.
+- **The market's own drift is not a benchmark.** Broad measures of central tendency across a market like this can be unflattering, and a strategy must be compared against the alternative of not trading, not against zero.
+- **Regimes shift.** Rules, rates and participation change. History is a weaker guide precisely when confidence is highest.
+
+None of this makes modelling pointless. It makes overfitting extremely easy and validation non-negotiable.
+
+## The validation that keeps a model honest
+
+The part of the pipeline that earns trust is the part that tries to kill its own results.
+
+1. **Out-of-sample testing.** Fit on one period, measure on a period the design never saw. A backtest is a hypothesis until it survives this.
+2. **Per-year tables.** A result that holds on the full sample but loses in most individual years is being carried by a thin tail of extreme observations, and that tail may not repeat.
+3. **A null model.** Compare against random entry with matched holding periods. Many strategies that look profitable are worse than picking at random, which is only visible when someone bothers to run the comparison.
+4. **Double sorts.** If a signal disappears once you control for turnover, liquidity or price level, it was those things all along.
+5. **A degeneracy census.** Check every published number across every symbol. Zero variance, or a value pinned at an exact fraction, means a clamp is firing on everything rather than a signal existing.
+
+Most candidate ideas die at one of these steps. A research process whose answer is always yes is not measuring anything.
+
+## What language models can and cannot do here
+
+Reading is where current AI is strongest. A language model can work through hundreds of disclosures, pull the reported figures into a consistent structure, summarise what changed since the previous filing, and flag unusual wording — all at a speed no analyst can match.
+
+What it cannot do is verify. A model will produce a confident summary of a document it misread, and financial text is full of near-identical phrasings with materially different meanings. The safe pattern is extraction with citation: every figure the model reports must point back to the exact source line, so a human can check the ones that matter in seconds rather than re-reading everything.
+
+## How to read a model's output responsibly
+
+Treat any score as a shortlist, never a verdict. Ask what horizon it was built for, what it was compared against, and how it behaved in the worst year on record rather than the average one. Prefer a system that shows its uncertainty and publishes what failed, because the ability to say "this did not work" is the only credible evidence that anything else was tested at all.
+
+Further reading: [Can Artificial Intelligence Predict NEPSE?](/blogs/can-artificial-intelligence-predict-nepse), [How Machine Learning Models Analyze Financial Time-Series Data](/blogs/how-machine-learning-models-analyze-financial-time-series-data), [Technical Indicators Every AI Stock Model Should Understand](/blogs/technical-indicators-every-ai-stock-model-should-understand) and [Inside NEPSE Quantum: The Technology Behind Intelligent Market Analysis](/blogs/inside-nepse-quantum-the-technology-behind-intelligent-market-analysis).

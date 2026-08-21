@@ -1,0 +1,73 @@
+title: Quantum Computing for Stock Market Prediction: What Is Possible?
+slug: quantum-computing-for-stock-market-prediction-what-is-possible
+description: Prediction is limited by how much signal exists in market data, not by processing speed. Here is what quantum computing could change, what it cannot, and how to test any claim.
+category: quantum-finance
+tags: Quantum Computing, Stock Market Prediction, NEPSE, Quantitative Analysis, Machine Learning, Investing in Nepal
+---
+The short answer is that quantum computing does not make markets more predictable, and the reason is not a limitation of current hardware that will be fixed later. It is structural. Prediction is limited by how much signal exists in the data, and a faster machine does not add signal.
+
+That answer disappoints people, so it is worth being precise about what it does and does not rule out. A quantum computer could plausibly make certain financial calculations faster — risk simulation, some constrained optimisation, some sampling problems. Those are real, if distant, benefits. What no quantum algorithm does is extract information from a dataset that the information was never in. If tomorrow's price is genuinely close to unpredictable from today's public data, then the fastest computer conceivable will confirm that fact more quickly than a slow one, and stop there.
+
+This article separates three questions that get tangled together: whether markets are predictable at all, whether prediction is limited by computation, and whether quantum hardware changes either answer. Getting them apart is the whole of the analysis.
+
+## Prediction is limited by signal, not by speed
+
+Consider what a forecasting model does. It takes inputs — past prices, volumes, broker flow, financial statements, news — and searches for a stable relationship between those inputs and future returns.
+
+If such a relationship exists and is strong, a simple model finds it and a laptop suffices. If it exists but is weak and buried in noise, the difficulty is statistical: you need enough independent observations to distinguish a real effect from a coincidence, and no amount of computation manufactures observations you do not have. If it does not exist, more searching produces relationships that fit the past and fail afterwards.
+
+In every liquid market that has been studied carefully, short-horizon returns sit in the second or third category. That finding has survived decades of increasing computing power, which is itself the most direct evidence that computation was never the binding constraint.
+
+> If faster computers made markets predictable, the last forty years of increasing computer speed would already have proved it.
+
+## What a quantum computer would actually have to overcome
+
+Suppose you wanted to argue the opposite case. You would need to show that there is a pattern in market data which is real, stable and detectable, but which classical computers cannot find because finding it is computationally intractable.
+
+That is a strong claim, and it has a specific shape. It requires the pattern to be hidden behind a computation that classical machines cannot perform in reasonable time, yet which a known quantum algorithm can. Nobody has demonstrated a financial pattern with that property. The known quantum speedups apply to problems where you already know exactly what you are computing — an expected value, a constrained minimum, a search against a reliable test. Market prediction fails the last condition: the test itself, whether a strategy is genuinely good, is unreliable, because performance on history is a poor guide to performance afterwards.
+
+That is the crux. You cannot search your way to a good strategy when the fitness test is corrupted, no matter how fast the search runs.
+
+## The things that would genuinely become possible
+
+Set prediction aside and the picture is more constructive. Three capabilities are plausible on sufficiently capable hardware.
+
+1. **Faster risk simulation.** Estimating tail losses across a portfolio means running many random scenarios. Quantum amplitude estimation improves the accuracy-for-effort trade-off on this class of problem. The output is a better-measured risk number, not a forecast.
+2. **Harder optimisation problems solved properly.** Portfolio construction with realistic constraints — lot sizes, position caps, transaction costs, sector limits — becomes combinatorially awkward. Quantum optimisation approaches target exactly this, though they currently have no proven advantage over the best classical solvers.
+3. **Richer scenario analysis.** Being able to run far more scenarios cheaply changes what questions you can afford to ask: not what will happen, but what your portfolio would do across a much wider range of things that could happen.
+
+Every item on that list improves how you handle uncertainty. None reduces the uncertainty. That distinction is the difference between an honest quantitative process and a sales pitch.
+
+## Why more model capacity usually makes prediction worse
+
+There is a counterintuitive point that anyone considering advanced methods on market data should internalise.
+
+A more powerful model — more parameters, more flexibility, more computation behind it — is better at fitting whatever it is shown. When the data contains a strong stable signal, that is an advantage. When the data is mostly noise, it is a liability, because the model fits the noise beautifully and the noise does not repeat.
+
+This is why very simple approaches often outperform elaborate ones in live trading, and why an impressive backtest is weak evidence. Adding quantum-scale capability to a model trained on a short, noisy history makes the overfitting problem worse rather than better. The correct response to a noisy dataset is a simpler model and more honest testing, which is the opposite direction from where the technology narrative points. The classical version of this trap is covered in [Can AI Really Predict NEPSE? Separating Technology From Hype](/blogs/can-ai-really-predict-nepse-separating-technology-from-hype).
+
+## The NEPSE-specific version of the problem
+
+Nepal's market sharpens all of this rather than softening it.
+
+The listed universe is a few hundred securities, many of them thinly traded. The continuous price history is shorter than that of the markets whose research methods get imported, and the market's structure has changed materially within that history — which means older data is not straightforwardly comparable to recent data. Sector composition is heavily weighted towards financial institutions, so a great deal of apparent cross-sectional variety is really one factor in several costumes.
+
+Put together, that is a small-sample problem, not a compute problem. The number of genuinely independent observations available for testing any hypothesis is far smaller than the raw row count suggests, because prices across many NEPSE stocks move together on the same days.
+
+What the market does offer, unusually, is a broker-level floorsheet: trade data granular enough that most exchanges do not publish its equivalent to the public. That is a genuine informational asset, and it is underused because reading it by hand is impractical. But it, too, has an arithmetic trap. Every share bought is sold, so any measure of net buying computed across the whole market is zero by construction. Metrics that appear to reveal a hidden accumulator often turn out to be turnover in disguise. Detecting that requires care and a good baseline, not more processing power.
+
+## How to test any prediction claim
+
+Whether a system claims to be quantum, AI-driven or purely statistical, the same five questions apply, and most claims fail on the first two.
+
+- **Was it tested out of sample?** On data the designer had never examined while building the model. A backtest on the same history the strategy was tuned against is a hypothesis, not a result.
+- **How did it perform year by year?** A strategy whose entire return comes from one or two exceptional years is not a strategy; it is a single bet with extra steps.
+- **What is the baseline?** Compared against buying and holding, and against a random entry into the same universe with the same holding period. A great many signals do not beat random entry once tested.
+- **Are costs included?** Brokerage, taxes and the practical difficulty of filling an order in a thin stock can consume the entire measured edge.
+- **Does the system report its uncertainty?** A model that always has a confident answer is not measuring anything.
+
+## What to watch for
+
+Treat prediction claims and computation claims as separate things, and be much more sceptical of the first. A platform that says it computes risk faster is making a checkable engineering claim. A platform that says it predicts prices is making a claim about the market itself, and that claim needs evidence of a completely different order.
+
+For Nepal specifically, the highest-value work is not forecasting at all. It is description done completely and reproducibly: measuring each stock against its own history rather than against a vague sense of the market, reading the floorsheet at scale, and knowing exactly which session every number on a screen came from. That work is available today on ordinary hardware, and most investors are not yet doing it. The realistic sequencing is set out in [The Future of Quantum Finance in Nepal](/blogs/the-future-of-quantum-finance-in-nepal), and the testing discipline in [Backtesting a NEPSE Trading Strategy: Complete Beginner Guide](/blogs/backtesting-a-nepse-trading-strategy-complete-beginner-guide).

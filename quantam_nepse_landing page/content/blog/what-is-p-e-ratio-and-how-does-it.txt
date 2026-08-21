@@ -1,0 +1,85 @@
+title: What Is P/E Ratio and How Does It Help NEPSE Investors?
+slug: what-is-p-e-ratio-and-how-does-it
+description: The price-to-earnings ratio tells you what you pay for each rupee a NEPSE company earns, and where it misleads: annualised quarterly EPS, bonus shares, sector mismatch.
+category: investment-education
+tags: NEPSE, P/E Ratio, Investment Education, Fundamental Analysis, Nepal Stock Exchange, Valuation
+---
+The price-to-earnings ratio is one number divided by another: the market price of a share, divided by the earnings that share produced. Suppose a stock trades at Rs 600 and earned Rs 30 per share over the year. Its P/E is 20. That is the entire calculation.
+
+Everything difficult about P/E is in deciding which earnings figure belongs in the denominator, and what the answer is worth once you have it. Most NEPSE investors get the arithmetic right and the interpretation wrong, usually because the EPS they used was not the EPS they thought they were using.
+
+The useful thing P/E does is make prices comparable. A share priced at Rs 300 is not cheaper than one priced at Rs 1,800 — those numbers say nothing on their own, because they depend on how many shares the company has issued. P/E strips that out. It answers a comparable question for every company on the exchange: how much am I paying for one rupee of annual profit?
+
+## Getting the two inputs right
+
+The numerator is easy. Use the last traded price, or a recent closing price — bearing in mind that in a thinly traded stock, the last price may be hours or days old and not a fair reference at all.
+
+The denominator is where the errors live. Earnings per share can mean at least four different things on NEPSE, and a screener will rarely tell you which one it used:
+
+- **Audited annual EPS** from the last full-year report. The most reliable figure, but the oldest.
+- **Trailing twelve-month EPS**, built by adding the last four reported quarters. The most honest for valuation, and the one you often have to assemble yourself.
+- **Annualised quarterly EPS**, where a partial year's profit is scaled up to a full year. Widely published, widely misread.
+- **Restated EPS** after a bonus issue, where the same profit is divided across a larger share count.
+
+If you want the underlying figure explained properly before going further, read [what EPS means in the Nepal stock market](/blogs/what-is-eps-in-nepal-stock-market).
+
+## The annualisation trap
+
+Quarterly reports in Nepal commonly present an annualised EPS: the profit earned so far, scaled up as though the rest of the year will look the same. That assumption is often wrong, and it is wrong in a predictable direction depending on the sector.
+
+A hydropower company generates most of its electricity during the monsoon. A quarter that falls in high-flow months, annualised, will make the company look far more profitable than a full year will prove it to be. Run that inflated EPS through a P/E calculation and the stock appears cheap when nothing about it has changed. The dry-season quarter does the opposite, and the same investor concludes the stock has become expensive.
+
+Banks have their own version. Impairment charges and provisioning do not arrive evenly through the year. A quarter with light provisioning annualises into a flattering EPS; the year-end audit frequently pulls it back.
+
+> If you cannot say which earnings figure is in the denominator, you have not calculated a P/E. You have calculated a coincidence.
+
+The fix is not complicated. Prefer trailing twelve-month earnings. Where you only have an annualised figure, compare it with the same quarter of the previous year rather than with the previous quarter, so seasonality cancels out.
+
+## Corporate actions quietly break the series
+
+Bonus shares and right shares change the share count without changing the business. After a bonus issue, EPS falls mechanically because the same profit is spread over more shares, and the market price adjusts on the ex-date. If your price series has been adjusted for the action but your EPS series has not, or the reverse, every historical P/E you compute is wrong.
+
+This matters most when you are comparing a stock to its own history — which is one of the few genuinely useful things P/E is good for. Nepali listed companies, particularly in the financial sectors, issue bonus shares regularly. A five-year P/E chart built from unadjusted data will show cliffs that are pure accounting.
+
+## Where P/E works and where it does not
+
+P/E assumes the company has stable, meaningful earnings. Across the NEPSE sub-indices, that assumption holds unevenly:
+
+- **Commercial banks and larger financials.** P/E works reasonably here. Earnings are recurring, reporting is standardised, and there are enough peers to make cross-comparison meaningful.
+- **Hydropower under construction.** There is no operating profit to divide by, so P/E is either undefined or an artefact of interest income. Ignore it entirely and look at project stage, licensing and financing instead.
+- **Life insurance.** Profit recognition depends on actuarial valuation and is lumpy by design. A single year's EPS is a poor guide.
+- **Microfinance.** Earnings are sensitive to provisioning and to regulatory change. P/E can move sharply without price moving at all.
+- **Mutual funds.** These are valued on net asset value, not earnings. P/E does not apply.
+
+Compare P/E within a sector, never across sectors. A bank on 15 and a hydropower firm on 15 are not telling you the same thing, because the market prices growth, risk and asset intensity differently in each. The behaviour of the sub-indices is itself worth understanding, and [how NEPSE sectors behave differently](/blogs/nepse-sector-analysis-how-nepal-market-sectors-behave-differently) is the place to start.
+
+## What a low P/E is actually saying
+
+A low P/E is not a buy signal. It is a statement that the market expects earnings to fall, or believes those earnings carry unusual risk, or has simply not looked. Only the third case is an opportunity, and it is the rarest.
+
+Before treating a low P/E as cheapness, work out which of these applies. Are the earnings one-off — a property sale, a reversal of provisions, an investment gain? Is the sector under regulatory pressure that will compress future profit? Has the company's capital base grown faster than its earnings, so per-share numbers are diluting? Is the stock so thinly traded that the price is stale rather than low?
+
+The same discipline applies upwards. A high P/E is not automatically expensive. It is the market forecasting growth, and your job is to decide whether that forecast is plausible, not whether the number is large.
+
+## P/E in a retail-dominated market
+
+NEPSE is small, young and dominated by retail participants. That has a specific consequence for P/E: whole sectors re-rate together on sentiment, not on company-specific news. When money rotates into a theme, the P/E of every name in that sub-index expands more or less in unison, including companies whose earnings have not improved.
+
+This is why P/E is far more useful as a relative and historical measure than as an absolute threshold. There is no universal number above which NEPSE stocks are expensive. There is, usefully, the question of why this company trades at a discount or premium to its own five-year range, and to the peers it most resembles.
+
+## Pairing P/E with the other basics
+
+P/E on its own answers one narrow question. Two companions make it far more informative:
+
+- **Book value per share.** For banks and financials especially, price to book is often the more stable lens, since the balance sheet moves less violently than quarterly profit. See [what book value means in NEPSE stocks](/blogs/what-is-book-value-in-nepse-stocks).
+- **Return on equity.** EPS divided by book value per share tells you how hard the company's capital is working. A low P/E paired with a weak ROE usually means the market is right.
+
+Market capitalisation adds the third dimension — size, and therefore liquidity and index weight. [What market capitalisation means in NEPSE](/blogs/what-is-market-capitalization-in-nepse) explains why two companies with identical P/E ratios can be entirely different propositions.
+
+## What to actually do
+
+1. Build your own trailing twelve-month EPS from the last four quarterly reports rather than trusting an annualised figure on a screener.
+2. Check whether the company has issued bonus or right shares in the period you are comparing, and adjust both price and EPS before drawing any conclusion.
+3. Compare the stock to its own history and to three or four close peers in the same sub-index. Discard cross-sector comparisons.
+4. For any P/E that looks unusually low, write down the reason before acting. If you cannot find one, assume you have missed something rather than that the market has.
+5. Treat P/E as the question, not the answer. It tells you where to look; the financial report tells you what is there.

@@ -8,12 +8,6 @@ Master_data. Every one of these guards a run that goes GREEN while something is 
   deploy.vps_ship     — its only health check was `"active" in stdout` against systemd's
                         is-active, and "active" is a substring of "inactive", so a stopped
                         service reported a successful deploy.
-  ui.py               — NOTHING in this repo renders ui.py, so a Streamlit runtime error ships
-                        green and is only found by opening the page. Two static checks catch
-                        the two failures that actually happen: a nested expander (Streamlit
-                        raises and the page dies — this shipped once), and a sidebar entry whose
-                        `if page ==` body was renamed with it, which draws a BLANK page with no
-                        error because every branch simply falls through.
   naasa orders        — the order payload decides what actually gets traded, a retried place is a
                         DUPLICATE order, and a money call reachable from a 1s fragment could be
                         sent by a timer instead of a click. None of the three raises anything.
@@ -25,6 +19,7 @@ import re
 import sys
 import tempfile
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import backtest
@@ -250,10 +245,6 @@ def test_no_pivot_lookahead():
     print("  pivot look-ahead    both replays start five bars behind the trigger")
 
 
-def _ui_src():
-    return (Path(__file__).parent / "ui.py").read_text(encoding="utf-8")
-
-
 def test_ui_positional_columns():
     """ui.py reads four of these tables by COLUMN INDEX, not by name.
 
@@ -287,45 +278,6 @@ def test_ui_positional_columns():
                 f"{who}: ui.py reads r[{idx}] expecting '{name}', header now has '{cols[idx]}'"
             n += 1
     print(f"  ui column indices   {n} positional reads still point at the column they mean")
-
-
-def test_no_nested_expanders():
-    """Streamlit raises StreamlitAPIException on an expander inside an expander, killing the
-    page. One shipped, duplicated inside itself, and took the whole Supply Demand page down."""
-    tree = ast.parse(_ui_src())
-
-    def is_expander(node):
-        return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                and node.func.attr == "expander")
-
-    bad, depth = [], [0]
-
-    class V(ast.NodeVisitor):
-        def visit_With(self, node):
-            n = sum(1 for it in node.items if is_expander(it.context_expr))
-            if n and depth[0]:
-                bad.append(node.lineno)
-            depth[0] += n
-            self.generic_visit(node)
-            depth[0] -= n
-
-    V().visit(tree)
-    total = sum(1 for n in ast.walk(tree) if is_expander(n))
-    assert not bad, f"nested st.expander at line(s) {bad} — that page will not render"
-    print(f"  ui expanders        {total} declared, none nested")
-
-
-def test_every_page_has_a_body():
-    """A sidebar entry renamed without its `if page == ...` body renders BLANK and raises
-    nothing — Streamlit just falls through every branch and draws an empty page."""
-    src = _ui_src()
-    pages = ast.literal_eval(re.search(r"^PAGES = (\[.*?\])$", src, re.S | re.M).group(1))
-    guards = set(re.findall(r'if page == "([^"]+)"', src))
-    assert not [p for p in pages if p not in guards], \
-        f"sidebar entries with no body: {[p for p in pages if p not in guards]}"
-    assert not [g for g in guards if g not in pages], \
-        f"page bodies unreachable from the sidebar: {sorted(g for g in guards if g not in pages)}"
-    print(f"  ui pages            {len(pages)} sidebar entries, {len(guards)} bodies, all matched")
 
 
 def test_order_body_is_exactly_what_the_screen_sends():
@@ -560,26 +512,35 @@ def test_a_partial_bar_does_not_make_every_board_stale():
     real_newest, real_session, real_trading = _t.newest_bar, market_hours.session_now, \
         market_hours.is_trading_day
     try:
-        # Friday 2026-08-21, mid-session, and the archive already carries today's partial bar.
-        today = "2026-08-21"
+        # Mid-session, with the archive already carrying today's partial bar.
+        # DERIVED from the clock, never hardcoded: newest_completed() calls
+        # datetime.now(NPT) itself, so a pinned date only agrees with it on the one
+        # day it was written. This test passed on 2026-08-21 and went red at midnight
+        # for that reason alone, with nothing in the code having changed.
+        _today = datetime.now(market_hours.NPT).date()   # must BE the real today, see above
+        _prev = _today - timedelta(days=1)
+        while _prev.weekday() > 4:
+            _prev -= timedelta(days=1)
+        today = _today.isoformat()
         _t.newest_bar = lambda: today
         market_hours.is_trading_day = lambda d: d.weekday() in (0, 1, 2, 3, 4)
 
         market_hours.session_now = lambda when=None: ("LIVE", 120)
         got = _t.newest_completed()
-        assert got == "2026-08-20", (
+        assert got == _prev.isoformat(), (
             "while the market trades, the yardstick must be the previous session, not today's "
             "half-formed bar — got %r" % got)
 
         market_hours.session_now = lambda when=None: ("CLOSED", None)
         assert _t.newest_completed() == today, "after the close, today is a fair comparison"
 
-        # Monday: the walk back must skip the weekend rather than land on Sunday.
-        _t.newest_bar = lambda: "2026-08-24"
+        # A bar the archive has not reached yet. newest_completed compares newest_bar against
+        # the REAL today, so a FUTURE date is the only way to pin this path open on every day
+        # of the week — which must return the bar untouched.
+        _ahead = (_today + timedelta(days=2)).isoformat()
+        _t.newest_bar = lambda: _ahead
         market_hours.session_now = lambda when=None: ("LIVE", 120)
-        # newest_completed compares newest_bar against the REAL today, so this only exercises the
-        # "archive has not reached today" path — which must return the bar untouched.
-        assert _t.newest_completed() == "2026-08-24"
+        assert _t.newest_completed() == _ahead
 
         # And an archive behind today is never adjusted, whatever the session says.
         _t.newest_bar = lambda: "2026-08-10"
@@ -695,66 +656,6 @@ def test_one_price_loader():
     assert bad == 0, f"{bad} module/symbol pairs disagree with prices.bars() on the last close"
     print(f"  one price loader    {checked} symbols, every module agrees with prices.bars()")
 
-
-def test_order_ticket_is_not_on_a_timer():
-    """The NAASA page re-runs fragments every second. A money call reachable from one could be
-    sent by a timer tick instead of a click, so no run_every fragment may reach x_place_order,
-    x_cancel_order or x_modify_order — directly OR through any chain of helpers in this file.
-
-    The first version of this test checked direct containment only and said so in its own
-    docstring: "a fragment calling a helper that trades would still slip through". That is the
-    likely shape of the accident, so the check is transitive now.
-    """
-    src = Path(__file__).parent / "ui.py"
-    tree = ast.parse(src.read_text(encoding="utf-8"))
-    money = {"x_place_order", "x_cancel_order", "x_modify_order"}
-
-    def called_names(node):
-        out = set()
-        for c in ast.walk(node):
-            if isinstance(c, ast.Call):
-                out.add(getattr(c.func, "attr", None) or getattr(c.func, "id", None))
-        return {n for n in out if n}
-
-    funcs = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
-    calls = {name: called_names(node) for name, node in funcs.items()}
-
-    def reaches_money(start, seen=None):
-        """Any path from `start` to a money call, through helpers defined in ui.py."""
-        seen = seen or set()
-        for callee in calls.get(start, ()):
-            if callee in money:
-                return callee
-            if callee in funcs and callee not in seen:
-                hit = reaches_money(callee, seen | {callee})
-                if hit:
-                    return hit
-        return None
-
-    def is_timed(call):
-        return (isinstance(call, ast.Call) and getattr(call.func, "attr", "") == "fragment"
-                and any(k.arg == "run_every" for k in call.keywords))
-
-    # A fragment can be declared two ways and BOTH must be covered. `_draw_chart` is wrapped
-    # functionally — `st.fragment(run_every=...)(fn)()` — so a guard that reads decorator_list
-    # only had it invisible, which is one timed fragment silently outside the check.
-    wrapped = {a.id for n in ast.walk(tree) if isinstance(n, ast.Call) and is_timed(n.func)
-               for a in n.args if isinstance(a, ast.Name)}
-    timed = [n for n in ast.walk(tree)
-             if isinstance(n, ast.FunctionDef)
-             and (any(is_timed(d) for d in n.decorator_list) or n.name in wrapped)]
-    assert timed, "no run_every fragments found — this test no longer matches ui.py"
-    for fn in timed:
-        hit = reaches_money(fn.name)
-        assert not hit, f"{fn.name}() is on a run_every timer and can reach {hit}()"
-
-    # and the check must be able to fail: a synthetic timer that calls a helper that trades
-    probe = ast.parse("def _t():\n    _h()\ndef _h():\n    naasa.x_place_order(1,2,3,4,5)\n")
-    pf = {n.name: n for n in ast.walk(probe) if isinstance(n, ast.FunctionDef)}
-    funcs, calls = pf, {k: called_names(v) for k, v in pf.items()}
-    assert reaches_money("_t") == "x_place_order", \
-        "the transitive walk cannot see an indirect money call — it proves nothing"
-    print("  order ticket        no run_every fragment can reach a money call, even indirectly")
 
 def test_api_can_never_place_an_order():
     """The web API reaches a live broker session. No path through it may reach a money call.
@@ -1020,28 +921,18 @@ def test_every_registered_rebuild_script_exists():
                 missing.append(f"jobs.SCRIPTS[{board!r}] -> {s}")
     assert not missing, "registered rebuild scripts that do not exist: " + ", ".join(missing)
 
-    # ui.py holds the daily scheduler's own registry. Parsed, not imported: importing ui.py pulls
-    # in streamlit and starts its cache machinery.
-    import ast as _ast
-    tree = _ast.parse((here / "ui.py").read_text(encoding="utf-8"))
-    cron_scripts = []
-    for node in _ast.walk(tree):
-        if isinstance(node, _ast.Assign) and getattr(node.targets[0], "id", "") in (
-                "CRON_JOBS", "HIST_JOBS"):
-            for job in _ast.literal_eval(node.value).values():
-                cron_scripts += job["scripts"]
-    assert cron_scripts, "no CRON_JOBS/HIST_JOBS scripts found -- did the registry move?"
-    gone = [s for s in cron_scripts if not (here / s).is_file()]
-    assert not gone, "ui.py cron scripts that do not exist: " + ", ".join(gone)
-
+    # ui.py held a second copy of this registry and was checked here too. It is gone (2026-08-22);
+    # the systemd unit chukul-update.service is now the only other place the chain is spelled out,
+    # and it must mirror jobs.SCRIPTS["pipeline"]. Nothing in this repo can see that unit file, so
+    # THAT pairing is unguarded by construction -- keep them in step by hand.
     # Every board the API will serve must be rebuildable, or the Pipeline page offers no way out
     # of a stale board. `pipeline` is the whole chain and is not itself a board.
     from api import tables
     unbuildable = [b for b in tables.BOARDS if b not in jobs.SCRIPTS]
     assert not unbuildable, "boards with no rebuild script: " + ", ".join(unbuildable)
 
-    print("  rebuild scripts     %d jobs.SCRIPTS + %d cron scripts all exist, "
-          "%d boards all rebuildable" % (len(jobs.SCRIPTS), len(cron_scripts), len(tables.BOARDS)))
+    print("  rebuild scripts     %d jobs.SCRIPTS all exist, %d boards all rebuildable"
+          % (len(jobs.SCRIPTS), len(tables.BOARDS)))
 
 
 def test_swing_quantam_board_carries_its_date():
@@ -1086,15 +977,12 @@ def main():
     test_no_pivot_lookahead()
     test_one_price_loader()
     test_ui_positional_columns()
-    test_no_nested_expanders()
-    test_every_page_has_a_body()
     test_order_body_is_exactly_what_the_screen_sends()
     test_freshness_is_never_reported_from_one_half()
     test_live_never_means_merely_recent()
     test_a_partial_bar_does_not_make_every_board_stale()
     test_open_orders_never_counts_a_filled_one()
     test_money_calls_never_auto_retry()
-    test_order_ticket_is_not_on_a_timer()
     test_board_writers_emit_exactly_their_header()
     test_api_can_never_place_an_order()
     test_collateral_never_returns_client_pii()

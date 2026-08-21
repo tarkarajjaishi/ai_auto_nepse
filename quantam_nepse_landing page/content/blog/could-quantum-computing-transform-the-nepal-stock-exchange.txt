@@ -1,0 +1,84 @@
+title: Could Quantum Computing Transform the Nepal Stock Exchange?
+slug: could-quantum-computing-transform-the-nepal-stock-exchange
+description: What transforming NEPSE would actually require, which parts of the exchange are compute-bound, and the one quantum development that genuinely lands on Nepali market infrastructure.
+category: quantum-finance
+tags: Quantum Computing, Nepal Stock Exchange, NEPSE, Market Infrastructure, Post-Quantum Cryptography, Financial Technology
+---
+The short answer is no, not in the way the question is usually meant — and yes, in one narrow way that has nothing to do with analysis or returns.
+
+To see why, it helps to stop thinking about NEPSE as a place where stock prices happen and start thinking about it as a set of systems: an order-matching engine, a clearing and settlement process, a depository holding ownership records, a market-data distribution channel, a surveillance function watching for manipulation, and a few hundred broker connections carrying instructions in from the public.
+
+"Transforming the exchange" means improving one or more of those systems. So the useful question is not whether quantum computing is powerful. It is whether any of those systems is limited by the speed of a calculation. Very few are.
+
+## What the exchange's systems are actually limited by
+
+Go through them in turn.
+
+**Order matching.** Matching buy and sell orders by price and time priority is not a hard computation. It is bookkeeping executed very carefully. The engineering challenges are latency, determinism, fault tolerance and correctness under load. A quantum processor would be catastrophically wrong for this job — quantum operations are probabilistic and slow, and an order book requires exact, repeatable, sequential state changes.
+
+**Clearing and settlement.** Netting obligations and transferring ownership on a defined cycle is a data-integrity and reconciliation problem. The failures here are operational — mismatched records, timing, exception handling — not computational.
+
+**Market data.** Publishing prices, volumes and the floorsheet reliably and in a usable format is a distribution problem. Nepal's constraint here is availability and consistency of formats, not processing power.
+
+**Surveillance.** Detecting manipulation, wash trading and coordinated activity across a broker-level floorsheet is a genuine analytical challenge and the most interesting item on this list. It is also a pattern-recognition problem, which means machine learning, not quantum computing.
+
+**Risk management at the clearing layer.** Estimating exposures under stress scenarios is simulation, and this is the only place a quantum speed-up even has the right shape. The catch is scale: quantum amplitude estimation offers a quadratic improvement in samples needed, which matters when a calculation takes hours across an enormous derivative book. Nepal's equity clearing does not have that problem.
+
+> A technology transforms an institution only where the institution is bottlenecked. NEPSE is not bottlenecked on arithmetic.
+
+## The bottlenecks that actually bind
+
+Ask people who work with Nepali market data what stops them, and the answers are consistent and unglamorous.
+
+1. **Data availability and format stability.** Archives with missing sessions, formats that change without notice, and figures that must be scraped rather than fetched cleanly.
+2. **Corporate-action handling.** Bonus issues, rights and splits silently corrupt a price history if adjustments are applied inconsistently. This causes more wrong analysis in Nepal than any modelling error.
+3. **Length of history.** A young market simply has fewer years of evidence. Statistical confidence comes from observations, and no processor creates observations.
+4. **Analytical method.** Whether a claimed signal was tested on data its creator had never seen. Most are not.
+5. **Investor literacy.** The gap between reading a price and understanding what a company earns, owns and owes.
+
+Every one of these is fixed by careful engineering, better disclosure and education. None is fixed by faster hardware. A useful frame for where the real leverage sits is set out in [Why Nepal Needs AI-Powered Stock Market Intelligence](/blogs/why-nepal-needs-ai-powered-stock-market-intelligence).
+
+## The one place quantum genuinely lands: cryptography
+
+Here the answer flips, and the case is concrete.
+
+Online trading platforms, depository records, broker back-office systems and interbank connections all rest on public-key cryptography. Its security depends on mathematical problems — factoring large integers, and related structures — that a sufficiently large, error-corrected quantum computer would solve efficiently. The algorithm has been known for a long time. Only the hardware is missing.
+
+Two features make this urgent earlier than the hardware timeline suggests.
+
+**Harvest now, decrypt later.** An adversary can record encrypted traffic today and store it until capable machines exist. Anything with a long confidentiality life — identity records, account details, settlement instructions, ownership data — is exposed retroactively, not just prospectively.
+
+**Migration is slow.** Replacing cryptography across an exchange, a depository, dozens of brokers, the banking connections behind them and every mobile application on top is a multi-year programme touching every layer of the stack. Standards bodies have already selected post-quantum algorithms designed to resist quantum attack, so the specification problem is solved. What remains is the unglamorous work of implementation, testing and coordinated rollout.
+
+For NEPSE, its clearing and depository functions, and every licensed broker, this is a real obligation with a real lead time. It is also the only quantum topic in this article that belongs on an institutional roadmap now.
+
+## What would have to happen before any analytical use
+
+Suppose you wanted quantum computing to affect how Nepali securities are analysed. The prerequisites, in order:
+
+- **Error-corrected machines at useful scale.** Today's qubits lose their state quickly and operations carry meaningful error rates. The remedy — encoding one logical qubit across many physical ones — carries overhead large enough that useful financial algorithms exceed existing machines by a wide margin.
+- **An efficient way to load classical data.** Many proposed applications assume a quantum memory that can encode large classical datasets cheaply. No hardware provides it, and without it the input stage can cost more than the classical computation being replaced.
+- **A problem in Nepal that is actually compute-bound.** None currently exists. The full listed universe can be screened on ordinary hardware in seconds.
+- **A proven advantage over a good classical baseline.** Repeatedly, claimed quantum advantages have narrowed or vanished once classical researchers attacked the same problem. That pattern is the default expectation, not the exception.
+
+The first two are global engineering questions. The third and fourth are local and, on current evidence, unmet. A longer view of how that could change is taken in [The Future of Quantum Finance in Nepal](/blogs/the-future-of-quantum-finance-in-nepal).
+
+## What would transform NEPSE, if you want the honest list
+
+Since the question is about transformation, here is what would actually deliver it, none of which requires new physics.
+
+- **Clean, complete, machine-readable historical data**, published consistently, with corporate actions properly adjusted. This single change would improve every analysis performed in the country.
+- **Systematic surveillance of the floorsheet.** The broker-level data NEPSE publishes is unusually granular by international standards and mostly unexploited. Statistical monitoring of it is a classical machine-learning project with obvious public benefit.
+- **Faster, more complete disclosure** in structured form, so that quarterly figures can be read by software rather than transcribed from documents.
+- **Wider investor education**, so that the demand side of the market can distinguish a measurement from a promise.
+- **A post-quantum cryptography migration plan**, for the reason set out above.
+
+The first four are ordinary, expensive, achievable work. That is what infrastructure improvement usually looks like. If you want the operational context for why these particular items matter, [How Does the Nepal Stock Exchange Work?](/blogs/how-does-the-nepal-stock-exchange-work) covers the mechanics they sit on.
+
+## What to watch for
+
+If you are an investor: change nothing because of quantum computing, and treat the word in any Nepali financial product as marketing until an algorithm and a machine are named.
+
+If you work at a broker, a fund, a bank or a technology vendor: ask your providers when their post-quantum migration begins and what it covers. That is a reasonable question with a checkable answer, and the institutions that ask it early will pay less for it than the ones that wait.
+
+And if you are watching the technology itself, watch for one specific milestone — a demonstrated financial calculation on error-corrected quantum hardware that beats a well-implemented classical baseline. That has not happened. Until it does, every claim about quantum transforming any stock exchange, in Nepal or elsewhere, is a forecast dressed as a fact.

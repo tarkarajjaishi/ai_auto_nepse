@@ -1,0 +1,89 @@
+title: AI Sentiment Analysis for Nepali Stock Market News
+slug: ai-sentiment-analysis-for-nepali-stock-market-news
+description: What sentiment analysis can and cannot do with Nepali market news — the Devanagari and code-mixing problem, why tone is not a forecast, and the uses that hold up.
+category: data-and-research
+tags: Sentiment Analysis, Natural Language Processing, NEPSE News, Nepali Language AI, Market Research
+---
+Sentiment analysis takes text and returns a number that claims to describe its tone. Applied to markets, the pitch is seductive: read every news item, disclosure and forum post about a company, score them, and act on the aggregate before slower readers catch up.
+
+The pitch has two holes in it, and both are worse in Nepal than in the markets where the technique was developed. First, the language models that do this well were trained overwhelmingly on English financial text, and Nepali market commentary is written in Devanagari, in romanised Nepali, in English, and very often in a mixture of all three within a single sentence. Second, and more fundamental, tone is not information. A glowing article about a company that everyone already knows is doing well contains no news at all.
+
+None of which makes the technique useless. It makes it useful for different things than most people assume. This article separates the parts that work from the parts that are sold as working.
+
+## What sentiment analysis actually measures
+
+A sentiment model produces a score along one axis — roughly, how favourable the language is. Modern systems do this well as a language task. They can read a disclosure and correctly identify that its tone is positive. What they cannot do, and are not designed to do, is judge whether that positivity was already expected.
+
+Markets move on **surprise**, not on level. If a company is widely believed to be performing strongly and reports strong performance, the news is neutral even though every sentence in it is positive. If the same company reports strong performance that is weaker than expected, the price can fall on an article that scores highly positive.
+
+This is the single most common failure in retail applications of sentiment analysis. The score measures the text; the market prices the gap between the text and what was already believed. Bridging that gap requires a baseline expectation, which is exactly the hard part and exactly what the sentiment score does not contain.
+
+> A sentiment score tells you what was said. It does not tell you what anyone did not already know.
+
+## The Nepali language problem is real and specific
+
+Generic sentiment tools underperform on Nepali market text for reasons that are worth naming precisely, because each one suggests a different fix.
+
+- **Script mixing.** The same post may use Devanagari for commentary, Latin script for company symbols, and English for financial terms. Tokenisers trained on one script handle the transitions badly.
+- **Romanised Nepali.** A great deal of investor chatter is Nepali written in Latin characters, with no standardised spelling. The same word appears in several forms, none of which a standard model has seen often.
+- **Domain vocabulary.** Terms like bonus, rights, auction, book close and promoter shares carry precise market meanings in Nepali usage that a general-purpose model reads as ordinary words.
+- **Sarcasm and community idiom.** Investor forums run on irony. A model trained on news prose reads a sarcastic post at face value and scores it exactly backwards.
+- **Little labelled data.** There is no large, high-quality corpus of Nepali financial text annotated with market-relevant labels, which means fine-tuning has less to work with than in English.
+
+The practical consequence is that off-the-shelf accuracy claims do not transfer. If someone reports a sentiment model's accuracy without saying it was measured on Nepali market text specifically, the number is about a different problem.
+
+## Which sources are worth scoring
+
+Not all text is equal, and the differences matter more than the model choice.
+
+1. **Official company disclosures and financial statements.** The highest-quality source: structured, dated, and factual. The valuable work here is extraction, not sentiment — pulling numbers and comparing them with prior periods.
+2. **Regulatory and exchange announcements.** Book closures, auctions, suspensions, corporate actions. These are events, not opinions, and should be handled as structured data rather than scored for tone.
+3. **Financial news portals.** Genuine news value, but much of the content is a restatement of the previous two categories, arriving later. A model that counts a story three times as it is syndicated will manufacture a sentiment spike out of one event.
+4. **Broker and analyst commentary.** Useful for reading consensus, provided you record who is speaking and how often they are right.
+5. **Social media and investor groups.** The largest volume and the lowest signal. Worth measuring for crowding, not for accuracy.
+
+That fifth category needs a warning. In a retail-dominated market, coordinated promotion of individual stocks is a genuine phenomenon. A naive sentiment system reads a coordinated push as strong positive sentiment and treats manufactured enthusiasm as evidence. If you score social text at all, treat a sudden spike in mentions of an illiquid stock as a risk flag, not a buy signal.
+
+## Timestamps decide whether the analysis is honest
+
+This is the technical detail that most implementations get wrong, and it invalidates everything else.
+
+Every piece of text needs the timestamp at which it became public — not the timestamp at which you scraped it, and not the date printed on the document. Articles are edited after publication. Disclosures are uploaded some time after the events they describe. Forum posts are backdated by platform quirks.
+
+If you test whether sentiment predicts returns and your timestamps are even slightly optimistic, you will discover a strong relationship that is entirely an artefact of reading the news after the price moved. The safe convention is to assume text is actionable only from the next trading session's open, and to be suspicious of any result that disappears when you shift the timestamp forward by one session. That test — shift and re-check — should be run on every sentiment result before it is believed.
+
+## Aggregate carefully, or you will measure the news cycle
+
+Market-wide sentiment indices are appealing and easy to get wrong. Two problems recur.
+
+**Volume contamination.** If you average scores across all articles, a day with many articles about one dramatic story dominates the index. What you have built is a measure of how much was written, not how positive the market feels. Normalise by article count, or measure sentiment per company and then aggregate across companies.
+
+**Baseline drift.** Financial writing has a persistent positive tilt — few articles are written to say nothing happened. A raw average will therefore sit above neutral almost permanently. What matters is the deviation from each source's own long-run baseline, not the absolute level. Demean by source and by date before comparing anything.
+
+The same caution applies to any market-wide flow measure. A number that looks like collective conviction is often just a count of activity in prettier clothing, a point developed in [What Moves NEPSE in a Single Trading Day?](/blogs/what-moves-nepse-in-a-single-trading-day).
+
+## The uses that survive testing
+
+Strip out the prediction claims and a genuinely valuable set of applications remains.
+
+- **Triage.** Reading everything published about three hundred companies is not humanly possible. A model that flags which disclosures contain material changes turns an impossible reading task into a manageable one.
+- **Extraction.** Pulling figures out of quarterly reports into a comparable table across companies and periods. This is a language task with a verifiable right answer, which is the ideal case.
+- **Summarisation with citation.** Condensing a long report while pointing at the exact passage each claim came from, so you can check it. Summaries without that link are unverifiable and should not be trusted.
+- **Change detection.** Comparing this quarter's language with last quarter's for the same company. A shift in how management describes a risk is often more informative than the tone level itself.
+- **Crowding measurement.** Tracking how much attention a stock is receiving relative to its own history, as a caution flag rather than a signal.
+
+These are covered in more depth in [How Natural Language Processing Can Analyze Nepal Stock Market News](/blogs/how-natural-language-processing-can-analyze-nepal-stock-market) and [How Generative AI Can Help Nepali Investors Research Companies](/blogs/how-generative-ai-can-help-nepali-investors-research-companies).
+
+## Testing a sentiment signal honestly
+
+If you want to know whether sentiment predicts anything, the test is the same one you would apply to any other signal, and the burden of proof is high because the temptation to believe is strong.
+
+Score the text with strict timestamps. Rank companies by sentiment on each date, using only that date's information. Compare the forward returns of the top-ranked group against the bottom-ranked group over a horizon you would actually hold. Then break the result down year by year, and check whether it survives after subtracting a plausible cost of trading on it.
+
+Expect the effect to be weak, unstable across periods, and largely confined to short horizons around genuine events rather than to ambient tone. That is the honest finding in most markets that have been studied, and there is no reason to expect Nepal to be the exception.
+
+## What to do with this
+
+Use language models for the work they are reliably good at: reading more than you can, extracting figures accurately, and telling you where to look. Do not use a tone score as a reason to buy.
+
+If you are evaluating a product that advertises sentiment-driven signals, ask three questions. Which sources, and are they timestamped at publication or at collection? Was the model evaluated on Nepali market text, or on an English benchmark? And what does the result look like broken down by year rather than averaged across the whole sample? A vendor who cannot answer all three is selling a tone score with a forecast label glued to it. The same scepticism is applied to the broader claim in [Can AI Detect NEPSE Market Sentiment?](/blogs/can-ai-detect-nepse-market-sentiment).

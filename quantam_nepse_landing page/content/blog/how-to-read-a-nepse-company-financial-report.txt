@@ -1,0 +1,76 @@
+title: How to Read a NEPSE Company's Financial Report
+slug: how-to-read-a-nepse-company-financial-report
+description: A practical order of reading for NEPSE quarterly and annual reports, including the sector-specific lines that matter for banks, hydropower, insurance and microfinance.
+category: companies
+tags: NEPSE, Financial Reports, Fundamental Analysis, Nepal Stock Exchange, Investment Education, Company Analysis
+---
+Most investors read a NEPSE company report in the worst possible order. They open it, find net profit, compute a per-share figure, compare it to last quarter, and close the file. That takes ninety seconds and produces a number that is frequently misleading.
+
+A financial report is a set of claims, and the claims are ranked by how hard they are to manipulate. Cash is hardest. Profit is easiest. The notes explain both. So the efficient order of reading runs roughly opposite to the order the document is printed in: auditor's opinion first if there is one, then the notes that matter for the sector, then cash flow, then the balance sheet, and only then the profit and loss statement you came for.
+
+Listed companies in Nepal publish unaudited quarterly results and an audited annual report. The quarterly report is timely and provisional. The annual report is late and authoritative. Both are useful; confusing one for the other is where a lot of retail analysis goes wrong.
+
+## Start with what the auditor said
+
+In the annual report, the audit opinion is short and almost nobody reads it. It is the single highest-value page in the document.
+
+An unqualified opinion means the auditor is satisfied. A qualified opinion, an emphasis of matter, or a key audit matter paragraph means the auditor has flagged something they want you to see — commonly around loan classification, provisioning adequacy, related-party exposure, or a valuation judgement. That paragraph tells you exactly which number in the report is soft.
+
+Quarterly reports are unaudited, which is not a formality. Figures get restated between the fourth quarter and the audited annual accounts more often than most investors realise, and the direction of restatement is usually unfavourable. Treat the fourth-quarter unaudited profit as a forecast of the audited one, not as the result.
+
+## Then read the notes for your sector
+
+The financial statements are three or four pages. The notes are the rest of the document, and that is where companies are required to explain themselves. You do not need all of them. You need the ones that govern the largest asset or the largest uncertainty in that industry.
+
+**Banks, development banks and finance companies.** Look at the loan book: gross loans, impairment charge for the period, non-performing loan ratio and its trend across the last four quarters. Then net interest income rather than gross interest income, because the cost of funds moves independently of lending rates. Then capital adequacy, since a bank close to its regulatory minimum has limited room to grow the book or pay cash dividends.
+
+**Hydropower.** The first question is whether the plant is generating at all. A company still in construction has no meaningful earnings, and interest during construction is being capitalised rather than expensed, which flatters the profit line right up until commissioning. For operating projects, the drivers are units generated, the tariff structure in the power purchase agreement, and the debt schedule.
+
+**Life and non-life insurance.** These are two different businesses that share a sub-index label. For non-life, watch net premium, the claims ratio and the reserve for unexpired risk. For life, understand that profit recognition depends on actuarial valuation and does not accrue evenly. A life insurer's quarterly profit is not comparable to a bank's quarterly profit in any meaningful sense.
+
+**Microfinance.** Portfolio quality dominates everything. Look at portfolio at risk, write-offs, client numbers and average loan size together — a portfolio growing faster than client numbers means larger loans per borrower, which changes the risk profile.
+
+> The profit line is the conclusion of an argument. The notes are the argument. If you only read the conclusion, you are trusting someone else's reasoning without seeing it.
+
+## Read the cash flow before the profit
+
+Profit is an accounting construct that depends on when revenue is recognised and how costs are apportioned. Cash is not. The cash flow statement is split into operating, investing and financing sections, and the relationship between them tells a story the profit line cannot.
+
+For a non-financial company, the question is whether operating cash flow broadly tracks net profit over time. Persistent profit without matching operating cash usually means receivables or inventory are absorbing it. That is a warning worth acting on.
+
+For banks, cash flow is harder to interpret because deposit and lending movements dominate the operating section, and a bank aggressively growing its loan book will show negative operating cash flow while doing exactly what it is supposed to do. Read the funding mix instead: is loan growth being funded by deposits, or by borrowings?
+
+The financing section is where dividends, right issues and debt repayments appear. It answers a question the profit statement never does: is this company returning capital, or repeatedly asking for more?
+
+## Compare against the right period
+
+This is the most common error in reading NEPSE quarterlies, and it is entirely avoidable.
+
+Compare each quarter to the same quarter of the previous year, not to the immediately preceding quarter. Nepali business is seasonal in ways that make sequential comparison useless. Hydropower generation peaks with the monsoon and falls in the dry months. Trading and manufacturing volumes move with the festival calendar. Bank provisioning is uneven and often heaviest at year-end. A sequential comparison mixes real change with the calendar and gives you neither.
+
+The same logic condemns annualised EPS. When a quarterly report scales the period's profit up to a full year, it assumes the remaining quarters resemble the ones already reported. In a seasonal business that assumption is wrong by construction. Build a trailing twelve-month figure instead — add the last four quarters — and both the seasonality and the annualisation error disappear. [What EPS means in the Nepal stock market](/blogs/what-is-eps-in-nepal-stock-market) covers the mechanics.
+
+## The lines investors skip and should not
+
+- **Contingent liabilities.** Guarantees, letters of credit, pending tax assessments and legal cases. These are obligations that are not on the balance sheet but could become real. For banks, the contingent book can be large relative to equity.
+- **Related-party transactions.** Loans to, purchases from, or deposits by entities connected to directors and promoters. The existence of these is normal. Their size relative to the business is the signal.
+- **Deferred tax.** A large deferred tax asset is a claim on future profitability. If the company has not been consistently profitable, question whether it will ever be realised.
+- **Movement in reserves.** The equity note shows whether book value grew from retained profit or from a revaluation. Those are very different sources. [What book value means in NEPSE stocks](/blogs/what-is-book-value-in-nepse-stocks) explains why the distinction changes your valuation.
+- **Share count changes.** Bonus issues, right issues and any conversion change per-share figures without changing the business. Every historical per-share comparison you make must be adjusted for these first.
+
+## Build a four-quarter sheet, not a snapshot
+
+A single report is nearly useless in isolation. What makes a report informative is the trend across the last four to eight of them, laid out in one place.
+
+Keep a simple sheet per company with one column per quarter and rows for the handful of lines that actually drive the business: revenue or net interest income, the impairment or claims charge, net profit, equity, share count, and the one or two sector-specific ratios listed above. Twenty minutes per company, refreshed each quarter.
+
+That sheet answers the questions a single report cannot. Is margin compressing? Is asset quality deteriorating gradually? Is profit growth coming from the core business or from one-off gains? Is the share count creeping up faster than earnings, so per-share value is diluting even as headline profit rises?
+
+## What to actually do
+
+1. Read the audit opinion first in any annual report, and look specifically for qualifications, emphasis of matter or key audit matters. That paragraph names the soft number.
+2. Read the two or three notes that govern your company's sector before you read the profit statement.
+3. Check operating cash flow against reported profit for non-financial companies, and the funding mix for lenders.
+4. Compare year on year, never quarter on quarter, and build trailing twelve-month figures rather than trusting annualised EPS.
+5. Adjust for every bonus and right issue before comparing any per-share number across periods.
+6. Maintain a four-to-eight quarter sheet per company. The trend is the analysis; the single report is only an input. Once you have it, [how to analyse a NEPSE stock before buying](/blogs/how-to-analyze-a-nepse-stock-before-buying) sets out how to combine it with price and liquidity evidence.

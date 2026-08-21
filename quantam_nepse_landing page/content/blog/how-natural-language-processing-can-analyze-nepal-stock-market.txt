@@ -1,0 +1,90 @@
+title: How Natural Language Processing Can Analyze Nepal Stock Market News
+slug: how-natural-language-processing-can-analyze-nepal-stock-market
+description: What an NLP pipeline for NEPSE news actually involves — entity resolution, bilingual text, event extraction over sentiment scoring, and the timestamp problem that ruins most tests.
+category: data-and-research
+tags: Natural Language Processing, NEPSE Research, Nepal Stock Exchange, Market Sentiment, Data Analysis
+---
+Natural language processing turns text into rows. That is the whole idea. A news article is unstructured — a human reads it and forms an impression that cannot be sorted, filtered or counted. NLP converts the same article into structured fields: which company, what kind of event, when, from which source. Once news is rows, you can do arithmetic on it.
+
+For the Nepal Stock Exchange this is more valuable than in a heavily covered market, and considerably harder. More valuable because coverage is fragmented across portals, exchange disclosures and broker notices, so no individual reads all of it. Harder because the difficult problems are not the language models — those are commodities — but the unglamorous ones: identifying which company a story is about, handling text that mixes Nepali and English, and knowing exactly when a piece of information became public.
+
+Get those three right and you have something useful. Get them wrong and you have a sentiment score that correlates with nothing.
+
+## The pipeline, stage by stage
+
+Any serious system does these steps in this order. Most published enthusiasm concerns step five, and most of the actual work is in steps two and three.
+
+1. **Ingestion.** Collect text from portals, exchange disclosures, company notices and regulator announcements, with the source and retrieval time recorded for every item.
+2. **Deduplication.** The same announcement is republished, aggregated and syndicated. Without dedup, one dividend announcement becomes fifteen positive signals and your counts measure republishing rather than news.
+3. **Entity resolution.** Decide which listed company or companies each item concerns. Discussed below, because it is the hardest part.
+4. **Event classification.** Assign the item to a category: dividend, rights issue, AGM, merger, capital change, regulatory action, project milestone, results, auction, other.
+5. **Sentiment or tone.** Optional, and less useful than most people expect.
+6. **Timestamping.** Record when the information became public, not when you collected it.
+7. **Storage as structured records**, so that the archive can be queried and — crucially — replayed as it stood on any past date.
+
+## Entity resolution is the hardest problem in Nepal
+
+Deciding which company an article is about sounds trivial. It is not, and in Nepal it is unusually error-prone.
+
+- **Name variants.** A single company appears as its full registered name, a shortened trade name, an abbreviation, its ticker symbol, and a Nepali rendering. All five must map to one identifier.
+- **Shared roots across sectors.** A commercial bank, an affiliated microfinance institution and a related insurance entity can share a distinctive name element. Naive string matching attributes news about one to all three, and they are in different sub-indices.
+- **Transliteration variability.** The same Nepali name transliterates into English several ways. There is no single standard, and different portals choose differently.
+- **Sector-wide news that names one company.** An article about a regulatory change for the whole banking sector may mention a single bank as an example. Attributing the story to that bank alone is wrong in a way that is invisible in the output.
+- **Historical names.** Merged institutions were reported under previous names. A historical archive that maps names using today's list mislabels everything before the merger.
+
+The practical answer is not a cleverer model but a maintained mapping table: every known alias, ticker, Nepali form and historical name resolved to one stable identifier, with unmatched items sent to a review queue rather than silently guessed. Unglamorous, and it determines whether everything downstream is meaningful.
+
+> If the entity mapping is wrong, a better sentiment model just gives you a more precise measurement of the wrong company.
+
+## Bilingual and code-mixed text breaks off-the-shelf tools
+
+Nepali market commentary is frequently written in Devanagari, frequently in English, and often in both within one sentence — English financial terms embedded in Nepali prose, or Nepali words transliterated into Roman script.
+
+Standard NLP tooling assumes one language per document. Tokenisers trained on English split Devanagari poorly. Sentiment lexicons exist in abundance for English and thinly for Nepali, and almost not at all for Nepali financial vocabulary specifically. Multilingual models handle Devanagari far better than they used to, but their exposure to Nepali financial writing is small compared with their exposure to English news.
+
+The consequence is uneven quality: the same pipeline may perform respectably on English-language items and poorly on Nepali ones, and if English items skew towards larger companies, your coverage is biased in a way that looks like a finding.
+
+## Prefer event extraction to sentiment scoring
+
+This is the recommendation that most improves a Nepali NLP project, and it goes against the usual instinct.
+
+A sentiment score compresses a document into one number on a positive-to-negative scale. That number is hard to validate, unstable across models, and vague in meaning — "positive" relative to what? An event label is different: it says this item announces a rights issue, or a change in capital requirements, or a project reaching commercial operation. It is categorical, checkable by a human in seconds, and directly comparable across time.
+
+Event labels also let you ask questions with actual answers. How often does this kind of announcement precede unusual trading activity in that stock? Does the market's reaction to a category of event differ by sector? Those are testable. "Sentiment was 0.63" is not.
+
+There is a further reason to distrust sentiment on financial text: the vocabulary is inverted relative to everyday language. "Provision", "liability", "exposure" and "write-off" are technical neutrals that general-purpose models score as negative. "Aggressive expansion" scores positive and is often a warning. Unless a model has been tuned on financial language — and specifically on this market's phrasing — its scores measure the wrong thing confidently. [AI sentiment analysis for Nepali stock market news](/blogs/ai-sentiment-analysis-for-nepali-stock-market-news) goes deeper into where sentiment does and does not hold up.
+
+## The timestamp problem, which ruins most tests
+
+Suppose you build all of the above and want to know whether news predicts returns. Here is where nearly every attempt breaks.
+
+News is usually published after the market has begun reacting. A company's results circulate before the article appears. A disclosure is filed at a specific time; the article summarising it appears later; your scraper collects it later still. If your test uses the article's date rather than the moment the information became public, you have look-ahead bias — and look-ahead almost always makes results look better.
+
+Three rules keep this honest:
+
+1. **Store three separate times:** when the event occurred, when it was first publicly disclosed, and when you collected it. Test using the disclosure time, never your collection time.
+2. **Assume you could only act after the next open.** Anything else assumes execution you would not have got.
+3. **Ask whether the price had already moved.** If unusual volume preceded the article, the news is a record of the move, not a predictor of it.
+
+Most honest studies of news and returns find that the reaction is fast and largely complete by the time an ordinary investor can act. Expect that here, and treat any result showing otherwise as a bug until proven not to be.
+
+## What NLP genuinely earns you
+
+Set prediction aside and the real returns are still substantial.
+
+- **Coverage.** Every listed company monitored, not the ten you follow.
+- **A structured, searchable archive.** The ability to ask "show me every capital-related announcement for this sector over the last two years" is worth more than any score.
+- **Consistency.** The same classification rule applied to every item, so counts across time actually mean something.
+- **Speed of triage.** Knowing within minutes which of your holdings has published something, and in which category.
+- **Context on the numbers.** Pairing an event log with price and volume history — and with the broker-level floorsheet NEPSE publishes — lets you check whether the market behaved unusually around a class of event. See [how alternative data could improve NEPSE market intelligence](/blogs/how-alternative-data-could-improve-nepse-market-intelligence) for the broader version of this idea.
+
+## What to check before trusting any news-analysis tool
+
+- How does it resolve company names, and what does it do with items it cannot match?
+- Does it deduplicate syndicated copies, and how does it decide two items are the same story?
+- Does it handle Devanagari and code-mixed text, or quietly perform worse on Nepali items?
+- Does it give you event categories, or only a sentiment number?
+- Which timestamp does it use, and can you see all three?
+- Has it been evaluated against a hand-labelled sample of Nepali items — and can you see how it did?
+
+If a tool cannot answer these, its output is decoration. If it can, you have a genuine research asset — one that describes what has been announced with far more coverage than you could manage alone, while making no claim about what happens next. [Can AI detect NEPSE market sentiment](/blogs/can-ai-detect-nepse-market-sentiment) is the honest companion question to this one.

@@ -1,0 +1,1460 @@
+@import "tailwindcss";
+
+/* 1rem == 1 design px of the 1280x720 artboard. The whole page is one
+   scaled stage, so nothing ever scrolls at any viewport size. 16:9 so the
+   app window fills a widescreen instead of letterboxing into the blue.
+
+   SCOPED with :has(.stage). These rules crush the root font to ~1px and lock
+   scrolling — correct for the artboard, fatal for an article page, which needs
+   a real 16px rem and needs to scroll. Only the landing route renders .stage. */
+html:has(.stage) {
+  --cycle: 600s; /* 5 min green, 5 min red */
+  font-size: min(100vw / 1280, 100dvh / 720);
+  height: 100%;
+  /* The gradient lives on html, not body: a body sized to 100dvh leaves the
+     window's own white showing underneath whenever the two disagree. */
+  background:
+    radial-gradient(circle at -6% -10%, transparent 33%, rgba(198,250,225,0.16) 36%, rgba(18,183,106,0.07) 43%, transparent 58%),
+    radial-gradient(circle at 6% 4%, rgba(226,253,240,0.30) 0%, rgba(50,213,131,0.16) 7%, rgba(3,152,85,0.08) 17%, transparent 38%),
+    linear-gradient(132deg, #05271b 0%, #041d15 20%, #03170f 38%, #02140e 52%, #020f0a 68%, #010a07 84%, #000604 100%);
+  /* BUY phase, then SELL phase, forever. The palette flip is ONE hue rotation
+     over the whole document rather than a red variant of every colour: the page
+     uses ~40 distinct greens across two files, and each would have had to become
+     a custom property and be kept in sync. Rotating -150deg takes the brand's
+     hue 153 to ~3, and it carries the NEPSE seal (itself hue-rotated to green)
+     and every glow, border and chart with it.
+
+     step-end makes it a SWITCH, not a crossfade — a slow blend would spend most
+     of the cycle in a muddy in-between that means neither state.
+
+     It goes on `html`, not `.stage`: a filter creates a containing block for
+     fixed descendants, and `.window` is `position: fixed` — on `.stage` it would
+     stop filling the viewport and shrink to the artboard. */
+  animation:
+    sky 38s ease-in-out infinite alternate,
+    theme var(--cycle) infinite;
+}
+
+/* 10s green, 10s red, with an eased 1s sweep between them rather than a cut.
+
+   The stops below are a FRACTION of the cycle, so they must be recomputed
+   whenever --cycle changes or the 1s sweep stretches with it (at 120s these
+   same 45%/95% stops gave a 6s smear through brown). For a sweep of S seconds
+   in a cycle of C: sweep% = 100*S/C; the holds end at 50-sweep% and
+   100-sweep%, and the buy/sell readings flip halfway through, at
+   50-sweep%/2 and 100-sweep%/2. Here S=1, C=600 -> 0.167%.
+
+   BOTH endpoints spell out the same three filter functions — the green phase is
+   the identity `hue-rotate(0deg) saturate(1) brightness(1)`, not `none`. Filter
+   lists only interpolate function-by-function when they match; against `none`
+   the result is far less predictable across engines.
+
+   hue-rotate alone lands on a washed-out rose: the CSS matrix is an
+   approximation, not a true HSL rotation, and it desaturates as it turns.
+   saturate() pulls it back to an actual red, brightness() takes it dark rather
+   than salmon. */
+@keyframes theme {
+  0%,
+  49.833% {
+    filter: hue-rotate(0deg) saturate(1) brightness(1);
+    animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
+  }
+  50%,
+  99.833% {
+    filter: hue-rotate(-142deg) saturate(1.9) brightness(0.88);
+    animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
+  }
+  100% {
+    filter: hue-rotate(0deg) saturate(1) brightness(1);
+  }
+}
+
+/* Both halves of a swap sit in the same place; only one is shown at a time. */
+.swap {
+  position: relative;
+  display: inline-flex;
+}
+
+.swap > .on-sell {
+  position: absolute;
+  top: 0;
+  right: 0;
+  white-space: nowrap;
+}
+
+.on-buy {
+  animation: on-buy var(--cycle) step-end infinite;
+}
+
+.on-sell {
+  animation: on-sell var(--cycle) step-end infinite;
+}
+
+@keyframes on-buy {
+  0% {
+    opacity: 1;
+  }
+  49.917% {
+    opacity: 0;
+  }
+  99.917% {
+    opacity: 1;
+  }
+}
+
+@keyframes on-sell {
+  0% {
+    opacity: 0;
+  }
+  49.917% {
+    opacity: 1;
+  }
+  99.917% {
+    opacity: 0;
+  }
+}
+
+/* Only ~22px of this is visible around the window, so keep it to a slow drift
+   of the two glow layers — the base linear-gradient stays put. */
+@keyframes sky {
+  from {
+    background-position:
+      0% 0%,
+      0% 0%,
+      0% 0%;
+  }
+  to {
+    background-position:
+      6% 5%,
+      -5% 4%,
+      0% 0%;
+  }
+}
+
+body {
+  color: #ecf5f1;
+  font-family: var(--font-poppins), ui-sans-serif, system-ui, sans-serif;
+  background: #04120c;
+}
+
+body:has(.stage) {
+  height: 100%;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: none;
+}
+
+.stage {
+  position: relative;
+  width: 1280rem;
+  height: 720rem;
+}
+
+/* The app window is a viewport frame, not an artboard element: it fills the
+   screen edge to edge at any aspect ratio. The 16:9 composition is centred on
+   top of it. No inset, radius or border — the blue reads through the 95%. */
+.window {
+  position: fixed;
+  inset: 0;
+  background: linear-gradient(155deg, #051510 0%, #030f0a 45%, #010806 100%);
+  overflow: hidden;
+  opacity: 0.95;
+}
+
+/* The background loop. Blurred so it never competes with the cards for
+   attention — it should read as movement, not as footage — and held at low
+   opacity so the dark field still governs the palette. It sits inside <html>,
+   so the buy/sell hue sweep carries it too. */
+.bgvid {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: blur(8px) saturate(0.55) brightness(0.44) contrast(1.08);
+  opacity: 0.32;
+  pointer-events: none;
+  /* a blur samples past the element's edges, which leaves a soft transparent
+     rim on a viewport-sized box — scaling up pushes that rim off-screen */
+  scale: 1.05;
+}
+
+/* Ambient blue drifting behind the composition — this is where the screen
+   actually is, the outer blue is only a frame. Gradients are soft on their own,
+   so no filter: blur() (which would re-rasterise every frame); only transform
+   animates, so both layers stay on the compositor. */
+.window::before,
+.window::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  will-change: transform;
+}
+
+.window::before {
+  left: -10vw;
+  top: -22vw;
+  width: 56vw;
+  height: 56vw;
+  background: radial-gradient(circle, rgba(18,183,106,0.15) 0%, rgba(3,152,85,0.07) 42%, transparent 68%);
+  animation: drift-a 27s ease-in-out infinite alternate;
+}
+
+.window::after {
+  right: -12vw;
+  bottom: -24vw;
+  width: 48vw;
+  height: 48vw;
+  background: radial-gradient(circle, rgba(18,183,106,0.12) 0%, rgba(3,169,96, 0.06) 45%, transparent 70%);
+  animation: drift-b 35s ease-in-out infinite alternate;
+}
+
+@keyframes drift-a {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(16vw, 9vh, 0) scale(1.2);
+  }
+}
+
+@keyframes drift-b {
+  from {
+    transform: translate3d(0, 0, 0) scale(1.15);
+  }
+  to {
+    transform: translate3d(-14vw, -10vh, 0) scale(1);
+  }
+}
+
+/* --- data in motion -------------------------------------------------- */
+
+/* Scrolling chart: two copies end to end, translated by exactly one width. */
+.wave {
+  animation-name: wave;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+@keyframes wave {
+  to {
+    transform: translateX(var(--w));
+  }
+}
+
+/* Meter fill. scaleX from the left edge stays on the compositor; animating
+   width would relayout the bar every frame. */
+.meter {
+  transform-origin: left center;
+  animation: meter 6.4s ease-in-out infinite alternate;
+}
+
+@keyframes meter {
+  from {
+    transform: scaleX(0.61);
+  }
+  to {
+    transform: scaleX(0.74);
+  }
+}
+
+/* Broker columns. Each bar carries its own --a/--b and delay, so one rule
+   drives the whole set without a per-bar keyframe. */
+.bars i {
+  transform-origin: bottom;
+  animation: bars 2.6s ease-in-out infinite alternate;
+}
+
+@keyframes bars {
+  from {
+    transform: scaleY(var(--a));
+  }
+  to {
+    transform: scaleY(var(--b));
+  }
+}
+
+/* One sub-index at a time. All 13 stack in the same box and share ONE keyframe;
+   a negative delay of i * slot puts each in its own slot, so exactly one is ever
+   face-on. Pure CSS, so page.tsx stays a server component.
+
+   0% and 100% are both edge-on and transparent, so the loop's wrap is invisible
+   and no per-item keyframe is needed. */
+.flip {
+  perspective: 500rem;
+}
+
+.flip > span {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  backface-visibility: hidden;
+  animation-name: flip;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-iteration-count: infinite;
+  will-change: transform, opacity;
+}
+
+/* A name holds its whole 1/13 slot (0 -> 7.7%) and only then flips out, which
+   runs PAST the slot end into the next name's flip-in. That overlap is the
+   point: end the flip-out at 7.7% instead and nothing is face-on for ~0.4s
+   between every pair, which reads as the box blinking empty. */
+@keyframes flip {
+  0% {
+    opacity: 0;
+    transform: rotateX(-90deg);
+  }
+  1.9% {
+    opacity: 1;
+    transform: rotateX(0deg);
+  }
+  7.7% {
+    opacity: 1;
+    transform: rotateX(0deg);
+  }
+  9.6% {
+    opacity: 0;
+    transform: rotateX(90deg);
+  }
+  100% {
+    opacity: 0;
+    transform: rotateX(90deg);
+  }
+}
+
+/* Value strip. em here is the leaf's own font-size, so it works at any size. */
+.tick {
+  display: inline-block;
+  height: 1em;
+  overflow: hidden;
+  vertical-align: bottom;
+}
+
+/* The strip itself must be a block: transform is ignored on a non-replaced
+   inline box, which silently froze every reading on its first value. */
+.tick > span {
+  display: block;
+  will-change: transform;
+  /* Declared HERE, not inline. An inline `animation` shorthand outranks every
+     normal stylesheet rule, so the reduced-motion block below could never
+     cancel it and 17 numbers kept flipping for a user who asked for none.
+     Only --dur and --n come from the component now. */
+  animation: tick var(--dur) steps(var(--n)) infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+.tick b {
+  display: block;
+  height: 1em;
+  line-height: 1;
+  font-weight: inherit;
+}
+
+@keyframes tick {
+  to {
+    transform: translateY(calc(-1em * var(--n)));
+  }
+}
+
+.orbit {
+  transform-origin: 10px 10px;
+  animation: orbit 14s linear infinite;
+}
+
+/* The comet riding each connector, exchange -> index. pathLength=100 normalises every
+   route to one dash pattern, and --lag drags a layer backwards along it, which
+   is how three stacked dashes make a head with a tail behind it. */
+.comet path {
+  fill: none;
+  stroke: #a6f4c5;
+  stroke-linecap: round;
+  animation: comet 3.6s linear infinite;
+}
+
+@keyframes comet {
+  from {
+    stroke-dashoffset: calc(100px + var(--lag));
+  }
+  to {
+    stroke-dashoffset: var(--lag);
+  }
+}
+
+/* The ring port, breathing. transform-box keeps the origin on the circle. */
+.node-dot {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: dot 2.6s ease-out infinite;
+}
+
+@keyframes dot {
+  from {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  to {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+
+@keyframes orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html,
+  .window::before,
+  .window::after,
+  .wave,
+  .meter,
+  .bars i,
+  .tick span,
+  .orbit,
+  .comet path,
+  .node-dot,
+  .drift,
+  .shine::after,
+  .dome ellipse,
+  .packet,
+  .newsfeed > div,
+  .intro {
+    animation: none;
+  }
+
+  /* the buy/sell flip is information, not decoration: it keeps running, but
+     without the hue sweep the reduced-motion block strips from `html` */
+  .on-buy,
+  .on-sell {
+    animation-duration: var(--cycle);
+  }
+
+  .shine::after {
+    opacity: 0;
+  }
+
+  /* keep the hover's colour cue, drop its movement */
+  .glass {
+    transition: border-color 0.2s ease;
+  }
+
+  .glass:hover {
+    translate: none;
+    scale: none;
+  }
+
+  /* animation:none would leave every name at its opacity:0 base — the box would
+     go blank. Hold the first one instead. */
+  .flip > span {
+    animation: none;
+    opacity: 0;
+  }
+
+  .flip > span:first-child {
+    opacity: 1;
+  }
+}
+
+/* Panel variants. `.frost` is the heavier, brighter glass the two headline
+   cards wear; `.sheer` is barely there, for the exchange. Both only override
+   what they need — `.glass` still supplies the geometry. */
+.frost {
+  background: linear-gradient(150deg, rgba(108, 233, 166, 0.17), rgba(10, 38, 25, 0.6));
+  border-color: rgba(134, 239, 172, 0.46);
+  backdrop-filter: blur(22rem) saturate(1.25);
+  box-shadow:
+    0 26rem 60rem rgba(0, 0, 0, 0.5),
+    inset 0 1rem 0 rgba(255, 255, 255, 0.16),
+    0 0 30rem rgba(50, 213, 131, 0.22);
+}
+
+.sheer {
+  background: linear-gradient(150deg, rgba(108, 233, 166, 0.07), rgba(8, 28, 19, 0.34));
+  border-color: rgba(108, 233, 166, 0.34);
+  backdrop-filter: blur(26rem);
+  box-shadow: 0 20rem 48rem rgba(0, 0, 0, 0.38);
+}
+
+/* Panels that drift. transform only, so it stays on the compositor — and each
+   one carries its own delay so they never move in lockstep. */
+.drift {
+  animation: drift 9s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+@keyframes drift {
+  from {
+    transform: translateY(calc(var(--amp, 3rem) * -1));
+  }
+  to {
+    transform: translateY(var(--amp, 3rem));
+  }
+}
+
+/* A specular sweep across the seal — a translucent band that crosses it and then
+   waits, so it reads as a coin catching the light rather than a running loop.
+   inset:-30% keeps the band's ends outside the circle at both extremes, and the
+   coin's own overflow:hidden does the clipping. */
+.shine::after {
+  content: "";
+  position: absolute;
+  inset: -30%;
+  pointer-events: none;
+  background: linear-gradient(
+    72deg,
+    transparent 38%,
+    rgba(255, 255, 255, 0.45) 47%,
+    rgba(255, 255, 255, 0.8) 51%,
+    rgba(255, 255, 255, 0.45) 55%,
+    transparent 64%
+  );
+  animation: shine 5.2s ease-in-out infinite;
+}
+
+@keyframes shine {
+  0%,
+  58% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(120%);
+  }
+}
+
+/* The ground rings travel outward from the centre, like a slow sweep. Each ring
+   runs ONE shared keyframe on its own negative delay, so the set reads as a wave
+   moving out rather than six rings breathing in unison.
+
+   transform-box: fill-box puts every ring's origin at its own centre — which is
+   the same point (640,726) for all six — so they scale about the sweep's origin
+   and not about the SVG's top-left. The keyframe fades through `--o`, the ring's
+   own resting opacity, so the static fallback still looks right. */
+.dome ellipse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: dome 8.4s ease-out infinite;
+}
+
+@keyframes dome {
+  0% {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+  22% {
+    opacity: var(--o, 0.14);
+  }
+  100% {
+    transform: scale(1.32);
+    opacity: 0;
+  }
+}
+
+/* One symbol riding an arrow. It fades in at the top of the run, travels its
+   length, and fades out at the bottom; the label inside is a .tick strip whose
+   step interval equals this travel time, so the symbol changes exactly as the
+   packet wraps back to the top and every pass carries a new one. */
+.packet {
+  display: flex;
+  justify-content: center;
+  animation: packet var(--pass) linear infinite;
+  animation-delay: var(--delay, 0s);
+  will-change: transform, opacity;
+}
+
+/* The symbol rides in a box, like a labelled packet on the wire. The box is a
+   WRAPPER round the .tick strip rather than the strip itself — .tick is
+   height:1em with overflow:hidden, so padding on it would expose the values
+   above and below the one that should be showing.
+
+   Its width is the widest symbol in that lane (the strip sizes to its longest
+   child), so the box holds a constant width instead of jittering per symbol. */
+.packet > span,
+.newsfeed span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 15rem;
+  padding: 0 6rem;
+  border: 1rem solid rgba(108, 233, 166, 0.55);
+  border-radius: 4rem;
+  background: rgba(4, 21, 13, 0.92);
+  box-shadow: 0 0 12rem rgba(50, 213, 131, 0.4);
+  /* the arrowhead hangs outside the box, so it needs a containing block */
+  position: relative;
+}
+
+/* An arrowhead on the leading edge, pointing the way the box travels — a CSS
+   triangle rather than a clip-path on the box itself, which would cut the box's
+   own outline along the diagonal and leave the shape unstroked. */
+.newsfeed span::after,
+.packet > span::after {
+  content: "";
+  position: absolute;
+  border: 5rem solid transparent;
+}
+
+.newsfeed span::after {
+  right: -11rem;
+  top: 50%;
+  margin-top: -5rem;
+  border-left-color: rgba(134, 239, 172, 0.9);
+  border-left-width: 6rem;
+}
+
+/* The ticker strip. It moves toward the card (-50% -> 0), and the container's
+   overflow does the disappearing: a symbol is cut off by the card's edge rather
+   than fading before it. The mask only softens the ENTRY side. */
+.newsfeed {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 14%, #000 100%);
+  mask-image: linear-gradient(90deg, transparent, #000 14%, #000 100%);
+}
+
+.newsfeed > div {
+  display: flex;
+  align-items: center;
+  gap: 16rem;
+  width: max-content;
+  animation: newsfeed var(--dur) linear infinite;
+  will-change: transform;
+}
+
+.newsfeed span {
+  min-width: 60rem;
+  white-space: nowrap;
+}
+
+@keyframes newsfeed {
+  from {
+    transform: translateX(-50%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.packet > span::after {
+  bottom: -11rem;
+  left: 50%;
+  margin-left: -5rem;
+  border-top-color: rgba(134, 239, 172, 0.9);
+  border-top-width: 6rem;
+}
+
+/* The intermediate keyframes MUST restate the translate as well as the scale.
+   With transform given only at 0% and 100%, the browser interpolates the whole
+   thing across the run — naming scale alone at 16%/76% would silently drop the
+   motion between those stops. The fractions match the keyframe percentages so
+   travel stays linear. */
+@keyframes packet {
+  0% {
+    transform: translateY(0) scale(0.55);
+    opacity: 0;
+  }
+  12% {
+    transform: translateY(calc(var(--travel) * 0.12)) scale(1);
+    opacity: 1;
+  }
+  88% {
+    transform: translateY(calc(var(--travel) * 0.88)) scale(1);
+    opacity: 1;
+  }
+  100% {
+    /* only a light shrink at the end: at 0.55 the box's far edge pulled back
+       31px, so it never actually reached the card it was arriving at */
+    transform: translateY(var(--travel)) scale(0.82);
+    opacity: 0;
+  }
+}
+
+/* The intro pill: it opens once on load, then idles, cycling one phrase at a
+   time. The pill itself carries .shine, so a highlight sweeps through it too. */
+.intro {
+  animation: intro-in 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.35s backwards;
+}
+
+@keyframes intro-in {
+  from {
+    opacity: 0;
+    transform: scale(0.88) translateY(7rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.glass {
+  background: linear-gradient(160deg, rgba(16,46,32,0.86), rgba(7,22,15,0.92));
+  border: 1rem solid rgba(50,213,131,0.34);
+  border-radius: 14rem;
+  backdrop-filter: blur(12rem);
+  box-shadow:
+    0 18rem 40rem rgba(0, 0, 0, 0.5),
+    inset 0 1rem 0 rgba(255, 255, 255, 0.07),
+    0 0 20rem rgba(50, 213, 131, 0.14);
+  transition:
+    translate 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+    scale 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.34s ease,
+    box-shadow 0.34s ease;
+}
+
+/* Hover: the panel lifts toward the reader and its rim lights up.
+
+   The lift uses `translate`/`scale`, NOT `transform`. Three of these panels
+   drift on a `transform` animation, and a running animation beats a normal
+   declaration for its whole duration — a hover `transform` would simply never
+   apply to them. `translate` and `scale` are independent properties that
+   compose with `transform`, so the lift survives the drift.
+
+   `.glass:hover` is (0,2,0), so it outranks the `.frost` / `.sheer` variants
+   (0,1,0) and every panel lights the same way. */
+.glass:hover {
+  translate: 0 -5rem;
+  scale: 1.012;
+  border-color: rgba(134, 239, 172, 0.72);
+  box-shadow:
+    0 32rem 66rem rgba(0, 0, 0, 0.55),
+    inset 0 1rem 0 rgba(255, 255, 255, 0.14),
+    0 0 42rem rgba(50, 213, 131, 0.34);
+}
+
+/* The Reveal wrappers are `absolute inset-0`, so each one covers the WHOLE
+   stage and the topmost swallows every pointer event — without this only the
+   last group's cards could be hovered. Links opt back in too. */
+.stage > div {
+  pointer-events: none;
+}
+
+.glass,
+.stage a {
+  pointer-events: auto;
+}
+
+/* ===================================================================== blog
+   A dark dashboard: filter chips, a card grid, and long-form article pages.
+   Scoped under .blogwrap so none of it can reach the artboard, which shares
+   this stylesheet but sizes 1rem to ~1px. */
+
+.blogwrap {
+  --line: rgba(50, 213, 131, 0.16);
+  --panel: linear-gradient(160deg, rgba(16, 46, 32, 0.7), rgba(7, 22, 15, 0.85));
+  --acc: #32d583;
+  --acc-soft: #86efac;
+  --dim: #8fbfa8;
+  min-height: 100dvh;
+  background:
+    radial-gradient(1200px 600px at 12% -10%, rgba(18, 183, 106, 0.1), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(50, 213, 131, 0.07), transparent 60%),
+    #04120c;
+}
+
+.blogwrap a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.link {
+  color: var(--acc-soft);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+
+.link:hover {
+  color: #d1fadf;
+}
+
+/* --- chrome ------------------------------------------------------------- */
+
+.page {
+  /* full bleed: the card grid is auto-fill, so releasing the cap simply gives it
+     more columns on a wide screen instead of stretching four of them.
+     .lead and .prose keep their own ch-based caps — body text set to the full
+     width of a 1920px monitor is unreadable no matter how much room there is. */
+  max-width: none;
+  padding: 34px 44px 72px;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.head .page-h {
+  margin-bottom: 0;
+  font-size: clamp(21px, 2.3vw, 31px);
+  max-width: none;
+}
+
+/* The offset lives on the GROUP, not on each button: applied per-button it also
+   pulled Home 12px left and ate the gap between the two. */
+.navbtns {
+  display: inline-flex;
+  gap: 10px;
+  margin-left: -12px;
+}
+
+.backbtn {
+  display: inline-flex;
+  font-family: inherit;
+  cursor: pointer;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px 8px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 13.5px;
+  color: #cfe6da;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+.backbtn:hover {
+  border-color: rgba(50, 213, 131, 0.5);
+  background: rgba(50, 213, 131, 0.1);
+  transform: translateX(-2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .backbtn:hover {
+    transform: none;
+  }
+}
+
+/* A highlight travelling through the heading. The gradient is painted INTO the
+   text (background-clip: text) and slid across, so the shine passes through the
+   letterforms rather than over them. Every stop is a light tone on a near-black
+   field, so contrast never dips as it moves. */
+.blogwrap .page-h {
+  background: linear-gradient(
+    100deg,
+    #cfe9dc 28%,
+    #ffffff 45%,
+    #a6f4c5 53%,
+    #cfe9dc 70%
+  );
+  background-size: 260% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: blogshine 6.5s linear infinite;
+}
+
+@keyframes blogshine {
+  to {
+    background-position: -260% 0;
+  }
+}
+
+.page-h {
+  font-size: clamp(28px, 4vw, 44px);
+  line-height: 1.15;
+  font-weight: 500;
+  letter-spacing: -0.5px;
+  margin-bottom: 14px;
+  max-width: 22ch;
+}
+
+.lead {
+  color: #b9d8c9;
+  font-size: 17px;
+  line-height: 1.7;
+  max-width: 78ch;
+  margin-bottom: 26px;
+}
+
+.sec-h {
+  font-size: 19px;
+  font-weight: 500;
+  margin-bottom: 14px;
+}
+
+.mb-14 {
+  margin-bottom: 44px;
+}
+
+.mt-14 {
+  margin-top: 44px;
+}
+
+/* --- chips / tags -------------------------------------------------------- */
+
+.chipwrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 13.5px;
+  color: #cfe6da;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.chip:hover {
+  border-color: rgba(50, 213, 131, 0.5);
+  background: rgba(50, 213, 131, 0.09);
+}
+
+/* the selected filter — the chip IS the state, so it has to look pressed, not
+   merely hovered */
+.chip-on {
+  border-color: rgba(50, 213, 131, 0.75);
+  background: rgba(50, 213, 131, 0.2);
+  color: #d6f7e6;
+}
+
+.chip-on .chip-n {
+  color: #a6f4c5;
+}
+
+.chip-n {
+  font-size: 11.5px;
+  color: var(--dim);
+}
+
+/* --- card grid ----------------------------------------------------------- */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+  gap: 16px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.card:hover {
+  border-color: rgba(50, 213, 131, 0.45);
+  transform: translateY(-3px);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+}
+
+/* the title gets its own panel inside the card, so it reads as a heading block
+   rather than as the first two lines of the summary */
+.card-h {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.card-ico {
+  flex: none;
+  margin-top: 4px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--acc);
+  box-shadow: 0 0 10px rgba(50, 213, 131, 0.7);
+}
+
+.card-t {
+  font-size: 21px;
+  line-height: 1.32;
+  font-weight: 500;
+}
+
+.card-t a:hover {
+  color: var(--acc-soft);
+}
+
+.card-x {
+  font-size: 16px;
+  line-height: 1.62;
+  color: #a9cbba;
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* --- article ------------------------------------------------------------- */
+
+.byline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--dim);
+  margin-bottom: 20px;
+}
+
+.prose {
+  max-width: 74ch;
+  font-size: 17px;
+  line-height: 1.8;
+  color: #cadfd3;
+}
+
+.prose h2 {
+  font-size: 26px;
+  line-height: 1.3;
+  font-weight: 500;
+  color: #eaf6f0;
+  margin: 40px 0 14px;
+  letter-spacing: -0.2px;
+}
+
+.prose h3 {
+  font-size: 20px;
+  font-weight: 500;
+  color: #e0f1e9;
+  margin: 30px 0 10px;
+}
+
+.prose p {
+  margin-bottom: 18px;
+}
+
+.prose strong {
+  color: #eaf6f0;
+  font-weight: 500;
+}
+
+.prose ul,
+.prose ol {
+  margin: 0 0 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.prose ul {
+  list-style: disc;
+}
+
+.prose ol {
+  list-style: decimal;
+}
+
+.prose blockquote {
+  margin: 24px 0;
+  padding: 14px 20px;
+  border-left: 3px solid var(--acc);
+  background: rgba(50, 213, 131, 0.07);
+  border-radius: 0 10px 10px 0;
+  color: #d6ece0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card:hover {
+    transform: none;
+  }
+
+  /* the static gradient still reads as intended at position 0 */
+  .blogwrap .page-h {
+    animation: none;
+  }
+}
+
+/* --- one-screen listing ---------------------------------------------------
+   The index locks to the viewport and pages in 4 x 4 instead of scrolling. The
+   grid takes whatever height is left after the header, chips and pager, and
+   splits it into four equal rows — so the fit holds at any window height rather
+   than only at the one it was designed on. Article pages never get this class:
+   long-form text has to scroll. */
+
+.blogwrap-fixed {
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.blogwrap-fixed .page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 22px;
+  padding-bottom: 18px;
+}
+
+.blogwrap-fixed .grid {
+  flex: 1;
+  min-height: 0;
+  grid-template-columns: repeat(4, 1fr);
+  /* rows take an equal share of the leftover height, so the grid fills the
+     screen and no band is left above or below it. The slack that creates inside
+     a card becomes even padding around centred content — the earlier version
+     top-aligned the text, which is what made the same space read as a hole. */
+  grid-template-rows: repeat(2, 1fr);
+  align-content: stretch;
+}
+
+.blogwrap-fixed .card {
+  overflow: hidden;
+  gap: 14px;
+  padding: 28px 26px;
+  justify-content: center;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.pg {
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 13px;
+  color: #cfe6da;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.pg:hover {
+  border-color: rgba(50, 213, 131, 0.5);
+  background: rgba(50, 213, 131, 0.1);
+}
+
+.pg-on {
+  background: rgba(50, 213, 131, 0.16);
+  border-color: rgba(50, 213, 131, 0.5);
+  color: #a6f4c5;
+}
+
+.pg-off {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+/* --- article layout: category rail on the left ---------------------------
+   Only the listing index puts its title beside the buttons; an article title
+   is a sentence, and sharing a line with two controls squeezed it and left the
+   byline hanging under them. Everywhere else the head stacks. */
+
+.blogwrap:not(.blogwrap-fixed) .head {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.blogwrap:not(.blogwrap-fixed) .head .page-h {
+  font-size: clamp(26px, 3.2vw, 40px);
+  max-width: 26ch;
+}
+
+.withaside {
+  display: grid;
+  /* contents | article. minmax(0,1fr) on the article column, not 1fr: a plain
+     1fr uses min-content as its floor, and a long unbreakable heading would then
+     push the rail out of the viewport. */
+  grid-template-columns: 320px minmax(0, 1fr) 320px;
+  gap: 36px;
+  align-items: start;
+}
+
+.aside {
+  position: sticky;
+  top: 22px;
+  padding: 24px 22px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+}
+
+.aside-h {
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--dim);
+  margin-bottom: 16px;
+}
+
+.asidelist {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  list-style: none;
+}
+
+.asidelink {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #cfe6da;
+  transition: background 0.16s ease, color 0.16s ease;
+}
+
+.asidelink:hover {
+  background: rgba(50, 213, 131, 0.1);
+  color: #a6f4c5;
+}
+
+.asidelink-on {
+  background: rgba(50, 213, 131, 0.16);
+  color: #a6f4c5;
+}
+
+.asidebody {
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .withaside {
+    grid-template-columns: 1fr;
+    gap: 22px;
+  }
+
+  .aside {
+    position: static;
+  }
+}
+
+/* the contents rail */
+.aside-r {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+.asidelink-toc {
+  display: block;
+  font-size: 15.5px;
+  line-height: 1.5;
+  padding: 9px 12px;
+  color: var(--dim);
+}
+
+.aside-tags .chipwrap {
+  gap: 6px;
+}
+
+.aside-tags .chip {
+  padding: 8px 13px;
+  font-size: 13.5px;
+}
+
+@media (max-width: 900px) {
+  .withaside {
+    grid-template-columns: 1fr;
+  }
+
+  .aside-r {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
+
+/* --- centred article column ---------------------------------------------
+   The heading and the body share one centred measure, so the title sits over
+   the text it belongs to rather than spanning the page above the rails. The
+   title is centre-aligned; the body is not — centred prose is harder to read,
+   and the measure is what does the centring here, not the text-align. */
+
+.asidebody {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.asidebody > * {
+  width: 100%;
+  max-width: 790px;
+}
+
+/* .blogwrap .art-h, not .art-h: the shared heading rule is `.blogwrap .page-h`
+   at (0,2,0), and a bare class would lose to it and never repaint the gradient. */
+.blogwrap .art-h {
+  text-align: center;
+  max-width: 20ch;
+  margin: 0 auto 14px;
+  font-size: clamp(30px, 3.5vw, 48px);
+  line-height: 1.12;
+  letter-spacing: -0.4px;
+  background: linear-gradient(
+    100deg,
+    #9fd6bd 24%,
+    #ffffff 42%,
+    #ffffff 50%,
+    #6ce9a6 58%,
+    #9fd6bd 76%
+  );
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: blogshine 4.5s linear infinite;
+}
+
+.asidebody .byline {
+  justify-content: center;
+}
+
+/* related reading, stacked in the rail */
+.aside-rel {
+  position: sticky;
+  top: 22px;
+}
+
+.rellist {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rellink {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0 14px;
+}
+
+/* the title gets its own panel, the same treatment the index cards use, so it
+   reads as a heading block rather than as the first line of the summary */
+.rellink-t {
+  display: block;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 14.5px;
+  line-height: 1.35;
+  color: #dcefe6;
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+
+.rellink:hover .rellink-t {
+  border-color: rgba(50, 213, 131, 0.45);
+  background: rgba(50, 213, 131, 0.1);
+  color: #a6f4c5;
+}
+
+/* no clamp: the summary runs in full and the rail scrolls, rather than every
+   entry ending in an ellipsis that hides the one useful sentence */
+.rellink-x {
+  padding: 0 2px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--dim);
+}
+
+@media (max-width: 1400px) {
+  .withaside {
+    grid-template-columns: 300px minmax(0, 1fr);
+  }
+
+  .aside-rel {
+    grid-column: 1 / -1;
+    position: static;
+  }
+}
+
+/* --- article: fixed frame, scrolling text --------------------------------
+   The page itself does not scroll. The two rails, the title and the byline are
+   part of the frame; only .artscroll moves. A mask fades the text in and out at
+   the edges of that box, so lines dissolve at the boundary instead of being cut
+   in half by it. */
+
+.blogwrap-fixed .withaside {
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.blogwrap-fixed .aside,
+.blogwrap-fixed .aside-rel {
+  position: static;
+  max-height: 100%;
+  overflow-y: auto;
+}
+
+.blogwrap-fixed .asidebody {
+  min-height: 0;
+}
+
+.artscroll {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: 790px;
+  overflow-y: auto;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 26px,
+    #000 calc(100% - 34px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 26px,
+    #000 calc(100% - 34px),
+    transparent 100%
+  );
+  animation: artin 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes artin {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Scrollbars hidden, scrolling kept. Both properties are needed: Firefox reads
+   scrollbar-width, Chrome and Safari only honour the pseudo-element. The columns
+   still scroll by wheel, trackpad, keyboard and touch. */
+.artscroll,
+.blogwrap-fixed .aside,
+.blogwrap-fixed .aside-rel {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.artscroll::-webkit-scrollbar,
+.blogwrap-fixed .aside::-webkit-scrollbar,
+.blogwrap-fixed .aside-rel::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .artscroll {
+    animation: none;
+  }
+}

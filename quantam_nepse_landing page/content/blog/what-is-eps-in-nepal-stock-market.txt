@@ -1,0 +1,88 @@
+title: What Is EPS in Nepal Stock Market?
+slug: what-is-eps-in-nepal-stock-market
+description: EPS is profit divided by shares, but in Nepal the annualised quarterly figure, bonus issues and distributable profit rules change what that number is really telling you.
+category: investment-education
+tags: EPS, Fundamental Analysis, NEPSE Basics, Investing In Nepal, Financial Statements
+---
+Earnings per share is a company's net profit divided by the number of shares it has issued. A company earning one hundred million rupees with ten million shares has an EPS of ten rupees. Every NEPSE stock page shows it, and it feeds directly into the P/E ratio on which most retail decisions quietly rest.
+
+The arithmetic is trivial. Almost everything that matters about EPS in Nepal lives in the two inputs, which profit figure and which share count, and in the fact that quarterly disclosures usually present an annualised number that can be a poor guide to the year. An investor who understands those three things reads Nepali results far better than one who has memorised the formula.
+
+## Where the number comes from
+
+The numerator is net profit after tax, taken from the income statement in a company's published quarterly or annual results. The denominator is the number of paid-up shares. Both are disclosed, and neither is as stable as it looks.
+
+Two rules of use before anything else.
+
+- **EPS is backward-looking.** It describes a period that has already ended, while the price you are paying is a claim on periods that have not.
+- **EPS is per share**, so it changes whenever the share count changes, entirely independently of how the business performed.
+
+> EPS is an output of accounting policy as much as it is an output of the business.
+
+## The annualised EPS trap
+
+Nepali quarterly disclosures commonly present an annualised EPS, the quarter's profit scaled up to a full year. It is a convenience, and for a steady business it is roughly fair.
+
+For anything seasonal or lumpy it is not. A company that earns most of its profit in one quarter shows a flattering annualised EPS straight after that quarter and a poor one after a weak quarter, with no change whatsoever in the underlying business. Institutions with provisioning cycles, businesses tied to the agricultural or monsoon calendar, and anyone whose results include a one-off gain all distort in this way.
+
+What to do instead:
+
+1. Use **trailing four quarters** of actual profit rather than one annualised quarter. It is a little arithmetic and it removes most of the distortion.
+2. When comparing companies, confirm you are on the **same basis**. An annualised figure set against a trailing figure is not a comparison.
+3. Read **the quarter itself** alongside the annualised number, and ask whether that quarter was ordinary.
+
+This single habit prevents more mistakes than any other adjustment on this page. It also affects everything downstream, including [the P/E ratio](/blogs/what-is-p-e-ratio-and-how-does-it), which inherits whichever EPS you fed into it.
+
+## Bonus shares cut EPS without anything going wrong
+
+When a company issues bonus shares, paid-up capital rises, the share count rises, and the price adjusts on the ex-date. Profit is unchanged, so EPS falls mechanically.
+
+That produces two persistent confusions.
+
+- A company that reported a lower EPS may have reported **higher profit** after a bonus issue. Always check the share count before concluding performance deteriorated.
+- **Historical EPS series need adjusting** for bonus issues before they can be compared at all. Left unadjusted, a perfectly healthy company can look like it has been shrinking for years.
+
+The same applies to right issues, with an added complication. Rights bring in cash, and cash takes time to be deployed productively. EPS can fall for several periods after a right issue simply because the new capital has not started earning yet. Whether that is a problem depends entirely on what the money is for, which is a question the statements can usually answer.
+
+## Reported profit is not always distributable profit
+
+For banks and other financial institutions, which dominate NEPSE by listed value, this distinction is essential rather than technical.
+
+Regulatory requirements oblige such institutions to set aside reserves against certain items before profit can be distributed. These regulatory adjustments sit between the reported profit line and what shareholders can actually receive as dividend. The result is that an institution can report a strong EPS while its distributable profit is materially smaller.
+
+If dividends form part of your reason for owning a stock, look for the distributable profit disclosure rather than inferring capacity from EPS. Two institutions with identical EPS can have very different ability to pay.
+
+## What makes an EPS low quality
+
+The same number can be more or less reliable. Signs an EPS deserves discounting:
+
+- **One-off gains.** Asset sales, revaluations, write-backs of earlier provisions. Remove them and ask what remains.
+- **Provisioning swings.** For lenders, a light provisioning period flatters earnings and a heavy one crushes them. Neither reflects a permanent change in the business.
+- **Profit rising while cash generation falls.** Not automatically damning, but it always needs an explanation you can locate in the statements.
+- **Receivables growing faster than revenue.** Revenue recognised is not revenue collected.
+- **A single quarter carrying the year.** Check whether that pattern is seasonal and expected, or unusual and unexplained.
+
+None of these makes a company bad. They make EPS a weaker summary of it, which means you lean harder on the statements themselves. A method for that is in [how to read a NEPSE company financial report](/blogs/how-to-read-a-nepse-company-financial-report).
+
+## EPS, P/E and the reasoning that goes in circles
+
+Divide the price by EPS and you have the P/E ratio, the most-cited number in Nepali investing. It is useful and it is fragile, because it combines a live market price with a historical, adjustable earnings figure.
+
+Two failures to avoid.
+
+**Comparing P/E across sectors** as though the ratio were a common currency. A microfinance institution, a hydropower company early in its operating life and a manufacturer have entirely different earnings profiles, and their multiples are not interchangeable.
+
+**Treating a low P/E as cheap.** Frequently it is the market pricing an earnings figure it does not expect to be repeated. Ask why the multiple is low before deciding it is an opportunity, because the market is often right about this.
+
+Because EPS is unstable for capital-intensive and cyclical businesses, [book value](/blogs/what-is-book-value-in-nepse-stocks) is often a steadier anchor, particularly for financial institutions where equity is an economically meaningful quantity rather than an accounting residue.
+
+## What to do with EPS
+
+- Build a **trailing four-quarter EPS** yourself rather than accepting the annualised headline.
+- **Adjust the history** for bonus and right issues before reading any trend into it.
+- Separate **operating earnings from one-off items**, and use the operating figure when you value the company.
+- For financial institutions, check **distributable profit** if the dividend is part of your reason for owning the stock.
+- Compare EPS growth against **cash generation**. A divergence sustained over several periods is the warning that actually matters.
+- Never treat EPS as a forecast. It is a record of what happened, and the price you pay is a claim on what has not happened yet.
+
+Used this way, EPS becomes what it should be: a compact, checkable summary of a period's profitability per unit of ownership. Used as a headline, it is one of the easiest numbers in the Nepali market to be misled by, because it moves sharply for reasons that have nothing to do with how the business performed.

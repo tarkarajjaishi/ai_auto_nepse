@@ -1,0 +1,84 @@
+title: How AI Can Analyze NEPSE Stocks Faster Than Traditional Methods
+slug: how-ai-can-analyze-nepse-stocks-faster-than-traditional
+description: Where the time goes when you research a NEPSE stock by hand, which steps a machine collapses to seconds, and why faster analysis is only useful if the checks are right.
+category: ai-and-nepse
+tags: NEPSE AI, Stock Analysis, Nepal Stock Exchange, Floorsheet Data, Quantitative Analysis
+---
+Speed is the least interesting claim made about AI in the share market and the only one that is unambiguously true. A machine really does read the whole Nepal Stock Exchange in the time it takes you to open one company's annual report. What matters is understanding exactly which parts of the work get faster, because they are not the parts most people assume.
+
+The slow parts of NEPSE research are not thinking. They are fetching, transcribing, aligning and recomputing. An experienced investor spends most of an evening moving numbers between a browser and a spreadsheet, and a small fraction of it actually judging what those numbers mean. Software removes the first job entirely and leaves the second to you.
+
+The catch is that speed is a multiplier with no sign of its own. A fast process that applies a bad rule produces bad conclusions faster, across more stocks, with more apparent authority. So the second half of this article is about what has to be true before speed is worth anything.
+
+## Where the time actually goes by hand
+
+Trace one honest research session on a single NEPSE stock and the breakdown is roughly this:
+
+1. **Gathering.** Price history, recent volume, the last few quarterly figures, sector peers. Multiple sources, different formats, some of it copied by hand.
+2. **Normalising.** Making yesterday's figure comparable with the figure from two quarters ago. Adjusting for the corporate actions that shift a price series without anything happening to the business.
+3. **Computing.** Ratios, averages, ranges, the stock's own typical behaviour rather than a generic threshold.
+4. **Comparing.** Against its own history, against its sector, against the market.
+5. **Judging.** The part you are actually paid for, and the part that gets the least time.
+
+Steps one through four are clerical. They are also where nearly all the errors come from, because transcription is error-prone and nobody double-checks a number they typed themselves. When people say AI is faster, what they should mean is that it deletes steps one to four and gives that time back to step five.
+
+> The machine is not thinking faster than you. It is doing the typing you were never good at anyway.
+
+## The floorsheet is where the gap becomes absurd
+
+For ordinary price and fundamentals work, a diligent investor with a good spreadsheet is only a few times slower than software. On broker-level data the gap is not a multiple; it is a category difference.
+
+NEPSE publishes the floorsheet down to individual trades with broker identifiers. One session contains tens of thousands of rows. Reading a single day's file by eye is impractical. Reading a month is impossible. Reading a year, per stock, per broker, and comparing each broker's behaviour with its own norm, is not something a human can do at all.
+
+A machine does that in the background before the market opens. That is why floorsheet analysis is the single strongest argument for computational tools in Nepal specifically: it is not a small improvement on manual work, it is access to a dataset that manual work cannot reach. What becomes answerable:
+
+- Which brokers were net buyers of this stock over the last several sessions, and is that unusual for them?
+- Is today's turnover concentrated in a few brokers or spread across many?
+- Has the mix of participants changed while the price stayed flat?
+- How does this stock's activity compare with its own typical range rather than the market's?
+
+None of these predict anything. They describe with precision, which is a lower bar and a far more reliable one.
+
+## Breadth is the real speed advantage
+
+The point of speed is not finishing one stock sooner. It is being able to ask a question of every listed security at once.
+
+By hand, you screen the market by narrowing early: you pick a sector you like, then a few names you have heard of, then you research those. Every narrowing step is a judgement made before you had any evidence, which means the stocks you never look at are excluded by familiarity rather than by merit.
+
+A machine inverts that. It applies the identical test to everything, then hands you the short list. The stocks that survive are surviving on the rule, not on whether you happened to remember them. In a market where retail attention concentrates heavily in a handful of well-known names, that alone changes what your opportunity set looks like. [AI Stock Screening for NEPSE: How Intelligent Filters Work](/blogs/ai-stock-screening-for-nepse-how-intelligent-filters-work) goes further into how such filters are built.
+
+## Consistency is the part nobody advertises
+
+The underrated benefit of automating the clerical work is that it removes variation you cannot see.
+
+When you research by hand, the check you ran on Sunday is not quite the check you run on Wednesday. You skipped a ratio because you were tired. You looked at a three-year chart last time and a one-year chart this time. You gave the stock you already own a gentler reading than the one you do not. None of this is recorded, so none of it can be corrected.
+
+A programmed check is identical every time by construction. That has two consequences: your comparisons across stocks become genuinely comparable, and when the rule turns out to be wrong you can fix it once instead of trying to remember how you applied it. That is a bigger practical gain than speed, and it comes free with it.
+
+## Why faster is worthless without correctness
+
+Now the warning, because this is where fast systems do damage.
+
+Automation removes the natural friction that used to catch mistakes. When each calculation took you ten minutes, an absurd result made you stop and check. When ten thousand calculations take a second, nothing feels wrong, and a broken rule produces a clean-looking table of nonsense across the entire market.
+
+The specific failures worth knowing about:
+
+- **Stale data presented as current.** A fast system that serves yesterday's close during a live session is not fast, it is wrong at speed. Every number should carry the session it came from.
+- **Metrics that restate something obvious.** Many broker metrics are turnover in disguise. Many share-count metrics are really a proxy for price level, because a cheap stock trades in bigger lots. If a signal correlates almost perfectly with something trivial, it is that trivial thing.
+- **Arithmetic identities dressed as insight.** Every share bought is sold, so any market-wide net buy/sell imbalance is zero by construction. A system reporting a market-wide hidden buyer is reporting a bug.
+- **Rules with no live coverage.** A condition that never actually fires across the whole market looks perfectly reasonable in code and contributes nothing. Only a market-wide census finds those.
+- **Silent corporate-action gaps.** A price series that has not been adjusted for a distribution shows a fall that never happened. Machines will happily compute a beautiful signal from it.
+
+Every one of these produces confident output. That is exactly why speed demands more verification, not less.
+
+## How to use the speed properly
+
+The practical workflow that gets the benefit without the damage:
+
+1. **Let the machine narrow, and let yourself decide.** Its job ends when the list is short. Yours starts there.
+2. **Read one flagged name in full.** If the automated summary and the actual financial report disagree, the report wins and the rule needs fixing.
+3. **Check the date on everything before acting.** Make it a reflex, not a feature you trust.
+4. **Sanity-check a rule by hand once.** Pick one stock, compute the metric manually, confirm it matches. Do it again whenever the rule changes.
+5. **Keep the number of things you act on small.** A screen that surfaces forty candidates a week is not a screen, it is noise with a filter attached.
+
+The realistic promise of AI in NEPSE analysis is not that it thinks better than you. It is that it can finish the clerical work of the entire market before breakfast, leaving you to spend your time on judgement instead of transcription — and that it will do exactly the same thing tomorrow. For what that shift means in practice, see [AI-Powered NEPSE Analysis: A New Era for Nepali Investors](/blogs/ai-powered-nepse-analysis-a-new-era-for-nepali).

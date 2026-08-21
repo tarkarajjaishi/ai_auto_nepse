@@ -1,0 +1,80 @@
+title: How Machine Learning Could Analyze NEPSE Market Trends
+slug: how-machine-learning-could-analyze-nepse-market-trends
+description: How a machine would define a NEPSE trend, why breadth beats the index, the arithmetic that fakes sector rotation, and the limits short market history places on all of it.
+category: quantitative-finance
+tags: Machine Learning, Market Trends, NEPSE Analysis, Sector Rotation, Nepal Stock Exchange
+---
+Everyone talks about the trend, and almost nobody defines it. Ask two Nepali investors whether the market is in an uptrend and you can get two confident, opposite answers from the same chart, because each is using a different window, a different smoothing, and a different threshold without saying so.
+
+The first thing machine learning brings to trend analysis is not intelligence. It is the obligation to be specific. A model cannot process "the market feels strong". It needs a definition: over what window, of what quantity, above what threshold, measured against what. Once you write that down, the disagreement becomes checkable rather than rhetorical.
+
+The second thing it brings is scale. A person can hold the shape of five or six charts in mind. A machine can compare every listed security against its own history and against every other security, on every session, which is where the genuinely useful trend information lives — not in the index line, but in how many stocks are behind it.
+
+## Labelling the past is easy; labelling today is the problem
+
+Given a complete history, marking the trends is trivial. Anyone can circle the rises and the falls after they have happened. That exercise creates a dataset, and it is where most trend models get their training labels.
+
+The difficulty is that the label depends on the future. If you define an uptrend as a period followed by sustained gains, then knowing today's label requires knowing what happens next. A model trained on such labels and then evaluated without care will look extraordinary and be useless, because at the moment you need a decision, the information that defined the label does not exist yet.
+
+Every honest trend system therefore lives with lag. Smoothing enough to remove noise means you learn about a turn some sessions after it happened. You can reduce the lag or reduce the false alarms, and you cannot do both at once. Anyone selling a trend indicator with neither is not measuring one.
+
+> A smoothed trend line is always beautiful on the left of the chart and uncertain on the right. Only the right edge is tradeable, and it is the only part that was ever in doubt.
+
+## Breadth tells you more than the index
+
+The index is a weighted number. A handful of large constituents can carry it while most of the board falls, and in a market as sector-concentrated as Nepal's, that happens often enough to matter.
+
+Breadth measures the participation behind the move, and it is the most useful trend input a machine can compute for NEPSE:
+
+- **The share of stocks above their own recent average.** A rise where most stocks participate is a different event from a rise carried by a few.
+- **Advances versus declines**, counted across the whole board rather than weighted by size.
+- **The spread between sectors.** When everything moves together, breadth measures say little. When sector paths separate, that dispersion is itself information.
+- **Turnover concentration.** How much of the day's total value traded in the top few securities, compared with what is normal.
+
+None of these requires machine learning to compute. What machine learning adds is the ability to combine them into a stable regime read and to check whether the combination has ever meant anything, rather than assuming it does.
+
+## Sector rotation and the arithmetic that fakes it
+
+Rotation — money leaving one sector for another — is one of the most popular narratives in Nepali market commentary, and one of the easiest to fabricate accidentally.
+
+The trap is the conservation identity. Every share bought is sold, so any measure of net money flow computed across the whole market is zero by construction. Sum "net buying" across all sectors and you must get zero. If your rotation metric shows a large positive number somewhere, it is either measuring turnover, measuring the price change you already knew about, or has an error in it.
+
+There is a second, quieter trap. If your mapping of stocks to sectors is incomplete, then a sector's "share of market activity" is computed against a total that includes securities you could not classify. Rotation then appears whenever the unclassified group changes size, which has nothing to do with money moving.
+
+Rotation is best measured as relative performance and relative participation — how did this sector do against the others, and did more of the board participate — rather than as a flow. The relative version is real, computable, and much less exciting to write about, which is why it is rarer.
+
+Sector context is essential background for any of this, and [understanding NEPSE sub-indices](/blogs/understanding-nepse-sub-indices-banking-hydropower-microfinance-and-more) sets out how differently these groups behave from one another.
+
+## Letting the data define the groups
+
+An underused application is clustering: instead of accepting the official sector labels, let an algorithm group stocks by how they actually move together.
+
+This tends to produce groups that cut across the official taxonomy — a set of large banks that trade as one instrument, a set of small illiquid names whose common factor is simply that they barely trade, a group whose apparent co-movement is an artefact of shared inactivity. That is a useful diagnostic in itself, because it shows you how much genuine diversification a portfolio really has. Owning five stocks from one cluster is closer to owning one position than five.
+
+The caution is that clusters are unstable. Groups fitted on one period will differ from groups fitted on the next, and reading a story into that drift is easy and usually wrong. Treat clustering as a description of the recent past, and re-fit it deliberately rather than continuously.
+
+## Regimes are mostly about volatility
+
+When people say the market has changed regime, they usually mean the mood has changed. What is actually measurable, and reasonably persistent, is the volatility state: quiet periods tend to follow quiet periods, turbulent ones follow turbulent ones.
+
+That clustering is one of the most reliable properties of financial data anywhere, and it is worth building on because it has a direct practical use. A regime read should govern your position size, not your direction. When the board is moving more than usual, the same conviction deserves a smaller position. That is a decision a model can make consistently and a human reliably makes backwards, adding size into excitement.
+
+## What machine learning cannot fix here
+
+Three limitations bind every trend model built on NEPSE, and no algorithm removes them.
+
+**Short history.** The exchange is young. There have been few complete cycles, so the number of genuinely independent trend episodes to learn from is small — far smaller than the number of rows in the dataset suggests.
+
+**High correlation.** When most of the board moves together, thousands of stock-days contain much less information than they appear to. Effective sample size is a fraction of the row count.
+
+**Structural change.** Rules, participation and market mechanics have all changed over the life of the exchange. A model learning from the full history is partly learning about a market that no longer exists, and a model learning only from the recent past has almost no data.
+
+The consequence is humility about complexity. In this setting, a simple, transparent trend read with a stated lag will usually beat an elaborate one, because the elaborate one has more ways to fit history and no more information to fit it with.
+
+## How to use a trend read
+
+Use it to set posture, not to pick stocks. A trend read that is telling you how much to risk, how many positions to hold and how quickly to cut a loser is doing something a machine does well. A trend read that is telling you which stock to buy is beyond what the measurement supports.
+
+Insist on three things from any trend indicator: that it states its window and threshold, that it reports the lag it accepts, and that it shows breadth alongside the index rather than instead of it. If you are building your own, start with the share of stocks above their own average, and add nothing until you understand what that alone is telling you.
+
+For the modelling foundations underneath this, [how machine learning models analyse financial time-series data](/blogs/how-machine-learning-models-analyze-financial-time-series-data) covers the assumptions involved, and [what moves NEPSE in a single trading day](/blogs/what-moves-nepse-in-a-single-trading-day) is the session-level view that a trend model aggregates.

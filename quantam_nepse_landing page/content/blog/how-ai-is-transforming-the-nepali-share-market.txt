@@ -1,0 +1,78 @@
+title: How AI Is Transforming the Nepali Share Market
+slug: how-ai-is-transforming-the-nepali-share-market
+description: AI is changing the analysis layer of Nepal's share market, not its mechanics. What shifts for retail investors, brokers and analysts, and what stays the same.
+category: ai-and-nepse
+tags: NEPSE AI, Nepali Share Market, Retail Investors, Market Analysis, Machine Learning, Investing in Nepal
+---
+Artificial intelligence is not changing how the Nepali share market works. Orders still meet in the same place, settlement follows the same rules, and prices still move because someone decided to pay more or accept less. What is changing is the layer above the market: who has read what, how quickly, and with how much rigour.
+
+That is a narrower transformation than the marketing implies, and it is still a significant one. For most of NEPSE's history, the practical limit on analysis has been human attention. An investor could examine a handful of stocks properly or many stocks superficially. That trade-off is now optional, and once a constraint that shaped everyone's behaviour disappears, behaviour changes.
+
+Here is what is actually shifting, for whom, and where the change stops.
+
+## Change one: the cost of thoroughness has collapsed
+
+Reading every listed security's daily record used to be impossible for an individual. Reading a full session of broker-level trades used to take hours and produce a summary that was already out of date. Both are now routine computing tasks.
+
+The consequence is not that anyone predicts better. It is that the gap between a diligent investor and a lazy one has widened. Previously, diligence was capped by time, so the most thorough retail investor and a moderately thorough one ended up looking at roughly similar amounts of information. Now the ceiling has been removed, and the difference compounds.
+
+This matters most in a market like Nepal's, where analyst coverage is thin and unevenly distributed. Where few people have read a company's full filing history, the person who has read it holds an advantage that in a heavily covered market would not exist.
+
+## Change two: rumour has a competitor
+
+A retail-dominated market runs substantially on conversation. Tips circulate in messaging groups, get amplified, and arrive as confident statements with no attribution and no record.
+
+Language models change the economics of the alternative. A quarterly report can be summarised, figures extracted, and tone compared against the same company's previous filings, across dozens of companies, in the time it takes to read one of them manually. News and disclosure text can be tracked systematically rather than sampled from whatever appeared in a feed.
+
+Two honest caveats. First, models handle Nepali-language text less reliably than English, because far less Nepali training material exists. Any sentiment system working on Nepali sources needs verification against the original text, and should say so. Second, extraction errors are silent. A model that misreads a figure presents it with the same confidence as one it read correctly, which is why any serious tool links each extracted number back to its source document. [AI Sentiment Analysis for Nepali Stock Market News](/blogs/ai-sentiment-analysis-for-nepali-stock-market-news) goes deeper into where this holds and where it breaks.
+
+> Artificial intelligence does not create information in a market. It changes who has already read it, and how honestly they can say what they found.
+
+## Change three: the floorsheet stops being decorative
+
+NEPSE publishes broker-level trade data, which is unusual and under-appreciated. For most retail investors it functions as a curiosity, glanced at through a broker-wise summary and rarely used to answer anything.
+
+Automated processing makes it a genuine research instrument. You can measure whether a session's activity in a stock was concentrated among a few brokers or spread across many, whether a broker's behaviour in a name is unusual by that broker's own standards, and how a stock's turnover compares with its own history rather than with the market's.
+
+These are descriptive findings. They are also where most amateur floorsheet analysis goes wrong, because the data has a structural property that manufactures fake discoveries. Every share bought is also sold, so any net imbalance measured across the entire market is zero by construction. A metric that appears to detect a hidden accumulator market-wide is almost always turnover in disguise. The test to apply before believing any floorsheet signal is simple: what outcome would have proved this wrong? If no outcome could have, the finding is arithmetic, not insight.
+
+## Who this changes, and how
+
+**Retail investors** gain the ability to screen the whole market and to measure their own beliefs against history. They also gain new ways to be misled, because a badly built tool produces confident output that looks identical to a well-built one.
+
+**Brokers and advisory desks** face a shift in what clients expect. "This stock looks strong" becomes harder to sell when a client can ask what strong means and get a definition with a number attached.
+
+**Analysts** are not being replaced. Reading a company properly, judging management quality, and knowing what a policy change means for a sector remain human work. What is disappearing is the manual, repetitive part of an analyst's day, and the ability to make vague claims without being asked to define them. [Will AI Replace Traditional Stock Analysts in Nepal?](/blogs/will-ai-replace-traditional-stock-analysts-in-nepal) treats this question directly.
+
+**Financial media** faces the largest change in incentives. A commentary layer built on speculation competes badly with tools that state what actually happened and label what they do not know.
+
+## What does not transform
+
+Several features of the Nepali market are structural, and no software touches them.
+
+- **Liquidity.** A model cannot manufacture a counterparty. A stock that trades thinly still trades thinly, and any strategy whose backtest assumes it can enter and exit at will is describing a market that does not exist.
+- **The arithmetic of the market.** Aggregate buying and selling are always equal. That identity kills an entire family of appealing metrics, permanently.
+- **Disclosure quality.** Analysis is bounded by what companies publish and how promptly. Better tools do not fix an incomplete filing.
+- **Human behaviour.** Fear, crowding and the urge to act during a fast move are unchanged. A tool that makes trading faster and easier can make these worse rather than better.
+
+## The risk nobody advertises
+
+If a large number of participants adopt similar tools trained on similar data, they will tend to reach similar conclusions at similar moments. Crowding is a well-understood consequence of shared methods in larger markets, and a smaller, thinner market has less capacity to absorb it. An advantage that becomes universal stops being an advantage and starts being a source of correlated behaviour.
+
+This is not an argument against the tools. It is an argument for understanding what yours actually does, rather than treating its output as a verdict. A signal you cannot explain is one you cannot judge when it stops working.
+
+## How to tell a real tool from a label
+
+Apply these tests to anything marketed as AI-powered in Nepal.
+
+1. **Does it state the session behind every number?** A previous close presented as a live price is the most common defect in market software, and the figure itself always looks reasonable.
+2. **Does it separate description from prediction?** "This broker accounted for a large share of today's volume" is a fact. "Therefore the price will rise" is a claim needing evidence.
+3. **Does it ever say it does not know?** A system with a confident answer for every stock every day is not measuring anything.
+4. **Can you reproduce yesterday's output?** If the same inputs give a different answer, the numbers are decoration.
+5. **Has it published a failure?** Any honest research process rejects most of its own ideas. A track record showing only successes is a marketing document.
+
+## What to do with all this
+
+Treat AI as a research assistant with perfect stamina and no judgement. Let it read everything, count everything and rank everything. Keep the decision, the position size and the risk limit for yourself, and write down your reasoning before the outcome is known so that you can later tell learning apart from hindsight.
+
+The Nepali share market is being transformed in the least dramatic way possible: the ordinary work of looking at everything is becoming cheap, and vague claims are becoming harder to defend. That is not the future the advertising promises. It is the one worth having. For the more sceptical view of prediction claims, read [Can AI Really Predict NEPSE? Separating Technology From Hype](/blogs/can-ai-really-predict-nepse-separating-technology-from-hype), and for the mechanics of a single session, [What Moves NEPSE in a Single Trading Day?](/blogs/what-moves-nepse-in-a-single-trading-day).

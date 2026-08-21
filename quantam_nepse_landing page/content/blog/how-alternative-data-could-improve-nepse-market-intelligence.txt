@@ -1,0 +1,85 @@
+title: How Alternative Data Could Improve NEPSE Market Intelligence
+slug: how-alternative-data-could-improve-nepse-market-intelligence
+description: Beyond price and earnings — datasets that could sharpen NEPSE research, from the broker floorsheet to liquidity and hydrology, and the discipline they demand.
+category: data-and-research
+tags: Alternative Data, NEPSE Research, Market Intelligence, Data Science, Nepal Stock Exchange
+---
+Alternative data means anything that informs a view on a company or a market without coming from the two standard sources: the price series and the financial statements. In global markets it has become an industry — satellite imagery of car parks, card transaction panels, shipping manifests. Nepal has none of that infrastructure, and importing the vocabulary without the underlying data produces expensive theatre.
+
+What Nepal does have is more interesting than it first appears. The Nepal Stock Exchange publishes a broker-level floorsheet of trades, which is a level of transactional granularity many larger markets do not make public at all. Around it sit macro and sector series that map onto the listed universe unusually directly, because the listed universe is concentrated in a small number of sectors whose fortunes are driven by identifiable physical and monetary conditions.
+
+The opportunity is real. So is the discipline required to use it, and most alternative data projects fail on the discipline rather than the idea.
+
+## The floorsheet is the alternative dataset you already have
+
+Every trading day, NEPSE publishes which broker bought from which broker, in what quantity, at what price. Very few retail investors ever open it, and fewer still aggregate it across months. That gap between availability and use is the definition of an under-exploited dataset.
+
+What it can genuinely support: measuring how concentrated a stock's trading is among a handful of brokers; tracking whether that concentration is rising; identifying which stocks have unusual participation relative to their own history; and separating a price move that came with broad participation from one that came from a thin exchange between two counterparties.
+
+What it cannot support, no matter how it is processed: a market-wide picture of who is accumulating. **Every share bought is sold.** Across the entire market, net buying and net selling are exactly zero, not approximately zero — it is an accounting identity, not an empirical finding. Any metric that appears to reveal a hidden net buyer across the whole market has re-described turnover in more exciting language.
+
+The second limitation is subtler. The floorsheet identifies **brokers**, not clients. One broker's activity may represent hundreds of unrelated investors, and one investor may split orders across brokers. A concentrated broker footprint is therefore consistent with several very different stories, and the data alone cannot distinguish between them.
+
+> Granular data invites confident conclusions. The floorsheet tells you what happened at the broker level with total precision, and tells you nothing at all about why.
+
+## Macro series that map onto the listed market
+
+Nepal's listed market is heavily weighted towards financial institutions. That makes system-level monetary and liquidity conditions unusually relevant, because they affect a large share of the market's earnings directly rather than through several steps of transmission.
+
+The series worth tracking, all published by official sources on a regular cadence:
+
+- **Deposit and credit growth in the banking system**, and the relationship between them. When credit growth persistently outruns deposit growth, the system tightens, funding costs rise, and that pressure reaches bank earnings before it reaches headlines.
+- **Interbank and short-term rates**, which show the immediate cost of liquidity and often move before anything visible happens in the market.
+- **Policy rates and reserve requirements**, which change the operating environment for every listed financial institution at once.
+- **Remittance inflows**, a major source of deposits in the Nepali banking system and therefore a driver of system liquidity rather than merely a national statistic.
+- **Inflation and the external balance**, which shape the policy stance that follows.
+
+These are not stock-picking signals. They are context: they help explain why the whole financial block moves together and why a stock-specific narrative sometimes has nothing to do with the stock. The sector structure this rests on is set out in [Understanding NEPSE Sub-Indices](/blogs/understanding-nepse-sub-indices-banking-hydropower-microfinance-and-more).
+
+## Sector data that maps to physical reality
+
+Several NEPSE sectors are driven by observable physical conditions, which is exactly the situation where alternative data earns its keep.
+
+1. **Hydropower and hydrology.** Run-of-river generation depends on river flow, which follows the monsoon. Generation is seasonal in a way that is genuinely predictable in pattern, if not in magnitude. Rainfall and river discharge data, plant commissioning schedules and grid conditions all bear directly on revenue.
+2. **Hotels and tourism.** Arrival statistics are published, seasonal, and map onto a small, identifiable set of listed companies more cleanly than almost any other Nepali sector relationship.
+3. **Insurance.** Premium collection and claims data describe the underwriting cycle directly, and both life and non-life sub-sectors have distinct drivers.
+4. **Microfinance.** Portfolio quality and regional lending conditions matter more than the aggregate credit numbers that dominate commentary about banks.
+5. **Manufacturing and trading.** Import volumes, fuel consumption and construction inputs act as demand proxies for a sector that is otherwise poorly covered.
+
+The value here is not that any single series predicts a price. It is that it lets you form an expectation before the quarterly report arrives, which is the only way to know whether a result was actually a surprise.
+
+## Attention and supply data
+
+Two categories are cheap to collect and frequently misread.
+
+**Attention data** — search interest, forum mention counts, app engagement — measures how much retail focus a stock is receiving. In a retail-dominated market this is informative, but almost certainly not in the direction people assume. Rising attention in an illiquid stock is better read as a crowding and risk indicator than as confirmation. Treat it as a caution flag.
+
+**Supply data** — the pipeline of IPOs, rights issues, further public offerings and auctions — is published, forward-looking, and routinely ignored. New supply competes for the same pool of retail capital. A heavy issuance calendar is a market-level condition that has nothing to do with any individual company's fundamentals and affects all of them.
+
+## The discipline that decides whether any of it is real
+
+Alternative data fails for the same reasons every other quantitative idea fails, and one additional reason specific to it.
+
+- **Point-in-time stamping.** Every observation needs the date it became publicly available, not the date it describes. Macro statistics are published with a lag and frequently revised afterwards. Testing a strategy using a revised figure against the price on the day the original figure was released is a straightforward use of the future.
+- **Revision handling.** If a series is revised, your history must contain what was known at the time, not the corrected version. Very few freely available datasets preserve this, which is why serious users archive each release as they receive it.
+- **Short history.** Most of these series have far fewer observations than a daily price file. A monthly series over a handful of years gives you a small number of independent data points — nowhere near enough to support a confident claim, however clean the relationship looks on a chart.
+- **Small cross-section.** Nepal's listed universe is modest, and the number of companies in some sectors is very small. A sector-level relationship built on a handful of companies is a statement about those specific companies.
+- **The obvious-proxy test.** This is the one people skip. Before believing a novel dataset adds anything, check whether it is simply re-expressing something you already have. Many exotic-sounding metrics turn out to correlate almost perfectly with turnover, market capitalisation or inverse price. If the effect vanishes once you control for the boring variable, the alternative data added nothing but complexity.
+
+That last test kills more ideas than all the others combined, and it should be run first rather than last. The broader case for this kind of rigour is made in [The Role of Big Data in Nepal Stock Market](/blogs/the-role-of-big-data-in-nepal-stock-market).
+
+## What a serious build would look like
+
+If you were constructing this properly, the order of work is not the order of excitement.
+
+Start with an archive. Every series, captured as it was published, stored with its release timestamp, never overwritten by a revision. Without that, nothing you test later is testable. Then normalisation: converting each series to a comparable form — growth rates, deviations from its own trend, ranks within its own history — so that a large number does not dominate simply because of its units.
+
+Then mapping: an explicit table linking each series to the companies it plausibly affects, written down before any testing, so the connections cannot be chosen retrospectively to fit a result. Then, finally, evaluation — one dataset at a time, against a null of what you would have concluded from price data alone.
+
+Most datasets will not survive that sequence. The ones that do will be worth more than a hundred that were never tested, and this is the same standard applied in [How Data Science Is Changing Stock Market Research in Nepal](/blogs/how-data-science-is-changing-stock-market-research-in).
+
+## What to watch for
+
+If you are using alternative data yourself, the useful habit is to write down what you expect the relationship to look like before you measure it. A hypothesis stated in advance can be wrong. A pattern found first and explained afterwards can only be confirmed.
+
+If you are assessing someone else's alternative-data claim, ask when the data was available versus when it is dated, whether the series has been revised since, and what happens to the effect after controlling for turnover and size. Those three questions dispose of most claims in this category — and the ones they do not dispose of are the ones worth your attention. For the company-level groundwork that any of this sits on top of, start with [How to Analyze a NEPSE Stock Before Buying](/blogs/how-to-analyze-a-nepse-stock-before-buying).

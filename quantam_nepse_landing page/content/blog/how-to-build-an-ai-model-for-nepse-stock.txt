@@ -1,0 +1,96 @@
+title: How to Build an AI Model for NEPSE Stock Analysis
+slug: how-to-build-an-ai-model-for-nepse-stock
+description: A step-by-step guide to building a machine-learning model on Nepal Stock Exchange data, from archive design and corporate actions to honest out-of-sample evaluation.
+category: data-and-research
+tags: NEPSE AI, Machine Learning, Quantitative Analysis, Nepal Stock Exchange, Data Science
+---
+Most of the work in building a model for the Nepal Stock Exchange is not modelling. It is data plumbing, and the projects that fail almost always fail there rather than in the choice of algorithm. If your archive is clean, your labels are honest and your evaluation is out of sample, a simple model will teach you something real. If any of those three is broken, no amount of neural network architecture will save the result.
+
+This is a practical build order. It assumes you can already fetch daily price and volume data and the broker-level floorsheet, and that you want a model that produces something you would be willing to act on rather than a demonstration notebook.
+
+## Step one: build the archive before the model
+
+Decide early that data collection and modelling are separate programs. The collector's only job is to fetch a session and store it, exactly as published, and never to overwrite good history with a partial fetch.
+
+Three properties matter more than the storage format you choose:
+
+- **Idempotent writes.** Re-running the collector for a session you already have must not corrupt it. A partial fetch that silently truncates a file is the most common way an archive quietly dies.
+- **Append-only history.** Yesterday's stored bar should not change unless a corporate action forces a restatement, and when it does, you should know it happened.
+- **A visible last-updated marker.** Every downstream board should be able to say which session it was built from. A stale number presented as current is the failure that damages trust fastest.
+
+Store the raw data separately from anything derived. Derived tables can always be rebuilt; raw history cannot.
+
+## Step two: handle corporate actions, or throw the model away
+
+Nepali listed companies frequently issue bonus shares and rights shares. When they do, the price series restates: the quoted price falls sharply overnight without anyone losing money. If your model treats that as a return, it will learn that large negative returns are followed by recovery, and it will learn it from an event that never happened.
+
+The reliable way to detect a restatement is to look at the gap at the open rather than at the size of the fall. A genuine sell-off happens through the session and is bounded by the daily price limit; an adjustment appears between the previous close and the next open. Once detected, either adjust the whole prior series or mark the break so that any feature crossing it is discarded.
+
+> A model trained on unadjusted prices does not have a bug. It has learned a fiction, fluently, and will defend it with excellent statistics.
+
+## Step three: choose a target you can defend
+
+The default target — tomorrow's return — is the hardest possible problem and the least useful answer. Consider alternatives that are more learnable and more actionable:
+
+1. **Direction over a longer horizon**, such as ten or twenty sessions, which is less dominated by microstructure noise.
+2. **Volatility or range**, which is genuinely persistent in almost every market and far more predictable than direction.
+3. **Relative performance** — will this stock outperform its own sector — which removes the market-wide move that dominates raw returns.
+4. **A descriptive label** such as "unusual activity", where you are not predicting anything and the model is doing classification you can verify by eye.
+
+Whichever you choose, define it precisely and never change it after seeing results. Redefining the target until the numbers improve is fitting, not research.
+
+## Step four: features that are not price in disguise
+
+The most common defect in a feature set is redundancy that is invisible from the names. Two features called "breadth" and "consensus" can be the same number computed twice, which silently doubles their weight. Always compare the values, not the labels.
+
+Useful families for NEPSE, roughly in order of how much independent information they carry:
+
+- **Price and volume structure.** Trend, distance from a moving average, realised volatility, turnover relative to the stock's own typical range rather than the market's. [Technical Indicators Every AI Stock Model Should Understand](/blogs/technical-indicators-every-ai-stock-model-should-understand) covers what these actually measure.
+- **Floorsheet aggregates.** Broker concentration, net flow by broker over a window, how many brokers participated. This is the dataset most retail analysis never touches.
+- **Cross-sectional rank.** Where a stock sits among its peers today, which is often more stable than its absolute value.
+- **Fundamentals.** EPS, book value and P/E move slowly and arrive quarterly, which makes their timestamps critical.
+
+Two rules save enormous amounts of wasted effort. Normalise by a measure of spread such as standard deviation rather than by the mean of absolute values, or a dead band will pin most of your universe flat. And neutralise price before trusting anything derived from share counts: metrics built on quantity per trade are frequently an inverse-price proxy and nothing more.
+
+## Step five: split by time, never at random
+
+A random train-test split on financial data is not a mild error. It lets the model see the future, and it produces results that look spectacular and mean nothing.
+
+- Split chronologically. Train on the earlier period, test on the later one, and never look at the test period until you are finished.
+- Respect the gap between when data becomes available and when you could have acted on it. A quarterly figure is not usable on the last day of the quarter.
+- Scan your feature code for anything computed over the full sample: a mean, a rank, a threshold. Ranking the universe on full-sample turnover is itself a form of fake alpha, because the ranking uses information from the future.
+- Watch for delisted or suspended instruments. Building a universe from the symbols trading today and testing it on the past means testing only on survivors.
+
+The cheapest way to catch a leak is a null test. Shuffle your labels and re-run the whole pipeline. If the model still performs, the leak is in your code, not in the market.
+
+## Step six: evaluate against the right baseline
+
+Accuracy against a coin flip is the wrong benchmark. Compare against baselines that are actually hard to beat:
+
+- Buy and hold the same universe over the same period.
+- A random entry with the same holding period and the same number of trades.
+- The simplest possible version of your own idea, with one feature instead of thirty.
+
+Then report per-year results, not just the aggregate. A strategy whose whole edge comes from one exceptional year is a strategy with no edge and one lucky year, and the aggregate number hides that completely. Also check the median outcome, not only the mean — in a market where a thin tail of large winners carries the average, the median trade can be negative while the headline looks strong.
+
+If a result survives all of that, run it again with a stricter significance bar, since testing many variants means some will pass by chance. [Historical NEPSE Data and Machine Learning: What Can We Learn?](/blogs/historical-nepse-data-and-machine-learning-what-can-we) goes further into what the archive can and cannot support.
+
+## Step seven: ship something small and watch it
+
+A model that lives in a notebook is not finished. Put the smallest useful version into a place where you see it every session, and record what it said before you know the outcome. That record is the only unbiased evaluation you will ever get, because everything else is measured on history you have already seen.
+
+Keep the deployed version deliberately simple. If a complicated model outperforms a simple one only slightly, run the simple one — it will fail in ways you can understand.
+
+## What to check before you trust your own model
+
+Run this list before you believe a result, and again whenever the numbers improve suddenly.
+
+- Does any feature use data that would not have existed at the time?
+- Does the universe include instruments that later stopped trading?
+- Are any two features numerically identical or near-identical?
+- Does the result hold in each year separately?
+- Does it survive after neutralising price and turnover?
+- Does a shuffled-label run produce nothing?
+- Would the trades have been executable at realistic sizes given the stock's liquidity?
+
+Most promising results fail at least one of these. That is not a reason to stop — finding out early is the entire point of doing the work properly. For the statistical background behind the modelling choices, [Time-Series Analysis of NEPSE Stocks Explained](/blogs/time-series-analysis-of-nepse-stocks-explained) is the natural next read.

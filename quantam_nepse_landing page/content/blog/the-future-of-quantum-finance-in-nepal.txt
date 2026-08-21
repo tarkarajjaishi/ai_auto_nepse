@@ -1,0 +1,81 @@
+title: The Future of Quantum Finance in Nepal
+slug: the-future-of-quantum-finance-in-nepal
+description: What quantum computing could and could not do for Nepal's market: the finance problems it targets, why NEPSE is data-limited rather than compute-limited, and what to build first.
+category: quantum-finance
+tags: Quantum Finance, Quantum Computing, NEPSE, Nepal Stock Exchange, Financial Technology, Risk Modelling
+---
+Quantum finance is the application of quantum computing to problems in markets, pricing and risk. The honest position for Nepal is this: it will not arrive as a trading tool in the near future, and anyone selling it as one today is selling a brand rather than a capability. But the groundwork that would eventually make quantum methods useful here is worth laying now, for reasons that have nothing to do with quantum hardware.
+
+The reason is simple. Quantum computers are useful when a problem is well specified, mathematically hard, and bottlenecked by computation. Almost nothing in NEPSE analysis is bottlenecked by computation. It is bottlenecked by data that is scattered, inconsistently formatted, and rarely stored in a way that lets you ask the same question twice. Fix that, and classical machines already do far more than most Nepali investors currently get out of them. Fail to fix it, and no hardware on earth helps.
+
+This article sets out what quantum finance actually means, which three problems it genuinely targets, why the Nepali market is an awkward fit for all three at present, and what a serious institution here should do instead of waiting.
+
+## What "quantum finance" refers to
+
+The term covers two quite different things, and conflating them is the source of most confusion.
+
+The first is **quantum computing applied to financial mathematics** — running an algorithm on quantum hardware to solve a pricing, optimisation or simulation problem faster than a classical computer can. This is a hardware story, and it is early.
+
+The second is **quantum-inspired classical methods** — borrowing the mathematical formulations developed for quantum machines, such as expressing a portfolio problem in a particular quadratic form, and then solving it on ordinary hardware with specialised solvers. This delivers real results today and involves no quantum computer at all. It is also the part most likely to be quietly relabelled as "quantum" in marketing material.
+
+If you take one thing from this article, make it that distinction. When a platform claims quantum capability, the correct first question is which of the two it means.
+
+## The three finance problems quantum hardware actually targets
+
+Research in this field is not vague. It concentrates on three families of problem, each with a specific reason for expecting an advantage.
+
+1. **Simulation and scenario generation.** Pricing complex instruments and computing risk measures such as value-at-risk often relies on Monte Carlo simulation — running an enormous number of random scenarios. A quantum technique called amplitude estimation offers a quadratic speedup on this class of problem in theory. Quadratic means that to halve the error you need fewer runs than a classical method would, not that the answer appears instantly.
+2. **Constrained optimisation.** Choosing portfolio weights subject to limits — position caps, sector exposure, transaction costs, whole-lot constraints — becomes combinatorially hard as the constraints multiply. Several quantum approaches attack this by reformulating it as an energy-minimisation problem. None currently has a proven advantage over the best classical solvers.
+3. **Machine learning on structured data.** Certain quantum circuits can compute similarity measures between data points that are expensive classically. Whether that translates into better forecasts on real financial data is unresolved and actively debated.
+
+Notice what is absent from that list: prediction. No quantum algorithm predicts a price. They compute faster answers to questions you already know how to ask.
+
+> A faster machine does not create information that was never in the data. It only lets you exhaust the information you already have, sooner.
+
+## Why NEPSE is an awkward fit today
+
+Nepal's market is small, relatively young, and retail-dominated. Those three facts shape everything.
+
+A quantum advantage in optimisation only matters when the problem is large. A portfolio drawn from a few hundred listed securities, most of them illiquid enough that position size is capped by tradability rather than by mathematics, is not a problem classical solvers struggle with. It is solved on a laptop.
+
+A quantum advantage in Monte Carlo matters when you are pricing derivative books with thousands of instruments and path-dependent payoffs. Nepal's instrument universe is dominated by ordinary equity, with a limited derivatives market. The simulation load is modest.
+
+And the constraint that binds hardest on any statistical work here is history. NEPSE has a shorter continuous record than the mature markets whose research the field borrows from, and the market's structure has changed materially within that record. More computational power applied to a short, non-stationary history does not produce a better model. It produces a more elaborately overfitted one. That failure mode is worth understanding on its own terms, and it is covered in [Can Artificial Intelligence Predict NEPSE?](/blogs/can-artificial-intelligence-predict-nepse).
+
+## The part of this that is not speculative
+
+There is one quantum development that will affect Nepali finance regardless of whether anyone here ever runs a quantum algorithm: cryptography.
+
+Shor's algorithm, if run on a large fault-tolerant quantum computer, breaks the public-key cryptography that secures most financial infrastructure today. Machines of that size do not exist and building them remains a genuinely hard engineering problem. But the risk has a peculiar shape: encrypted traffic captured now can be stored and decrypted later, once such a machine exists. That makes it a present-tense problem for anything with a long confidentiality life — customer records, depository data, settlement instructions.
+
+Standards bodies have already selected replacement algorithms designed to resist quantum attack, and migration to them is an infrastructure project, not a research project. For Nepali banks, brokers and the depository, this is the concrete quantum item on the agenda. It is unglamorous and it is real. The broader picture is set out in [Quantum Computing in Finance: What Could It Mean for NEPSE?](/blogs/quantum-computing-in-finance-what-could-it-mean-for).
+
+## What Nepal should build first
+
+If you were designing the sequence deliberately, quantum hardware would be the last step, not the first. The steps before it all have independent value.
+
+- **A clean, complete, machine-readable archive.** Daily prices, the broker-level floorsheet, corporate actions, and quarterly financials, stored so that any figure can be reproduced exactly. Without this, every subsequent stage rests on sand.
+- **Reproducible descriptive analytics.** Measuring what actually happened — turnover against a stock's own history, broker concentration, sector behaviour — before attempting to forecast anything.
+- **Honest out-of-sample testing.** A discipline that treats a backtest as a hypothesis rather than a result, and reports the years a strategy lost as prominently as the years it won.
+- **Domestic quantitative talent.** People who can read a research paper, reproduce it on local data, and correctly conclude that it does not replicate. This is the scarcest input and the slowest to grow.
+- **Cloud access rather than hardware.** Quantum processors are already reachable over the internet from major providers. Nobody in Nepal needs to buy one to experiment, which removes capital cost as an excuse or an obstacle.
+
+Only after those exist does the question "would a quantum solver help here" become answerable, because only then will you have a well-posed problem to point it at.
+
+## How to read a quantum claim
+
+Applied to any platform, product or fund that uses the word, three questions separate substance from branding.
+
+**Which algorithm, on which hardware?** A real answer names something specific. A vague answer about quantum-inspired intelligence is a marketing phrase.
+
+**What is the classical baseline?** An advantage is a comparison. If nobody measured the ordinary solution to the same problem, no advantage has been demonstrated.
+
+**Does the claim involve prediction?** If a system claims quantum computing lets it forecast prices, it has stepped outside anything the research supports. Prediction is limited by how much signal exists in the data, and that limit is indifferent to how the arithmetic is performed.
+
+## What to watch for
+
+The realistic sequence for Nepal runs in this order: data infrastructure, then classical quantitative analysis, then machine learning applied with discipline, and only then any question about quantum acceleration. Each stage is worth more here than the one after it, and each is a precondition for the next.
+
+Watch for three signals that the ground is shifting: post-quantum cryptography appearing in the security requirements of Nepali financial institutions, university programmes producing graduates who can work in quantum information rather than merely describe it, and any local research that reproduces a published quantum finance result on NEPSE data and reports honestly when it fails to replicate.
+
+Until then, the highest-return quantum decision available to a Nepali investor is to stop waiting for it, and to do the classical work properly. If you want the underlying concepts without the mathematics, start with [Quantum Finance Explained for Nepali Investors](/blogs/quantum-finance-explained-for-nepali-investors) and [What Is Quantum Computing and Could It Change Nepal's Stock Market?](/blogs/what-is-quantum-computing-and-could-it-change-nepal).

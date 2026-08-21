@@ -1,0 +1,83 @@
+title: AI-Powered Financial Research: What Nepali Investors Should Know
+slug: ai-powered-financial-research-what-nepali-investors-should-know
+description: How to judge AI-powered research claims about NEPSE — the four ways a result can look good and be worthless, the data questions that matter, and what honest evidence looks like.
+category: investment-education
+tags: AI Investing, Investment Education, NEPSE Research, Quantitative Analysis, Nepal Stock Exchange
+---
+"AI-powered" has become a label rather than a description. Applied to financial research it can mean anything from a genuine statistical pipeline tested against held-out history to a moving-average crossover with a new front end. Both are marketed with the same vocabulary, and from the outside they look the same.
+
+You do not need to understand the mathematics to tell them apart. You need to know what evidence would distinguish them, and to notice when it is absent. Almost every unreliable claim in this space fails on the same small number of points, and those points are checkable by anyone willing to ask direct questions.
+
+This article gives you those questions, explains the specific ways a research result can be technically true and practically worthless, and describes what an honest presentation of AI-driven market research looks like — including its failures, because a method that has never reported a failure has not been tested.
+
+## What "AI-powered" is doing in that sentence
+
+Strip the label and there are three genuinely different things underneath.
+
+- **Automation.** Software collecting, cleaning and computing at a scale a person cannot. Real, valuable, and not intelligence in any meaningful sense.
+- **Statistical learning.** Models fitted to historical data to estimate relationships. Real, useful, and the part where the failure modes below live.
+- **Language models.** Systems that read and write text — summarising reports, extracting figures. Real, useful, and unrelated to prediction.
+
+Notice that only the middle one makes claims about the future. When a product says "AI-powered", ask which of the three it means. If the answer is the first or third, judge it on convenience and accuracy. If it is the second, judge it on evidence.
+
+## Four ways a result can look excellent and mean nothing
+
+These are not exotic. They are the standard ways quantitative research goes wrong, and they occur in professional work as well as amateur.
+
+**1. In-sample fitting.** A rule designed by looking at a period of history will fit that period. Reporting how well it performed on the same data used to invent it is circular. The only meaningful test is on data the design never saw.
+
+**2. Multiple testing.** Try a hundred variations of a strategy and several will look impressive by chance alone. Report only the best one and you have a highly convincing result that is pure noise. This is the most common failure in strategy marketing because it does not feel like cheating — it feels like research. The defence is stating how many variants were tried and adjusting the bar for significance accordingly.
+
+**3. Survivorship.** Testing on the companies listed today excludes those that were delisted, merged away or collapsed. Every result computed on today's list is measured on a set chosen partly because it survived. In Nepal, where financial-sector consolidation has changed the listed universe, this is not a minor correction.
+
+**4. Look-ahead.** Using information in a test that was not available at the time. This creeps in subtly — a restated financial figure, a corporate action applied to the whole price history, a metric computed from data published days after the decision date. Look-ahead almost always makes results better, which is why it is rarely caught by people pleased with their results.
+
+> A backtest is not evidence. A backtest that survived a serious attempt to break it is evidence, and the attempt is the part worth asking about.
+
+Our guide to [backtesting a NEPSE trading strategy](/blogs/backtesting-a-nepse-trading-strategy-complete-beginner-guide) covers how these traps show up in practice.
+
+## Data provenance is a fair question, and the answer is revealing
+
+Before the model, the data. Nepal-specific issues that quietly corrupt results:
+
+- **Corporate actions.** Bonus issues and rights restate price history. An unadjusted series shows a fall that never occurred, and a naive model learns from a phantom event.
+- **Format drift.** Historical files from different periods differ in line endings, number formatting and column meaning. A parser that does not error on unexpected input silently drops rows — and a shrunken dataset still produces a confident result.
+- **Non-numeric codes in numeric fields.** Broker and dealer identifiers are not always plain numbers. Careless parsing discards those rows entirely, and nothing about the output announces it.
+- **Empty versus zero.** A field with no value is not a value of zero, but arithmetic treats it as one.
+
+You are entitled to ask any research provider how they handle these. A serious answer names specific problems and specific fixes. A vague answer about "clean, verified data" means nobody has looked.
+
+## The conservation identity, and why "smart money" claims fail
+
+This one is worth understanding because it kills an entire category of marketing in a single line.
+
+Every share bought is sold. For any stock, over any period, the total quantity bought equals the total quantity sold — exactly, by construction, not approximately. It follows that a market-wide net buy/sell imbalance is identically zero.
+
+So any tool claiming to have detected "net accumulation across the market" or a "hidden institutional buyer" is describing something that cannot exist in aggregate. What such metrics usually measure is turnover in more dramatic language: stocks with more trading show larger gross flows, and larger gross flows get presented as conviction.
+
+That does not make broker-level data useless. NEPSE's floorsheet is unusually granular and genuinely under-used. But the honest questions it answers are about concentration, participation and churn in a single stock relative to its own history — not about a market-wide net buyer, which is arithmetically impossible. [Can AI really predict NEPSE](/blogs/can-ai-really-predict-nepse-separating-technology-from-hype) goes further into which claims survive scrutiny.
+
+## Questions to ask any AI research tool or service
+
+Ask these in plain language. The quality of the answers tells you more than any performance chart.
+
+1. **What data does this run on, and where does it come from?** Vagueness here invalidates everything after it.
+2. **Was the result tested on data the method never saw during design?** If not, it is a description of the past, not a finding.
+3. **How many variations were tried before this one?** If the answer is "several" and no adjustment was made, the significance is overstated.
+4. **Does the test include delisted and merged companies?** If not, expect the live result to be worse than shown.
+5. **What costs and slippage were assumed?** A strategy that trades often can be profitable on paper and losing after real execution, especially in illiquid names.
+6. **What has this method got wrong?** The most informative question on the list. Any process run honestly has a list of ideas that failed. A provider with no failures has either not tested or is not telling you.
+7. **Can I see the definition of each metric?** If a number cannot be recomputed from a stated definition, it cannot be argued with.
+8. **Does it forecast prices?** If yes, discount heavily. Reliable price prediction, if it existed, would not be sold to retail subscribers.
+
+## What honest AI-driven research looks like
+
+It is quieter than the alternative. It reports what a metric measures rather than what it "reveals". It shows results broken down by period, so you can see that a method that works overall lost money in several individual years — which is normal and hidden by headline averages. It publishes negative findings. It says "we do not know" about the things nobody knows, including where the index is going.
+
+It also distinguishes description from prediction. Telling you that a stock's broker participation is unusually concentrated compared with its own history is a factual description. Telling you it will therefore rise is a forecast, and the gap between the two is where most of the industry's overclaiming happens.
+
+## How to actually use it
+
+Use AI research to widen what you can see, not to outsource the decision. Let it screen the whole listed universe instead of the ten names you already know. Let it read every report rather than the ones you have time for. Let it enforce a rule you wrote when you were calm.
+
+Then apply the same scepticism to its output that you would to a confident stranger's tip — because in terms of accountability, that is exactly what it is. If you are starting from scratch, [quantitative investing in Nepal](/blogs/quantitative-investing-in-nepal-a-beginner-guide) is the foundation this all sits on.

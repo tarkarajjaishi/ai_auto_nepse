@@ -1,0 +1,92 @@
+title: AI Stock Prediction in Nepal: What Investors Should Understand
+slug: ai-stock-prediction-in-nepal-what-investors-should-understand
+description: What AI prediction can and cannot honestly claim about NEPSE, the questions to ask any provider selling signals, and where the technology genuinely helps a Nepali investor.
+category: quantitative-finance
+tags: AI Stock Prediction, NEPSE, Nepal Stock Exchange, Machine Learning, Investor Education, Risk Management
+---
+If someone offers you an AI system that predicts NEPSE prices, the first thing to establish is what they mean by predict. The word carries two very different meanings, and the gap between them is where most of the disappointment in this field comes from.
+
+The weak meaning is the honest one: a model produces a probability distribution over what might happen next, slightly shifted from the distribution you would assume without it. Across many decisions, that small shift can matter. On any single stock, on any single day, it is close to invisible.
+
+The strong meaning — that a system knows a specific stock will reach a specific price by a specific date — is not something any technology delivers, in Nepal or anywhere else. Markets are made of people reacting to each other and to news that has not happened yet. No amount of computation makes tomorrow's news knowable today.
+
+Everything worth understanding about AI prediction on NEPSE follows from that distinction.
+
+## What a model can honestly be right about
+
+There are things in market data that are genuinely more predictable than returns, and it is worth knowing what they are, because a good system will be built around them rather than around price targets.
+
+- **Volatility.** Turbulent periods cluster. A stock that has moved sharply recently is more likely to keep moving sharply than one that has been quiet. This is one of the more robust relationships in market data and it is useful for position sizing, even though it says nothing about direction.
+- **Relative ranking.** Predicting whether a stock will outperform the rest of the market is a different and more tractable problem than predicting its absolute return, because the market-wide move — which dominates a retail-driven exchange — cancels out.
+- **Unusual activity.** Flagging volume, price or broker-concentration behaviour far outside a symbol's own historical range is a detection problem, not a prediction problem. It reliably tells you where to look, and reliably does not tell you what happens next.
+- **Structure in text.** Extracting figures and tone consistently from hundreds of quarterly reports and disclosures is something machines now do well, and it saves a great deal of human time.
+
+Notice what is not on that list: the price of a named stock on a named future day.
+
+## Why NEPSE is a particularly hard prediction problem
+
+Nepal's market has features that make it harder, not easier, to model than a large developed exchange. Anyone selling prediction here should be able to explain how they handle each of these.
+
+The usable history is short. Compared with markets that have decades of clean daily data across thousands of instruments, NEPSE offers a fraction of the observations. Statistical confidence is a function of sample size, and the sample is small.
+
+Liquidity is uneven. Many symbols do not trade every session. A model trained without careful handling of gaps in the series will learn artefacts.
+
+Daily price limits censor the data. When a stock hits its circuit, the closing price is not the price at which supply and demand balanced. The most extreme and most important moves are precisely the ones the data records least accurately.
+
+The market is retail-dominated and moves largely as one. When sentiment turns, most stocks follow, which means a model that appears to predict individual names is often just predicting the index in disguise.
+
+And the largest movers are frequently policy events — monetary decisions, regulatory changes affecting margin lending or capital requirements, budget measures. These originate outside the price series entirely. A model that has only seen prices cannot anticipate them, and honest builders say so.
+
+> A system that has never had a losing year has not been tested honestly. It has been fitted to the past and shown to you as though that were a forecast.
+
+## The questions to ask before paying for anything
+
+If you are evaluating a paid signal service, an app, or a research product that claims AI prediction, these questions separate the serious from the rest. A credible provider will answer them directly; an evasive answer to any one of them is itself the answer.
+
+1. **Predicting what, over what horizon?** "Accuracy" with no stated horizon and no stated target is meaningless. Accuracy at predicting the direction of a five-day return is a specific, checkable claim. Accuracy on its own is not.
+2. **Tested on data the model never saw?** Ask specifically whether the reported results come from a period the model was not fitted on, and how the split was done. If the answer involves randomly shuffling historical days, the test is invalid.
+3. **What do the yearly results look like?** Demand a year-by-year breakdown, including the bad years. A strategy that made everything in one strong market and lost in the rest is a bet on that market repeating, not a model.
+4. **How was the stock universe chosen?** If the tested symbols are the ones that are liquid and successful today, the test is contaminated by hindsight. The universe must be defined as it would have been at the time.
+5. **Are costs included?** Brokerage commission, regulatory fees, capital gains tax, the spread, and the practical limit on how much can be bought in a thin stock. Many strategies that look profitable on paper are not after these.
+6. **What is the worst historical drawdown?** Every strategy has one. A provider who cannot state theirs has not measured it.
+7. **How much of the return comes from a handful of trades?** If a thin tail of large winners carries the average while the typical trade loses, you need to know that before deciding whether you could actually hold the position through the losses.
+
+## Red flags worth walking away from
+
+Some claims are not merely optimistic. They indicate that the person making them either does not understand the problem or is not being straight with you.
+
+- Specific price targets with specific dates.
+- An "accuracy" percentage with no horizon, no universe and no out-of-sample period.
+- Screenshots of winning trades, with no ledger of every trade the system called.
+- Any guarantee of returns, or language implying that losses are not possible.
+- Pressure to act immediately on a signal before it "expires".
+- A refusal to explain, even in general terms, what data the system uses.
+- Results that are smooth and consistently positive across every market condition. Real strategies have bad periods, and their absence is evidence of fitting, not of quality.
+
+The sceptical case is set out at greater length in [can AI really predict NEPSE](/blogs/can-ai-really-predict-nepse-separating-technology-from-hype), and the underlying question is examined in [can artificial intelligence predict NEPSE](/blogs/can-artificial-intelligence-predict-nepse).
+
+## Where AI genuinely helps you right now
+
+None of this means the technology is useless for a Nepali investor. It means the value is in a different place from where it is marketed.
+
+Screening and filtering. Applying the same criteria consistently across every listed symbol, every day, without fatigue or favouritism. A human cannot do this; software trivially can.
+
+Reading at scale. Language models can pull the figures out of every quarterly report in a sector and lay them side by side, turning a week of work into an afternoon. You still have to judge what the figures mean.
+
+Surfacing the floorsheet. NEPSE's broker-level trade data is unusually granular and almost nobody reads it at scale. Software can aggregate months of it and show you where activity has changed. That is a place to start research, not a signal.
+
+Consistency and discipline. Rules for position size and risk, applied identically every time, remove a category of error that costs retail investors more than any missed forecast ever did.
+
+Record keeping. A system that logs what you decided and why, then shows you honestly how those decisions turned out, will improve your investing more than any predictive claim on this page.
+
+The comparison in [AI versus human stock analysis for NEPSE](/blogs/ai-vs-human-stock-analysis-which-is-better-for) is worth reading, because the honest answer is that they are good at different things and the combination beats either alone.
+
+## What to actually do
+
+Treat every prediction as a probability, never as a fact, and size your positions so that being wrong is survivable. That single habit matters more than the quality of any model you will ever use.
+
+Ask for the losing periods before you look at the winning ones. If a provider cannot show you when their system failed, they have not tested it properly and you are the test.
+
+Use AI for what it is reliably good at — searching, reading, screening, flagging, enforcing your own rules — and keep the judgement about what a company is worth for yourself. The groundwork for that judgement does not come from a model; it comes from the accounts, and [how to analyse a NEPSE stock before buying](/blogs/how-to-analyze-a-nepse-stock-before-buying) is where it starts.
+
+And be suspicious of confidence. In this field, the people who understand the problem best are the ones who sound most uncertain, and that is not modesty. It is an accurate description of what the data supports.

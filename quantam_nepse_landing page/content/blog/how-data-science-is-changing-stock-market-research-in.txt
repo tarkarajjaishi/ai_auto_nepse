@@ -1,0 +1,88 @@
+title: How Data Science Is Changing Stock Market Research in Nepal
+slug: how-data-science-is-changing-stock-market-research-in
+description: The shift from assertion to measured claim in NEPSE research: the testing workflow, why most ideas deserve to die, and how to spot a manufactured result.
+category: data-and-research
+tags: Data Science, Quantitative Research, Nepal Stock Exchange, Backtesting, Market Analysis
+---
+The change data science brings to NEPSE research is not better answers. It is a different standard for what counts as an answer at all.
+
+Traditional market commentary in Nepal is largely assertive: a sector is undervalued, a stock is being accumulated, a level will hold. These claims are usually plausible and almost never tested. There is no dataset attached, no definition of the terms, and no way to check whether the same claim made a year ago worked out. The claim and its evidence are the same object — the speaker's confidence.
+
+A quantitative process separates them. It states the claim precisely enough to be wrong, measures it against history, and reports the result including when the result is disappointing. That is the whole change, and it is larger than any particular model.
+
+## From assertion to a testable statement
+
+Take a common claim: "this stock is under accumulation". As stated, it cannot be tested, because nothing in it is defined. A researchable version reads more like this.
+
+> When a single broking house's net purchases in a stock over twenty sessions exceed its own historical norm for that stock by a stated margin, the stock's return over the following twenty sessions is higher than that of a randomly chosen stock from the same liquidity band on the same dates.
+
+That version names the measurement, the window, the comparison group and the horizon. It can be computed, and it can fail. Most of the discipline of quantitative research is in the translation step, not the computation.
+
+Notice what the precise version forces you to confront. Higher than what? Over what period? Compared with which stocks? Each of those questions has an answer that materially changes the result, and the vague version hides all three.
+
+## The workflow, in the order it must happen
+
+The sequence matters, because doing these steps out of order is how researchers fool themselves.
+
+1. **Write the hypothesis first,** before looking at the outcome. Including the horizon and the comparison.
+2. **Build the dataset point-in-time.** Every input joined at the date it became public, never at the date the period ended.
+3. **Define the universe and gate it for liquidity.** A result that only exists in stocks nobody can trade is not a result.
+4. **Measure cross-sectionally, within date.** Rank within the day so you are not accidentally measuring the market's direction on that day.
+5. **Test in-sample, then stop touching the held-out period.** The held-out period is later in time, not a random sample of the same period.
+6. **Report per year, not only in aggregate.** This is the single most revealing table in quantitative research.
+7. **Count your attempts** and raise the significance bar for the number of variants tried.
+
+Steps six and seven are where most published strategies quietly die.
+
+## Why the per-year table matters so much
+
+An aggregate result is an average over a period that contained very different market conditions. In a young, retail-dominated market with a small cross-section, a single unusual year can carry an entire multi-year result.
+
+When you break the same result into years, you learn whether you have found a property of the market or a description of one stretch of it. A factor that works in seven years out of ten and loses modestly in the others is a candidate. A factor with one spectacular year and nine flat ones is a story about that year, and it will not repeat on schedule.
+
+The same applies to the distribution across stocks. Market returns in a small exchange are dominated by a thin tail of large moves. A strategy whose entire advantage comes from two positions is not a strategy — it is two positions.
+
+## Killing your own ideas is the product
+
+The most counter-intuitive thing about quantitative research is that its main output is negative results. Genuinely predictive relationships in public market data are rare. Most promising ideas turn out to be one of a handful of disguises:
+
+- **Turnover in another form.** Very common with metrics built from trade counts or participation. If the measure rises whenever activity rises, test whether anything remains after controlling for turnover.
+- **Price level in another form.** Any metric built from share counts rather than value tends to be an inverse price proxy. Neutralise for price and see what survives.
+- **A date effect.** If the measure is not computed relative to the same day's cross-section, half of what you are measuring is simply which day it is.
+- **Look-ahead.** A single input joined at the wrong date can create a beautiful and entirely fictitious result.
+- **Selection.** Ranking the universe using information from the whole sample — including the future — is fake alpha even when nothing else is wrong.
+
+A research operation that publishes only successes has either been extraordinarily lucky or is not showing you the full sample. Keeping a written record of what was tested and rejected is what makes the surviving claims credible.
+
+## Reproducibility as the practical test
+
+Here is a standard that separates real research from presentation: can the analysis be re-run and produce the same numbers?
+
+That requires the inputs to be stored, the transformations to be code rather than manual steps, and the historical rebuild to respect what was known at each date. It sounds procedural. In practice it catches an enormous number of errors, because a result that cannot be reproduced usually depended on a step nobody wrote down — a filter applied by hand, a date range chosen after seeing the outcome.
+
+It also makes disagreement productive. If two people dispute a finding and both can run the code, the argument resolves into a specific difference in method rather than a difference in conviction.
+
+## Where the human still wins
+
+Data science does not replace judgement, and pretending otherwise is how quantitative work gets a bad name.
+
+- **Framing the question.** Deciding what is worth investigating is entirely human, and it is where most of the value is created.
+- **Knowing what the numbers omit.** Regulatory shifts, management quality, the intent behind a corporate action. These leave traces in the data only after the fact.
+- **Recognising a broken regime.** A model cannot tell you that the market structure it learned from has changed. A person watching can.
+- **Deciding what to do.** Position size, holding period, and how much of your wealth is at stake are decisions about your life, not about the data.
+
+The productive division is that machines measure and humans decide, with the measurement made public enough that the decision can be argued with.
+
+## What is realistically changing in Nepal
+
+Three things, gradually. First, the floorsheet is being processed at scale by more people, which means claims about broker behaviour are increasingly checkable rather than asserted. Second, the vocabulary is shifting: terms like out-of-sample, base rate and liquidity gate are entering conversations that used to be conducted purely in narrative. Third, and most usefully, negative results are starting to be published — which is the sign of a research culture rather than a marketing one.
+
+What is not changing is the difficulty. A young market with a small cross-section and thin liquidity is a hard place to establish anything statistically. Better tools raise the standard of evidence; they do not lower the bar the evidence has to clear.
+
+## What to do
+
+If you are producing research, adopt two habits above all others: write the hypothesis before you look at the outcome, and always publish the per-year table. Almost every false claim in this field would have been caught by one of those two.
+
+If you are consuming research, ask for the held-out period, the per-year breakdown, and the number of variants tried. A researcher who has those answers ready is worth listening to. One who is annoyed by the questions is not.
+
+For the data that all of this runs on, see [the role of big data in Nepal's stock market](/blogs/the-role-of-big-data-in-nepal-stock-market). For the testing step in practical detail, see [backtesting a NEPSE trading strategy](/blogs/backtesting-a-nepse-trading-strategy-complete-beginner-guide), and for turning a tested finding into a working process, [building a quantitative strategy for the Nepal Stock Exchange](/blogs/building-a-quantitative-strategy-for-the-nepal-stock-exchange).

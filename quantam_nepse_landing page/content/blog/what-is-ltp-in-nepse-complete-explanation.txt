@@ -1,0 +1,86 @@
+title: What Is LTP in NEPSE? Complete Explanation
+slug: what-is-ltp-in-nepse-complete-explanation
+description: LTP is the last traded price, not the price of the stock. What it measures, how stale it gets on thin NEPSE stocks, and which number you should use instead.
+category: investment-education
+tags: LTP, NEPSE Basics, Stock Market Education, Investing In Nepal, Market Data
+---
+LTP stands for Last Traded Price: the price at which the most recent completed transaction in that stock took place. It sits at the top of every NEPSE stock page, it is the number quoted in every conversation about a share, and it is routinely misread.
+
+The misreading is simple. People treat LTP as the price of the stock, the way a tag is the price of an item in a shop. It is not. It is a historical record of one transaction between two parties, at whatever size they traded, at whatever moment they traded.
+
+On a liquid stock during an active session, that record approximates what you can transact at. On a thin stock it can be badly misleading, and knowing the difference is one of the more valuable things a NEPSE investor can learn.
+
+## Where the number comes from
+
+Every match on the exchange produces a trade at a price. The most recent of those is the LTP. That is the entire definition, which is why the number carries less information than people assume.
+
+Three properties follow directly.
+
+- **It has a size behind it that the number does not show.** A ten-unit trade sets the LTP exactly as firmly as a fifty-thousand-unit trade.
+- **It has a time behind it.** On an actively traded stock the last trade was seconds ago. On an inactive one it may be hours old, or from a previous session entirely.
+- **It is not an offer.** Nobody is obliged to sell to you at the LTP. What you can actually buy at is set by the sell orders currently resting in the book.
+
+> LTP is a fact about the past, not an offer to you. It tells you what someone paid, not what you can pay.
+
+## LTP versus the other prices on the page
+
+A NEPSE stock page shows several prices, and each answers a different question.
+
+- **Open** is the price from the opening phase. It reflects accumulated orders rather than continuous trading.
+- **High and low** are the extremes reached during the session. The gap between them roughly measures how contested the day was.
+- **Previous close** is today's anchor. The daily price band is measured from it, and the percentage change you see is calculated against it.
+- **Average traded price** is total value traded divided by total quantity. It is often more representative than LTP because it weights by size rather than by recency. On a day with one late, oddly sized trade, the average and the LTP can differ noticeably.
+- **LTP** is the most recent trade, and nothing more.
+
+If your question is where the stock actually traded today, the average is usually the better number. If your question is what is happening right now, LTP is the right one, provided it is recent.
+
+## The staleness problem
+
+This is the biggest practical trap in a market with many thinly traded listings.
+
+If a stock last traded two hours ago, its LTP is a two-hour-old fact displayed with exactly the same visual authority as a live one. If the stock did not trade today at all, many screens carry forward the previous session's price. You are then looking at yesterday's number formatted as today's.
+
+Three consequences worth taking seriously:
+
+- **Portfolio values are approximations.** A holdings page valued on stale LTPs tells you what those shares were worth the last time anybody traded them, which is not what you would receive today.
+- **Percentage change becomes meaningless** for a stock whose last trade predates the session.
+- **A flat stock may simply be a stock nobody traded.** Absence of movement is not evidence of stability.
+
+The remedy is to read two more figures beside the LTP: the number of trades and the total quantity traded. A price with no volume behind it is a rumour with a decimal point.
+
+## During the session versus after the close
+
+While a session runs, LTP is a moving quantity, and any screen showing it should tell you how fresh it is. A price that has not updated in twenty minutes on a stock that normally trades constantly means something. Either the stock has stopped trading, or your data source has, and the two look identical unless the age of the number is displayed.
+
+After the close, the session's figures settle and the day's price is fixed. Be aware that a data source may compute a closing price by a rule of its own and that this can differ from the literal last trade. When two sources disagree, the usual explanation is a definitional difference rather than an error. Check what your source means by close before building anything on top of it.
+
+The broader habit of reading a session properly is covered in [how to read a NEPSE trading session](/blogs/nepse-today-how-to-read-a-trading-session-properly).
+
+## LTP and the circuit band
+
+Individual stocks trade inside a daily price band measured from the previous close, and this interacts with LTP in a way that confuses people constantly.
+
+When a stock locks at its upper band, the LTP equals the band price and the buy queue may be enormous. The number on your screen is real. The ability to buy at it is not. The same happens in reverse at the lower band, which is far more painful, because that is precisely when you want to sell.
+
+So a locked stock has a price and no liquidity, and the LTP conceals this completely. Any judgement about a locked stock should be made with the order book and the traded volume in view, not the headline price.
+
+## Where LTP is used, and where it should not be
+
+LTP legitimately feeds several things:
+
+- **Market capitalisation**, calculated as LTP multiplied by listed shares, which inherits every weakness described above. That inheritance is explained in [what market capitalisation means in NEPSE](/blogs/what-is-market-capitalization-in-nepse).
+- **Price multiples** such as P/E, which move whenever the last trade moves, even when that trade was tiny.
+- **Portfolio valuation** and index calculation.
+
+Where it should not be used: as evidence that a price is available to you, as a fair value estimate for an illiquid stock, or as a signal on its own. A stock that rose on two trades has not been repriced by the market. It has been repriced by two people.
+
+## What to do with LTP
+
+- Always read LTP **together with volume and number of trades**. Three numbers, one glance.
+- On thin stocks, prefer the **average traded price** when you want a representative level.
+- Check **when the last trade happened** before treating a price as current. If your platform will not tell you, that is a limitation of the platform, not a detail you can ignore.
+- Place **limit orders** priced from the visible order book, not from the LTP.
+- Treat a **locked band** as a liquidity condition, not as a price signal.
+- Expect any tool showing you a live price to tell you **how fresh that number is**. A stale figure presented as current is the most common defect in market software, and it is entirely avoidable.
+
+LTP is a useful number kept in its place. The moment it becomes the price of the stock in your head, rather than the last trade that happened, it starts costing you money, usually on the day you most need to sell. What actually drives those trades across a session is covered in [what moves NEPSE in a single trading day](/blogs/what-moves-nepse-in-a-single-trading-day).

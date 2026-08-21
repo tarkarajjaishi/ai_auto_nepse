@@ -1,0 +1,88 @@
+title: What Is Market Capitalization in NEPSE?
+slug: what-is-market-capitalization-in-nepse
+description: Market capitalisation is last traded price times listed shares. Why free float, bonus issues and banking-sector concentration change what that number means in NEPSE.
+category: investment-education
+tags: Market Capitalization, NEPSE Basics, Free Float, Stock Market Education, Investing In Nepal
+---
+Market capitalisation is the market's price for an entire company: the last traded price multiplied by the number of listed shares. A company with ten million shares whose last trade was at three hundred rupees has a market capitalisation of three billion rupees. That is the whole calculation.
+
+What people do with the number is where the trouble starts. Market capitalisation gets treated as a measure of size, of quality, of how much money is in a stock, and of whether a company is cheap. It is only reliably the first of those, and even that comes with conditions specific to NEPSE that most retail screens never mention.
+
+## What the number actually measures
+
+It measures what the marginal buyer and seller agreed on, extended to every share in existence. That extension is the assumption worth examining, because the last trade may have been a few units between two people while the overwhelming majority of shares never came near the market.
+
+> Market capitalisation measures what the market thinks a company is worth, not what anyone has actually put into it.
+
+Nobody has invested the market capitalisation into the company. Money paid for shares in the secondary market goes to the seller, not to the business. A company whose market value rises by a billion rupees has received nothing at all from that rise.
+
+## Total capitalisation versus free float
+
+This is the single most important adjustment in NEPSE, and it is why the exchange publishes a float-based index alongside the main one.
+
+A large portion of many listed Nepali companies is held by promoters and is not freely tradable. Government and institutional holdings add to the locked portion. The result is that **total market capitalisation and the value of shares actually available to trade are different numbers**, sometimes by a wide margin.
+
+The practical consequences:
+
+- A company can look large by total capitalisation while its tradable float is small enough that ordinary retail flows move the price sharply.
+- Index weights based on total capitalisation overstate the influence of companies with big locked blocks, which is precisely the distortion a float index exists to correct.
+- Comparing two companies of similar total capitalisation tells you very little if one has most of its shares locked and the other does not.
+
+Before using capitalisation for anything, check the promoter and public split. It is disclosed, and it changes the interpretation completely.
+
+## Why a capitalisation series over time is not like-for-like
+
+Nepali companies issue bonus shares and right shares regularly, and both change the share count.
+
+- A **bonus issue** raises the share count while the price adjusts down on the ex-date. In theory capitalisation is unchanged. You own more shares of the same company and nothing was created.
+- A **right issue** raises the share count and brings cash into the company. Capitalisation rises partly because the business is genuinely larger, not because the market revalued what already existed.
+
+So a company whose market capitalisation doubled over several years may have got there through issuance rather than appreciation. When comparing a company with its own past, use per-share figures alongside capitalisation, and remember that per-share history itself needs adjusting for bonus issues before it means anything.
+
+## Sector concentration and what it does to market-wide numbers
+
+NEPSE's total capitalisation is dominated by financial institutions. Commercial banks alone carry heavy weight, and the broader financial group, including development banks, finance companies, microfinance and insurance, accounts for a large share of listed value.
+
+That matters whenever you read market commentary.
+
+- "The market is up" frequently means the banking group is up. A broad index in a concentrated market behaves closer to a sector index than most people realise.
+- A sector that dominates the news, hydropower being the obvious example, can hold a modest share of total capitalisation relative to its share of attention and trading activity.
+- Comparing sub-index moves without knowing each sector's weight produces confident, wrong conclusions about market breadth. The structure is unpacked in [understanding NEPSE sub-indices](/blogs/understanding-nepse-sub-indices-banking-hydropower-microfinance-and-more).
+
+## What market capitalisation does not tell you
+
+- **Not value.** Cheap and expensive are ratios. Capitalisation is a level. A large company can be cheap and a small one wildly expensive.
+- **Not quality.** Size reflects price and share count, and both can be inflated by things unrelated to how well the business runs.
+- **Not liquidity.** This one surprises people. A large capitalisation with a small float can be harder to exit than a smaller company whose shares are widely distributed. Check turnover directly.
+- **Not stability.** A large capitalisation built on a high multiple is not defensive. It simply has further to fall.
+- **Not money invested.** Worth repeating, because the phrase about billions being wiped off the market implies a transfer that never happened. Prices changed. Nobody collected the difference except those who actually traded.
+
+Because the price input is the last trade, every weakness of that number is inherited here, including staleness on thin stocks. That is covered in [what LTP means](/blogs/what-is-ltp-in-nepse-complete-explanation).
+
+## Using it sensibly
+
+Market capitalisation earns its place in three jobs.
+
+1. **Bucketing the universe by size.** Grouping stocks into large, medium and small lets you compare like with like, and it exposes screen results that are secretly dominated by tiny companies.
+2. **Understanding index behaviour.** Once you know which companies carry weight, index moves stop being mysterious and start being arithmetic.
+3. **Sanity-checking a valuation.** Divide capitalisation by earnings and you have the [P/E ratio](/blogs/what-is-p-e-ratio-and-how-does-it). Divide by book equity and you have price to book. Both are more informative than capitalisation alone.
+
+A useful discipline: whenever you note a company's capitalisation, write two numbers beside it, the free float percentage and the average daily turnover. Together those three describe size, availability and tradability. Any one of them alone misleads.
+
+## One ratio worth building yourself
+
+Divide a company's average daily turnover by its market capitalisation and you get a rough measure of how much of the company changes hands in a normal session. It is crude, and it is far more informative than either number on its own.
+
+A company with a large capitalisation and a very low ratio is one where the market rarely prices the whole business. Its quoted value rests on a thin stream of trades, so the price can move a long way on flows that would barely register elsewhere. A company with a high ratio is being actively repriced every day, which is not automatically better, but it does mean the quoted number reflects something more than a handful of transactions.
+
+Track the ratio for a stock over several months and you learn its normal range. Once you know that range, a sudden change in it is one of the few genuinely informative things a small market gives you, and it costs nothing to compute.
+
+## What to watch
+
+- Check whether a published figure is **total or float-adjusted** before comparing anything to anything.
+- Restate a **capitalisation series in per-share terms** before concluding a company has grown. Issuance is not appreciation.
+- Treat **market-wide capitalisation changes** as price changes, not money flows. Every share bought was sold, so nothing accumulated anywhere.
+- Never infer **liquidity** from size. Verify it with turnover and number of trades.
+- Watch **weight, not headline moves**, when deciding which sectors actually drove a session.
+
+Market capitalisation is a well-defined number answering a narrow question: what every share would cost at the last traded price. Kept to that question it is useful. Stretched into a measure of worth, safety or invested money, it becomes one of the most confidently misused figures on any NEPSE screen.

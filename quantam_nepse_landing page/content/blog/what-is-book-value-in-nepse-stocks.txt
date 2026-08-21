@@ -1,0 +1,81 @@
+title: What Is Book Value in NEPSE Stocks?
+slug: what-is-book-value-in-nepse-stocks
+description: Book value per share is what a NEPSE company's balance sheet says each share owns. Here is how it is built, why bonus and right shares move it, and where it stops being reliable.
+category: investment-education
+tags: NEPSE, Book Value, Investment Education, Fundamental Analysis, Nepal Stock Exchange, Banking Stocks
+---
+Book value per share is the accounting answer to a simple question: if the company sold everything it owns at the value carried on its books, paid off everything it owes, and divided what remained among shareholders, how much would each share receive?
+
+The calculation is total shareholders' equity divided by the number of shares outstanding. Shareholders' equity is what is left after subtracting total liabilities from total assets, and on a Nepali listed company's balance sheet it is usually built from paid-up capital, share premium, various reserves, and retained earnings.
+
+Ordinary shares on NEPSE carry a face value of Rs 100. That gives book value an anchor no other market metric has. A company whose book value per share sits meaningfully above Rs 100 has accumulated profit and reserves since it was capitalised. One below Rs 100 has consumed part of the capital its shareholders originally paid in. That single comparison tells you more in one second than most screener columns.
+
+## What goes into the equity figure
+
+Not every rupee of equity is equally solid, and the composition matters more than the total. On a typical NEPSE financial institution's balance sheet you will find several distinct components:
+
+- **Paid-up capital.** Share count multiplied by Rs 100 face value. This is the least interesting part — it says how much has been issued, not how well it has been used.
+- **Share premium.** Amounts received above face value, typically from a further public offering priced above Rs 100.
+- **Retained earnings.** Accumulated profit not paid out. This is the part that reflects actual performance.
+- **General and statutory reserves.** Amounts set aside under regulation or company policy. Real equity, but not freely distributable.
+- **Regulatory and fair value reserves.** Book entries required by accounting or supervisory rules. These can swing without anything happening in the business.
+- **Revaluation surplus.** Where held, this reflects an appraisal of property rather than cash earned.
+
+Two companies can report the same book value per share, with one having built it from twenty years of retained profit and the other from a property revaluation. Those are not comparable balance sheets. Read the equity note in the report, not just the total.
+
+## Why book value matters more for financials
+
+Book value is a far more meaningful number for a bank, finance company or microfinance institution than for a manufacturer or a hotel.
+
+A bank's assets are financial: loans, investments, cash. They are carried at values that at least attempt to reflect what they are worth, and they are reasonably liquid. When you read a bank's book value, you are reading a real estimate of net worth. A hotel's largest asset might be land recorded at an old cost, worth many multiples of the carrying value, or a building worth far less than the books claim. Book value in that case is close to meaningless.
+
+This is why price-to-book is the default valuation lens across the banking, development bank, finance and microfinance sub-indices, while [the P/E ratio](/blogs/what-is-p-e-ratio-and-how-does-it) tends to be the one people reach for elsewhere. Neither dominates, but they fail differently, and the failure modes matter.
+
+> A bank's book value is only as honest as its loan book. Everything else on the balance sheet is arithmetic; the loans are a judgement.
+
+## The one caveat that undoes everything
+
+Equity is assets minus liabilities, and for a lender the largest asset is the loan portfolio. That portfolio is carried net of impairment — an estimate of how much will not be repaid. Change the estimate and you change equity directly.
+
+This is the single biggest reason a reported book value can be wrong. If provisioning is light relative to the real credit quality of the book, equity is overstated, and the price-to-book ratio you calculated is flattering. If the institution has been aggressive in provisioning, the reverse holds and the stock looks more expensive than it is.
+
+You cannot resolve this from the summary figures. You have to read the non-performing loan disclosures, the movement in impairment charges across quarters, and any qualification or emphasis of matter in the auditor's report. [How to read a NEPSE company financial report](/blogs/how-to-read-a-nepse-company-financial-report) walks through where those disclosures sit and what to do with them.
+
+## How bonus and right shares move book value per share
+
+This is the part that confuses most investors, and it is worth being precise about because it changes the number without changing the company.
+
+**A bonus issue** capitalises reserves into paid-up capital. Total equity does not change at all — money moves from one line to another. But the share count rises, so book value per share falls proportionally. A company that looked strongly capitalised on a per-share basis will look weaker after a bonus issue, having done nothing.
+
+**A right issue at face value** brings in new cash at Rs 100 per share. If the existing book value per share was above Rs 100, the new shares dilute it downwards. If it was below Rs 100, the issue raises it. Either way, the direction of the move tells you nothing about the quality of the business. It tells you about the price at which new capital was raised relative to existing net worth.
+
+The practical consequence: never compare a book value per share figure across a period that contains a corporate action without adjusting first. And be sceptical of any chart of book value per share that shows a sudden step. It is almost always a share-count event, not a performance event.
+
+## Price to book, and what it is really pricing
+
+Divide the market price by book value per share and you get the P/B ratio. Read literally, a P/B above 1 means the market values the company at more than its accounting net worth; below 1, at less.
+
+The reason a well-run bank trades above book is that its equity earns a return. If a company can consistently generate a strong return on equity, each rupee of book value produces more than a rupee of future value, and the market pays for that. So P/B and return on equity should be read as a pair. A high P/B with a mediocre ROE is a stretch; a modest P/B with a strong, sustained ROE is where the interesting questions are.
+
+A P/B below 1 on NEPSE deserves the same suspicion as a low P/E. The market may be signalling that the stated equity is not real — that impairments are coming, or that a chunk of the reserves is not distributable, or that earnings power has structurally weakened.
+
+## What book value cannot tell you
+
+Book value is backward-looking by construction. It records what has been paid in and what has been retained. It does not record:
+
+- A hydropower company's power purchase agreement, which may be the most valuable thing it owns and appears nowhere as an asset.
+- A brand, a branch network's deposit franchise, or a distribution relationship.
+- The quality of management.
+- Off-balance-sheet exposures and contingent liabilities, which sit in the notes.
+- Future growth of any kind.
+
+For asset-light and growth-stage companies, book value will systematically understate worth. For companies with stale asset valuations or optimistic provisioning, it will overstate it. It is a floor estimate under specific conditions, not a valuation.
+
+## What to actually do
+
+1. Start with the Rs 100 anchor. Book value per share versus face value is the fastest read on whether a company has created or consumed shareholder capital since listing.
+2. Open the equity note and see what the book value is made of. Retained earnings and share premium are stronger than revaluation surplus and fair value reserves.
+3. For any lender, read the impairment and non-performing loan disclosures before trusting the equity figure at all.
+4. Adjust for bonus and right issues before comparing book value per share across periods, and treat step changes in the series as corporate actions until proven otherwise.
+5. Read price-to-book together with return on equity. Neither means much alone, and the pair is one of the more durable ways to compare peers within a sub-index.
+6. Use book value alongside earnings, not instead of it. If you are building a full picture of a stock, [how to analyse a NEPSE stock before buying](/blogs/how-to-analyze-a-nepse-stock-before-buying) puts the pieces in order.

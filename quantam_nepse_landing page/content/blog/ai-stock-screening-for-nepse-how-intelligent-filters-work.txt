@@ -1,0 +1,82 @@
+title: AI Stock Screening for NEPSE: How Intelligent Filters Work
+slug: ai-stock-screening-for-nepse-how-intelligent-filters-work
+description: How an intelligent NEPSE screener really works: liquidity gates, point-in-time data, cross-sectional ranking, and why a shortlist is never a buy list.
+category: nepse-stocks
+tags: NEPSE Stocks, Stock Screener, Quantitative Analysis, Nepal Stock Exchange, Investment Research
+---
+A stock screener is a filter over the whole listed market. You state conditions — a P/E below some level, volume above some level — and it returns the names that satisfy them. Every serious market has one, and the basic version is nothing more than a database query.
+
+What makes a screener "intelligent" is not that it uses a neural network. It is that it stops treating conditions as pass-or-fail thresholds and starts scoring stocks relative to each other, using data that was actually available on the day it claims to have been available, on a universe you could actually trade. Those three changes do more for the quality of a shortlist than any modelling technique.
+
+This article explains what happens inside a well-built NEPSE screen, in the order it happens, and what each stage is protecting you from.
+
+## The problem with a plain threshold filter
+
+Say you screen for stocks with a P/E below fifteen. On NEPSE that filter behaves very differently across sectors, because a commercial bank, a hydropower developer and a microfinance company do not carry comparable earnings multiples for structural reasons. A single cut-off silently becomes a sector bet — you will get a list dominated by whichever sector happens to be cheap on that measure, and you will not be told that is what happened.
+
+Thresholds also throw away information. A stock just outside the cut-off is treated identically to one far outside it, and a stock deep inside the cut-off gets no more credit than one barely inside. In a market with a few hundred names, that is a lot of discarded signal.
+
+> A threshold answers "does this stock qualify". A score answers "how does this stock compare with everything else available today". Only the second is useful when you can hold ten positions and two hundred names qualify.
+
+## Stage one: define the universe honestly
+
+Before anything is measured, the screener has to decide what it is allowed to consider. This is where most of the damage is done, quietly.
+
+- **Liquidity gate.** A stock that trades a handful of times a week cannot absorb your order without moving the price against you. Screening it in produces results you cannot execute. The gate should be based on recent traded value, not just on whether a price printed.
+- **Suspended, illiquid and newly listed names.** These distort any cross-sectional ranking. A newly listed company has no history for a trend measure to read.
+- **Survivorship.** If the universe is built from today's list of active companies and then applied to history, you have silently excluded everything that stopped trading. Backtests built this way flatter themselves.
+
+A screener that skips this stage looks more powerful because it returns more names. It is less useful.
+
+## Stage two: measure, using only what was known then
+
+Every input has an as-of date. A quarterly figure is not usable before it is published; a price is not usable before the session closes. This sounds obvious and is violated constantly, because it is easy to join a fundamentals table to a price table without checking the publication lag.
+
+The rule to enforce is simple: on any historical day the screen re-runs, it may see only what a person could have seen that morning. If a screen cannot be re-run on a past date and produce exactly what it would have produced then, you cannot trust its historical record at all.
+
+The inputs themselves usually fall into four groups.
+
+1. **Valuation and fundamentals.** EPS, book value, the resulting P/E and price-to-book, plus growth and stability of earnings where enough history exists.
+2. **Price and volume structure.** Trend, distance from recent highs and lows, volatility, and whether current activity is unusual relative to that stock's own baseline.
+3. **Floorsheet-derived activity.** NEPSE publishes broker-level trade data, which is far more granular than most retail investors use. Aggregated carefully, it describes participation and churn.
+4. **Sector and market context.** Where the stock sits inside its own sub-index, and whether the sub-index is leading or lagging.
+
+## Stage three: rank cross-sectionally, within date and sector
+
+This is the stage that most distinguishes an intelligent screen from a query.
+
+Each measure is converted from its raw units into a rank or a standardised score **among the stocks available on the same day**. That does two things. It removes the market-wide level — on a strongly rising day almost everything has positive momentum, so a raw momentum number is mostly telling you the date. And it makes measures in different units comparable, so a valuation score and an activity score can be combined without one of them dominating through sheer scale.
+
+Ranking within sector matters too. Comparing a hydropower company's multiple against the whole market mostly measures which sector it is in. Comparing it against its own sector measures the company.
+
+A practical warning: when you normalise, divide by the spread of the values, not by their average size. Dividing by an average magnitude is a common shortcut that quietly turns a trend measure into a price-level measure, and it can pin nearly every stock into the same bucket without anyone noticing.
+
+## Stage four: combine, and know what you are double counting
+
+Once every measure is a comparable score, they are combined into a composite. The weights are a judgement call and should be stated openly, not hidden.
+
+The trap here is correlation between the components. If two of your five inputs are near-identical measures under different names — two momentum variants, or an activity measure that is mathematically the same quantity as a turnover measure — you have doubled that weight without deciding to. The only reliable check is to compute the components across the whole market and look at how strongly they move together. Compare the values, not the names.
+
+The other trap is redundancy with price itself. A surprising number of apparently sophisticated measures turn out to be a proxy for share price or for turnover. If the measure loses its power once you neutralise for price and liquidity, it was never adding anything.
+
+## How to read the output
+
+A screener produces a shortlist. It does not produce a decision, and treating it as one is the most common way people lose money with an otherwise sound tool.
+
+- **Read the reasons, not just the rank.** A good screen shows which components drove a score. Two stocks with the same total can be there for opposite reasons.
+- **Check whether the whole list is one theme.** If nine of ten names are from the same sub-index, you have found a sector signal, and you should decide about the sector before you decide about the stocks.
+- **Verify the fundamentals yourself on the names you like.** Derived ratios inherit every error in their inputs. [How to read a NEPSE company financial report](/blogs/how-to-read-a-nepse-company-financial-report) covers what to look at.
+- **Treat the score as a starting hypothesis.** Then do the qualitative work: what the company does, how it earns, what could go wrong.
+- **Look at what the screen excluded.** If a name you follow is missing, find out which gate removed it. That is often more informative than the list.
+
+## What a screener cannot do for you
+
+It cannot tell you what the company is worth. It cannot know a change in management, a regulatory shift, or a promoter's intentions. It cannot price a risk that has never appeared in the data it was built from. And it will happily rank a company that is cheap for an excellent reason at the top of your list.
+
+It also cannot fix position sizing or your holding period. A screen that identifies genuinely better-than-average candidates still produces losing positions regularly, and the difference between a useful process and a frustrating one is usually risk management rather than selection.
+
+## What to do next
+
+Run the screen on a schedule rather than when you feel like buying something — that alone removes a large amount of impulse from the process. Keep the list from each run, and go back later to see how the names behaved, including the ones you skipped. That record is the only way to learn whether the screen is helping you or merely reassuring you.
+
+For the wider effect a tool like this has on how people invest, see [how an AI stock screener could change Nepali investing](/blogs/how-an-ai-stock-screener-could-change-nepali-investing). For the sector context that every cross-sectional rank depends on, see [NEPSE sector analysis](/blogs/nepse-sector-analysis-how-nepal-market-sectors-behave-differently), and for the valuation input most screens lean on hardest, [what the P/E ratio does and does not tell you](/blogs/what-is-p-e-ratio-and-how-does-it).

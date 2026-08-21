@@ -1,0 +1,90 @@
+title: Inside NEPSE Quantum: The Technology Behind Intelligent Market Analysis
+slug: inside-nepse-quantum-the-technology-behind-intelligent-market-analysis
+description: The engineering a serious NEPSE analysis system needs: data ingestion, point-in-time archives, live feed handling, feature computation and validation that catches bad numbers.
+category: nepse
+tags: NEPSE Quantum, Market Data, Data Engineering, Floorsheet Analysis, Nepal Stock Exchange, Quantitative Research
+---
+Most people assume the hard part of an intelligent market analysis system is the model. It is not. In any honest build, the model is the last few percent of the work. The other ninety-odd percent is data: collecting it without gaps, storing it so that yesterday's version is still recoverable, computing derived numbers the same way every time, and refusing to display anything the system cannot vouch for.
+
+That ordering is not a shortcut anyone takes willingly. It is what you learn after your first clever signal turns out to be an artefact of a parsing bug, or after a board shows a stale price during a live session and nobody notices for a week.
+
+This article walks through the technology layer by layer — what a system built for the Nepal Stock Exchange actually has to do, and why each layer exists. If you are evaluating any analytics product for NEPSE, these are the questions worth asking about it.
+
+## The data layer is the product
+
+For NEPSE there are three raw sources that matter, and they behave differently.
+
+1. **Daily price and volume bars** — open, high, low, close, traded quantity, per symbol, per session. Small, tidy, and the backbone of everything.
+2. **The broker-level floorsheet** — every executed contract, with buying broker, selling broker, quantity and rate. Enormous by comparison, and the most distinctive public dataset in the Nepali market.
+3. **Company disclosures and financials** — quarterly reports, corporate actions, auction and rights notices. Unstructured, irregular and published in inconsistent formats.
+
+The floorsheet is the one that separates a real system from a dashboard. It is published in a form most retail investors will never read at scale, and it is where genuinely new questions can be asked. It is also where most of the engineering pain lives.
+
+## Reading the floorsheet is harder than it looks
+
+Parsing trade data sounds like a solved problem until you do it across many years of files. Real archives contain surprises that a naive reader swallows silently:
+
+- Line endings and delimiters change between older and newer files.
+- Quantities are sometimes written with a decimal point even though shares are whole units. A strict integer conversion throws the row away rather than complaining.
+- Broker identifiers are not always numeric. Dealer and special-account rows can use a code that a numeric parser rejects — dropping both sides of thousands of trades while every internal consistency check still reports green.
+- Column order and header spelling drift over time.
+
+The dangerous failures here are the quiet ones. A parser that crashes is easy to fix. A parser that discards rows it does not understand produces a smaller, cleaner-looking dataset that agrees with itself perfectly and is wrong. The only defence is cross-checking one source against another: if the floorsheet's total traded quantity for a symbol does not reconcile with that day's bar, something was dropped, and the system should say so rather than proceed.
+
+> A dataset that agrees with itself is not validated. It is only self-consistent, and a bug is perfectly capable of being self-consistent.
+
+## Point-in-time, or nothing
+
+The single most expensive mistake in market research is look-ahead: letting a computation see information that did not exist at the moment being analysed. It is easy to commit by accident.
+
+Ranking the market's most liquid stocks using the full history, then testing a strategy on the early years, quietly assumes you knew which companies would become liquid. Filtering to companies that still trade today removes the ones that stopped — a survivorship effect that flatters every result. Recomputing a "historical" score with today's data and storing it in a dated file makes the contamination invisible.
+
+The engineering answer is a strict rule: any figure attached to a date must be computable using only data available on or before that date. That means the archive stores raw observations rather than conclusions, and every derived number carries the cut-off it was built from. It also means a rebuild for an earlier date has to be able to reproduce the past exactly, which forces the whole pipeline to be deterministic.
+
+## Live data and stored data are different things
+
+During a trading session, a price on a screen is either live or it is history, and the reader must be able to tell which. Systems get this wrong constantly, and the error is invisible because the number itself looks plausible.
+
+The design that works is unglamorous. One process holds the live connection and writes a snapshot; everything else reads that snapshot rather than opening its own connection. Every live figure travels with its own age, and a value that has gone stale renders as stale rather than as a price. A quote whose own timestamp is not from the current session is refused outright, because a feed will happily keep serving yesterday's last trade long after the close.
+
+The same discipline applies to pre-computed boards. If a screener was built from the previous session and the archive has since moved on, the page has to say so. A stale figure presented as current is the most common failure in market software anywhere, and it is worse than showing nothing.
+
+## Turning raw data into features
+
+Once storage is honest, features are arithmetic. The useful ones for NEPSE fall into a few families:
+
+- **Price and volatility structure** — trend, range, distance from recent extremes, realised volatility measured against the stock's own history rather than the market's.
+- **Liquidity and participation** — turnover relative to that symbol's normal range, number of active brokers, size distribution of trades.
+- **Broker flow** — net position of each broker over a window, churn, concentration of a session's volume in a few hands.
+- **Fundamental ratios** — earnings, book value and the multiples built on them, aligned to the date the report was actually published rather than the period it covers.
+- **Text-derived signals** — tone, topic and extracted figures from disclosures and news.
+
+Two constraints govern all of them. First, normalise against the instrument's own history; a rupee-denominated threshold that suits a large bank is meaningless for a small hydropower company. Second, watch for features that are secretly the same thing. Share-count metrics are often an inverse price proxy. Broker-network measures are often just gross quantity wearing a different name. If two inputs correlate near-perfectly, the system is double-weighting one idea and calling it two pieces of evidence.
+
+## The validation harness
+
+The part of the system that earns its keep is the one that tries to prove the rest wrong. At minimum it should include:
+
+1. **Conservation checks.** Every share bought is sold. Any stock-level net imbalance across all brokers must come out at zero. If it does not, rows are missing.
+2. **Degeneracy censuses.** Scan every shipped number across every symbol. A metric with zero variance, or one pinned at an exact fraction, is not a signal — it is a bug or a clamp firing on everything.
+3. **Unreachable-rule tests.** A rule that never fires on any symbol in the market is not conservative, it is dead code that reads as caution.
+4. **Out-of-sample splits and per-year tables.** A result that holds on the full sample but loses in most individual years is a result carried by a few extreme observations.
+5. **Look-ahead scans.** Automated searches for any dated artefact whose contents could only have been known later.
+
+Most candidate signals die here. That is the point. A research pipeline whose output is always positive is not measuring anything.
+
+## Why boring architecture wins
+
+None of this requires exotic infrastructure. Plain, durable storage that a human can open and read beats a clever binary format the first time you need to diagnose something at short notice. Deterministic recomputation beats incremental caching that nobody can verify. A pipeline that refuses to overwrite a good file with a partial rebuild has prevented more damage than any model has ever created.
+
+The reason to care as a user is simple: everything visible on a screen inherits the trustworthiness of the layer underneath it. A beautiful chart on top of a silently truncated dataset is worse than a plain table on top of a verified one, because it invites more confidence.
+
+## What to check before you trust any NEPSE tool
+
+- Does it tell you **which session** each number comes from, and warn when it is behind?
+- Does it distinguish **description from prediction** in its language?
+- Does it publish what it tested and **failed**, or only what worked?
+- Can it explain how a number is computed in one sentence you can check by hand?
+- Does it show uncertainty, or does it always have a confident answer?
+
+Ask those five questions of any platform, including this one. If the answers are vague, the engineering underneath probably is too. For the reasoning behind the approach, see [What Is NEPSE Quantum? A New Approach to Nepal Stock Market Intelligence](/blogs/what-is-nepse-quantum-a-new-approach-to-nepal), and for the modelling layer that sits on top of this data work, see [How NEPSE Quantum Uses AI to Understand the Nepal Share Market](/blogs/how-nepse-quantum-uses-ai-to-understand-the-nepal) and [Machine Learning for NEPSE: How Stock Data Can Be Analyzed](/blogs/machine-learning-for-nepse-how-stock-data-can-be).

@@ -1,0 +1,84 @@
+title: What Moves NEPSE in a Single Trading Day?
+slug: what-moves-nepse-in-a-single-trading-day
+description: The real drivers behind a NEPSE session: index weighting, liquidity, policy, corporate actions and attention flow, and why most daily explanations are fitted after the fact.
+category: nepse-today
+tags: NEPSE Today, Market Drivers, Nepal Stock Exchange, Liquidity, Corporate Actions, Market Sentiment
+---
+Every evening the Nepali market gets an explanation. The index rose because sentiment improved. It fell because investors booked profits. These sentences are produced after the number is known, they fit any outcome equally well, and they are the reason most retail investors have a confident but incorrect model of what drives their market.
+
+The honest position is that a large share of daily index movement has no identifiable cause. It is the aggregate of thousands of individual decisions, most of them made for reasons that were never publicly stated. What can be established is a hierarchy: some drivers are mechanical and verifiable, some are structural and slow, and some are narrative and mostly unfalsifiable. Knowing which is which is the whole skill.
+
+This article works through that hierarchy, from the causes you can check to the ones you should treat as decoration.
+
+## Layer one: the arithmetic
+
+Before you look for a reason, rule out the mechanics. Several daily index moves are not events at all.
+
+**Weighting.** The headline index is capitalisation-weighted. A single large company moving meaningfully can move the index while most stocks do the opposite. The index did not report a market view; it reported one company's day, magnified by its size. Check breadth before you look for a story.
+
+**Corporate action adjustments.** When a company goes ex-dividend, ex-bonus or ex-rights, its price adjusts downward mechanically. Nothing was sold in panic; the share simply represents a different claim than it did the day before. A stock showing a sharp fall at the open with no intraday deterioration is very often an ex-date, not a rejection. If you check nothing else on an unexplained fall, check this.
+
+**Price limits.** NEPSE applies a daily price band. When stocks reach the band, the index change understates what the market was trying to do — the demand or supply did not disappear, it was simply not allowed to print. A day where several names sit at a limit is a stronger signal than the index number suggests.
+
+**Listings and index maintenance.** New listings and changes to composition are adjusted for so they do not appear as price moves. When they do show up as anomalies in a chart, the adjustment is usually the explanation, not sentiment.
+
+> Rule out arithmetic before you reach for psychology. A large share of the moves that get explained as fear or greed are mechanical adjustments nobody checked.
+
+## Layer two: the structural drivers
+
+These are real, they are slow, and they explain trends better than single sessions.
+
+**Liquidity and the cost of money.** Because banking and finance make up a large part of listed capitalisation, conditions in the banking system feed directly into the index. Credit growth, deposit costs and system liquidity affect both the earnings of the heaviest sector and the amount of money available to buy shares at all. This is the driver with the strongest claim to explaining multi-month direction in NEPSE. It rarely explains any particular Tuesday.
+
+**Regulatory and policy decisions.** Nepal's market is closely shaped by regulation — rules affecting lending, margin, capital requirements, sector-specific policy. A decision affecting the economics of an entire sector genuinely re-prices that sector, and because sectors are heavily weighted, it moves the index. This is one of the few event types where a same-day causal claim is defensible, because the mechanism is specific and the affected group is identifiable.
+
+**Earnings and disclosures from heavyweights.** A quarterly result from one of the largest listed companies affects the index twice: through its own weight and through what it implies about its peers. A result from a small company affects almost nothing at the index level, however loudly it is discussed.
+
+**Sector-specific catalysts.** Hydropower responds to project milestones and seasonal generation. Insurance responds to premium and investment conditions. Tourism responds to arrivals. These move sub-indices, and whether they touch the headline depends entirely on that group's weight.
+
+## Layer three: attention and participation
+
+This is where a retail-dominated market differs most from a heavily institutional one.
+
+NEPSE's participation is overwhelmingly retail. Attention concentrates in a sector or a theme, turnover shifts towards it, and then moves on. That rotation is real and measurable in turnover share.
+
+Two disciplines keep it honest.
+
+**There is no net inflow to find.** Every share bought is a share sold. Any measure of net buying across the whole market is exactly zero by construction. "Money entered the market today" is not a measurable claim; "turnover rose and concentrated in these sectors" is. When someone describes a rupee inflow into NEPSE, they are describing turnover in more dramatic language.
+
+**Rotation is a description of the past.** That attention moved into a sector this week is a fact about this week. Whether it persists is a separate question, and in a market where attention shifts quickly, persistence is not the safe assumption.
+
+Alongside rotation sits information diffusion. In a market with thin analyst coverage, news reaches participants at different times and through informal channels. A move can begin before anything is public and continue for several sessions as the information spreads. That is a genuine mechanism, and it is also the single easiest thing to imagine when it is not happening.
+
+## Layer four: the stories
+
+Then there is the material that fills market commentary: sentiment, confidence, profit booking, support levels, psychological barriers.
+
+Some of this points at something real. Confidence does affect willingness to buy. But as daily explanations these terms fail the basic test: they cannot be measured before the fact, and they can be applied to any outcome. If "profit booking" explains a fall and "value buying" explains a rise, neither statement carries information.
+
+A simple filter, applied to any explanation you read:
+
+1. **Could it have been stated before the close?** If not, it is a fitted story.
+2. **Does it name a mechanism?** "Rates fell, which reduces funding costs for lenders" is a mechanism. "Sentiment was weak" is not.
+3. **Does it match breadth?** An explanation about the whole market should be visible in most stocks, not only in the index.
+4. **Does it survive the arithmetic check?** If the move is explained by an ex-date or a single heavyweight, the narrative is redundant.
+5. **Would it have predicted the opposite equally well?** If yes, discard it.
+
+## The uncomfortable truth about single sessions
+
+Most of what happens in one session is noise — the ordinary variance of a market where thousands of people transact for private reasons. This is not a failure of analysis; it is a property of markets, and it holds in much larger and better-studied exchanges than NEPSE.
+
+The practical consequence is that **single sessions are for observation, not for conclusions.** A day is useful for spotting something worth investigating: an unusual turnover level, a divergence between related sectors, a move with no visible cause. It is not useful for deciding what a company is worth or where the market is heading.
+
+The investors who do worst in a retail market are usually the ones who read every session as a message. The market is not sending messages daily. It is mostly resolving small imbalances, and only occasionally repricing something real.
+
+## What to actually do with this
+
+- **When a session surprises you, check in this order:** ex-date or corporate action, then index weighting and breadth, then a sector-wide policy or rate development, then a heavyweight disclosure. Reach for sentiment last, if at all.
+- **Track structural drivers weekly, not daily.** Liquidity conditions, rate direction and regulatory developments explain multi-week direction and are wasted as daily commentary.
+- **Measure attention as turnover share**, and treat it as a description of where participation went, never as a forecast.
+- **Keep a short record of your own explanations** and revisit them a month later. Most people discover their daily causal claims did not hold. That discovery is worth more than any single correct call.
+
+The goal is not to explain every day. It is to know which days actually contain information and to ignore the rest with a clear conscience.
+
+For the procedure to read a session correctly, see [NEPSE Today: How to Read a Trading Session Properly](/blogs/nepse-today-how-to-read-a-trading-session-properly). For how sector groups transmit these drivers into the index, read [NEPSE Sector Analysis: How Nepal Market Sectors Behave Differently](/blogs/nepse-sector-analysis-how-nepal-market-sectors-behave-differently), and for the underlying market mechanics, [How Does the Nepal Stock Exchange Work?](/blogs/how-does-the-nepal-stock-exchange-work).

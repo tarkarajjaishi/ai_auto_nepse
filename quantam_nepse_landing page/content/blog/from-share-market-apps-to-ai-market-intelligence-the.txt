@@ -1,0 +1,88 @@
+title: From Share Market Apps to AI Market Intelligence: The Evolution of NEPSE Tools
+slug: from-share-market-apps-to-ai-market-intelligence-the
+description: NEPSE tools moved from price lookup to portfolio trackers to screeners — each generation solved delivery, not interpretation. What the next one must fix, and how to judge it.
+category: nepse-analysis
+tags: NEPSE Tools, Share Market App, Stock Screener, Market Intelligence, Nepal Stock Exchange, Investment Technology
+---
+Every generation of NEPSE tooling has solved the same kind of problem: getting numbers to you faster and in a nicer layout. None of them has solved the harder problem, which is telling you whether a number means anything.
+
+That is the thread running through the whole evolution. A price lookup app tells you the last traded price. A portfolio app tells you the last traded price of things you own. A screener tells you the last traded price of things matching filters you chose. All three answer "what is the number", and none answers "is this number unusual, and compared with what".
+
+Understanding this progression is genuinely useful, because it tells you what to demand from the next tool you adopt — and lets you recognise when a product is repackaging an old generation with new vocabulary on the front.
+
+## Generation one: the price board
+
+The first useful NEPSE tools did one thing: they put prices where you could see them without visiting an office or waiting for a newspaper.
+
+What they solved was real and should not be minimised. Access to LTP, day high and low, turnover and the index removed a genuine barrier for ordinary investors, and it brought a large number of people into the market who had no other route to the information.
+
+What they left untouched was everything else. A price with no context is the most over-consumed and least informative number in investing. It tells you what someone paid most recently, not whether the price is high, whether the trading behind it was thin or broad, or whether anything changed today. If you are not sure what that figure does and does not represent, [what is LTP in NEPSE](/blogs/what-is-ltp-in-nepse-complete-explanation) is the short version.
+
+## Generation two: portfolios and charts
+
+The second generation added holdings tracking and price charts. Both were overdue, and both introduced a subtle problem.
+
+Portfolio tracking is genuinely valuable — knowing your actual cost basis and exposure is basic hygiene. But a live profit-and-loss figure updating in front of you also encourages exactly the behaviour that damages returns, which is checking constantly and reacting to noise. The tool made a real improvement and created a new failure mode in the same feature.
+
+Charts had a bigger issue. A chart drawn on unadjusted prices misrepresents history, because a bonus issue or capital restructuring restates the price and appears as a large single-day fall that never happened as a market event. Any indicator computed across that point is wrong, and the chart looks completely normal. Many charting tools handle this correctly. Some do not, and there is no way to tell from the surface — which is why "does this tool adjust for corporate actions" is a fair question to ask before trusting anything drawn on it.
+
+## Generation three: screeners and scanners
+
+The third generation let you filter: show me stocks under a certain P/E, above a moving average, with volume over some multiple of average.
+
+This was the first tooling that resembled analysis, and it introduced the problem that still defines most NEPSE tools today. A screener applies thresholds you chose, and it has no opinion about whether those thresholds mean anything. Set them one way and you get twenty stocks. Move one number slightly and you get a different twenty. Nothing in the interface indicates which set is more meaningful, because the tool does not know.
+
+There are three specific traps.
+
+- **Arbitrary thresholds.** "Volume above twice the average" sounds principled. Why twice? What happens at 1.8 or 2.5? If the result changes a lot, the rule was measuring your parameter choice, not the market.
+- **Cross-stock comparison without normalisation.** Filters on raw volume or raw turnover mostly rank stocks by size and price level. The same list keeps appearing, and it is not because those stocks are always interesting.
+- **Silent survivorship.** A screen run over listed stocks today implicitly excludes anything delisted or suspended, which flatters every historical comparison you make with it.
+
+> A screener with no historical distribution behind it is a filter, not an analysis. It narrows the list; it does not tell you whether the list is worth looking at.
+
+## What every generation left unanswered
+
+Across all three, the same four questions were never addressed — and they are the questions that actually precede a decision.
+
+1. **Is this unusual for this stock?** Not versus the market, versus its own history.
+2. **How did this move happen?** Broad participation or concentrated, expanding turnover or thinning.
+3. **How often does this pattern precede the outcome I am hoping for?** The base rate, counted across the whole market rather than the cases someone remembered.
+4. **When is this number from?** Live session or last close, and if it is a computed board, which session was it built from.
+
+Every one of these requires history, comparison and honest bookkeeping. None requires prediction. That is the key point: the missing layer was never a forecasting engine. It was context.
+
+## Generation four: market intelligence
+
+What distinguishes a market intelligence tool from a better screener is that it does the comparison for you and shows its working.
+
+Concretely, that means metrics normalised against each stock's own distribution rather than against the market; broker-level floorsheet aggregation over a window of sessions rather than a single day's summary; corporate-action-adjusted history behind every derived figure; explicit session labelling on every number; and the ability to return nothing when the data does not support a conclusion.
+
+The floorsheet is the dividing line. NEPSE publishes trade-level records with broker identifiers — data many larger markets never release publicly. It is the richest source a Nepali investor has, and it is almost unused because reading it by hand is impossible. A tool that only presents daily price and volume is working with a fraction of the available evidence, however modern its interface looks. The honest limits of that data also have to be stated: the floorsheet identifies brokers, not clients, so one broker's net buying may be many unrelated accounts. And because every share bought is sold, any claim about a market-wide net buyer is a restatement of turnover. A tool that markets "smart money flow" across the whole market is selling an identity back to you. The screening side of this shift is covered in [AI stock screening for NEPSE](/blogs/ai-stock-screening-for-nepse-how-intelligent-filters-work).
+
+## Features that look like progress and are not
+
+Some of what is currently marketed as the next generation is the previous generation with different labelling.
+
+- **More indicators.** Forty technical indicators computed on the same price series are not forty pieces of evidence. Most are variations on trend and volatility and move together.
+- **Prettier charts.** Presentation quality is now free and carries no information about the rigour underneath.
+- **Prediction percentages.** A specific number attached to an uncertain outcome — "78 per cent bullish" — is a confidence display, not a measurement, unless the tool can show how such readings performed historically.
+- **An AI badge on a rules engine.** If the output would be identical without any model, calling it AI is branding.
+- **Buy and sell signals with no track record.** Any signal generator should be able to show its historical hit rate including the losing periods. Most cannot, and the ones that will not are answering the question by refusing it.
+
+## How to evaluate any NEPSE tool
+
+Five questions. They take a minute and they cut through most marketing.
+
+1. **Where did this number come from, and when?** If a tool cannot show you the source session, everything else is unverifiable.
+2. **What is it compared against?** Ask for the historical distribution behind any "unusual" or "strong" label.
+3. **Is the price history corporate-action adjusted?** If the answer is unclear, treat every indicator on it as suspect.
+4. **Can it say "no view"?** A product that always produces a recommendation produces one on days when it should not.
+5. **What does it refuse to claim?** A tool that is honest about its limits is more trustworthy than one that is confident about everything, and it is a strong signal about whoever built it.
+
+The comparison against the older approach is drawn out in [NEPSE Quantum vs traditional NEPSE analysis](/blogs/nepse-quantum-vs-traditional-nepse-analysis-what-changes).
+
+## What to watch for next
+
+The direction of travel is clear enough: less time spent looking things up, more spent asking whether an observation is unusual, and a growing expectation that tools disclose their inputs and their staleness. Language models will make company filings genuinely searchable, which is the single biggest untapped improvement available to Nepali investors today.
+
+What will not change is the part that matters. No generation of tooling makes an uncertain market certain, and the strongest sign of a serious tool remains its willingness to tell you when it does not know. Judge the next NEPSE product you try by what it declines to promise — a habit worth carrying into [how an AI stock screener could change Nepali investing](/blogs/how-an-ai-stock-screener-could-change-nepali-investing).

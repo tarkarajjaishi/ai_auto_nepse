@@ -1,0 +1,89 @@
+title: How to Start Investing in NEPSE: Beginner's Guide
+slug: how-to-start-investing-in-nepse-beginner-guide
+description: The practical sequence for a first-time NEPSE investor: the three accounts you need, how to place a first order without overpaying, position sizing, costs and taxes.
+category: investment-education
+tags: NEPSE Basics, Investing In Nepal, Demat Account, Beginner Investing, Nepal Stock Exchange
+---
+Starting in NEPSE is an administrative problem before it is an investing problem. Before you can buy a single share you need three accounts, a way to move money between them, and a working understanding of what your broker's platform will and will not let you do. Most people lose their first month to paperwork they could have finished in a week.
+
+The second part is harder and slower: deciding what to buy, and how much. This guide covers both in the order you will actually meet them, and it deliberately gives you no stock names. Anyone handing a beginner a list of tickers is selling something.
+
+## The three accounts, in order
+
+1. **A bank account.** You need one that can move money to your broker and receive proceeds. Nothing exotic is required.
+2. **A Demat account**, opened through a depository participant, usually a bank or a broker. This is where your shares live as electronic entries. It also gives you access to the depository's investor portal, where you see holdings, apply for public issues, and release shares when you sell.
+3. **A trading account with a licensed broker.** This gives you a login to the online trading system through which your orders reach the exchange. Brokers differ in platform reliability and in how quickly they answer the phone. Ask people who actually trade, not people who talk about trading.
+
+You will need identity documents, photographs and a small renewal fee on the depository side each year. Set a reminder for that renewal. A lapsed account is always discovered at the worst possible moment.
+
+## The two doors into the market
+
+**Public issues.** Companies offer shares to the public through applications made in the depository's portal and funded from your bank account. The minimum application is small, typically ten units, and when an issue is oversubscribed the allotment runs as a lottery, so most successful applicants receive the minimum. This is the lowest-stakes way to get a first share into your Demat and watch the mechanics work end to end.
+
+Be honest about what it is, though. Applying to every issue is a lottery habit, not a strategy. It costs you only time when an issue is fairly priced, and it costs you real money when it is not.
+
+**The secondary market.** This is buying from another investor at a market price, and it is where actual investing happens. Everything below is about this door.
+
+## Placing your first order without paying for the privilege
+
+Fund the broker account, open the trading platform, and note these before you tap anything.
+
+- Use a **limit order**. Name the maximum you will pay. A market order in a thinly traded NEPSE stock is how beginners pay several percent above the last trade for no reason at all.
+- Check the **quantity available** near your price, not just the last traded price. A price with no depth behind it is not a price you can transact at.
+- Expect **partial fills**. Your two hundred units may become forty units today and nothing tomorrow.
+- Remember the trade is **not settled the same day**. You cannot buy in the morning and sell in the afternoon. Plan on holding.
+
+When you sell, the shares must be released from your Demat through the depository portal inside the settlement window. Learn that step before you need it. The full order-to-settlement chain is laid out in [how the Nepal Stock Exchange works](/blogs/how-does-the-nepal-stock-exchange-work).
+
+## How to choose what to buy
+
+You need a filter, not a tip. A workable starting filter has four tests, applied in this order.
+
+1. **Can you explain what the company does and how it makes money** in two sentences, without using the word growth? If not, skip it. Nepal's market has enough understandable businesses.
+2. **Is it liquid enough to exit?** Look at how many sessions in the last month the stock traded at all, and its typical daily turnover. A stock that trades in bursts will not let you out on the day you want out.
+3. **Are the earnings real and repeatable?** A single strong quarter driven by a one-off gain is not an earnings base. This is the subject of [analysing a NEPSE stock before buying](/blogs/how-to-analyze-a-nepse-stock-before-buying).
+4. **Is the price sane relative to the company's own history?** Not merely whether the [P/E ratio](/blogs/what-is-p-e-ratio-and-how-does-it) sits below a sector average, which is the weakest form of the question, but whether the current price requires something unusual to happen in order to make sense.
+
+Notice that none of these is a forecast. Beginners lose money forecasting and survive by filtering.
+
+## Position sizing, the decision that actually protects you
+
+Choosing well matters less than sizing sensibly, because your first several choices will contain mistakes you are not yet equipped to detect.
+
+- Decide the **total amount** you are willing to have in the market, and treat it as separate from emergency savings. If you would need it within a year, it does not belong here.
+- Cap any **single stock** at a fraction of that total, chosen so a severe fall in one name is annoying rather than damaging.
+- Spread across **sectors, not just stocks**. Nepali sectors move together far more than the number of listed companies suggests, and a portfolio of five banks is one bet, not five.
+- Keep a **cash reserve inside the plan**. Being fully invested at all times means you cannot act when something obvious finally appears.
+
+> Your first year in the market is tuition. Size your positions so the lesson stays affordable.
+
+## Costs and tax, which are larger than you think
+
+Every trade carries broker commission on a slab basis, a regulatory levy, and a depository charge applied per scrip. On sales, capital gains tax is deducted at source at a rate that depends on your holding period and on whether you are an individual or an institution, with longer holdings taxed more lightly.
+
+Two implications follow.
+
+- **Small, frequent trades are expensive.** Much of the cost is fixed per transaction, so churning a small account is a reliable way to turn a flat market into a loss.
+- **Your break-even sits above your buy price.** Work out roughly what a round trip costs you as a percentage before setting profit targets that quietly ignore it.
+
+## The mistakes that cost beginners the most
+
+- **Buying because a price is rising and you feel late.** The feeling of lateness is not information.
+- **Averaging down without a thesis.** Adding to a falling position is sensible only if you can state why the fall is wrong. Usually you cannot.
+- **Treating a bonus share as a gift.** The share count rises, the price adjusts, and you own the same proportion of the same company.
+- **Confusing an announcement with a result.** A commitment to expand, build or merge is not cash.
+- **Judging yourself on one stock.** A single winner proves nothing about your process, and a single loser disproves nothing either.
+- **Ignoring the floorsheet completely.** It predicts nothing, but it tells you precisely how thin or how concentrated a stock's trading really is, which is exactly what a beginner most needs to know.
+
+## Your first ninety days
+
+A realistic plan, in order.
+
+1. Open all three accounts and finish every verification step. Do not skip the renewal reminder.
+2. Apply to one public issue, purely to watch the process complete.
+3. Read one company's full annual report and two of its quarterly reports before buying anything on the secondary market.
+4. Buy one liquid, understandable company, at a size small enough that being wrong costs you nothing you will remember.
+5. Write down, before you buy, what would make you sell, both the disappointing case and the case where you were simply mistaken.
+6. Then do nothing for a month, and watch how the price behaves against how the business behaves.
+
+That last step is the one everybody skips, and it is the one that teaches you whether you are investing or gambling. The market will still be here in ninety days. The same cannot be promised of capital deployed in a hurry.

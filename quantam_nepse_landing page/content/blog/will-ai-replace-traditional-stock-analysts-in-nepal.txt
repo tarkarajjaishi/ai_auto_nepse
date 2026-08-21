@@ -1,0 +1,85 @@
+title: Will AI Replace Traditional Stock Analysts in Nepal?
+slug: will-ai-replace-traditional-stock-analysts-in-nepal
+description: A task-by-task answer: which parts of a Nepali stock analyst's work machines already do better, which they handle badly, and how the job changes rather than disappears.
+category: ai-and-nepse
+tags: AI Investing, NEPSE Research, Stock Analysis, Nepal Stock Exchange, Investment Research
+---
+No — but the question is framed wrongly, and the wrong framing hides the part that actually affects you. Jobs are not replaced; tasks are. An analyst's role is a bundle of perhaps a dozen distinct tasks, and machines are already better at some of them, useless at others, and dangerous at a few where they appear competent but are not.
+
+The useful exercise is to unbundle. Once you list what an analyst actually does hour by hour, it becomes obvious which hours are at risk. In Nepal, the answer is uncomfortable for the profession as currently practised: a large share of analytical time goes into collecting, transcribing and reformatting information rather than judging it, and that share is close to fully automatable.
+
+What follows is that breakdown, plus what the job looks like on the other side and what you should demand from anyone whose research you rely on.
+
+## Break the job into tasks, not titles
+
+Strip away the title and a stock analyst does roughly this:
+
+1. Collects data — financials, prices, disclosures, sector figures.
+2. Normalises it into comparable form across companies and periods.
+3. Computes standard measures — growth, margins, EPS, P/E, book value, capital ratios.
+4. Compares a company against its peers and its own history.
+5. Builds a forward projection under stated assumptions.
+6. Reads qualitative material: management commentary, notes to accounts, auditor language.
+7. Talks to people — management, brokers, industry contacts.
+8. Forms a judgement, including on things that are not in any document.
+9. Writes it up persuasively.
+10. Defends it when it is wrong, and updates.
+
+Tasks one to five are arithmetic and clerical. Task six is largely language processing. Tasks seven, eight and ten are where the human is not currently replaceable in this market. Task nine sits awkwardly in between: machines write fluently, which is precisely why it is risky.
+
+## What machines already do better
+
+Not "will eventually" — already, and by a wide margin.
+
+- **Coverage.** A person can follow perhaps twenty companies properly. Software applies the same treatment to every listed name, every day, without deciding that one is boring.
+- **Consistency.** The same definition of a metric applied identically, so a comparison between two companies is genuinely a comparison and not two different methods placed side by side.
+- **Memory.** A model does not forget what a company reported eight quarters ago or that a similar situation played out differently in another sector.
+- **Scale on granular data.** NEPSE publishes a broker-level floorsheet. Aggregating months of it across the whole market is trivial for software and impractical by hand. Most of that data is simply unused by human analysts because reading it is not a good use of a human.
+- **Freedom from mood.** No analyst is the same the day after a large loss. Code is.
+
+That is a serious list, and it is why [AI can analyse NEPSE stocks faster than traditional methods](/blogs/how-ai-can-analyze-nepse-stocks-faster-than-traditional) is not a controversial claim. Speed and consistency are real, measurable, and not in dispute.
+
+## What machines do badly, and specifically badly in Nepal
+
+Now the other side, and the Nepal-specific parts matter more than the general ones.
+
+**Context that was never written down.** In a market this size, a great deal of decisive information lives in relationships and local knowledge: how a promoter has behaved in previous companies, whether a project's land acquisition is genuinely settled, what a regulator is likely to do next. None of that is in a filing. A model trained on filings cannot know it and — more dangerously — will produce a confident answer anyway.
+
+**Thin and irregular history.** Statistical methods need many examples of the pattern they claim to detect. Nepal's market is young, its listed universe has changed shape, and several sectors have few comparable companies with long histories. This is not a flaw in the technology; it is a shortage of the evidence any method needs.
+
+**Structural breaks.** Regulatory changes, mergers between financial institutions, changes in capital requirements — these make the past a poor guide, and models are built on the past by construction. A human analyst can say "the rules changed, the history no longer applies". A model has no mechanism for noticing that unless someone tells it.
+
+**Language that means something different in finance.** "Liability" is not negative and "aggressive growth" is not a compliment in every context. General-purpose language models read financial prose with a general-purpose vocabulary and get tone wrong in ways that are hard to spot because the output reads well.
+
+> The failure mode of a machine analyst is not admitting ignorance. It is answering fluently and being wrong, which is much harder to catch than silence.
+
+## The accountability problem
+
+There is a reason this will not resolve into pure automation, and it has nothing to do with capability.
+
+Someone has to own the decision. When a recommendation is wrong, an institution needs a person who explains what was assumed, why it was reasonable at the time, and what has changed. That accountability is not a formality — it is the mechanism by which a research process improves. A model that produces a number and cannot be interrogated about its reasoning provides no such mechanism.
+
+This is also why explainability is worth more in practice than accuracy in a demo. A method whose logic you can inspect, argue with and test is more useful than a slightly better black box, because you can tell when it stops applying. [AI versus human stock analysis](/blogs/ai-vs-human-stock-analysis-which-is-better-for) covers this trade-off in more depth.
+
+## What the job becomes
+
+The plausible outcome is not fewer analysts but differently occupied ones. Time currently spent on collection and computation moves to:
+
+- **Specifying what to measure**, and defending those definitions. Deciding that "unusual broker participation" means one thing rather than another is a judgement call that determines everything downstream.
+- **Auditing the machine.** Checking whether the data pipeline is silently dropping rows, whether a corporate action has corrupted a price series, whether a result is an artefact of how a metric was constructed.
+- **Handling the unmodellable.** Regulation, promoter conduct, project execution risk, political context.
+- **Communicating uncertainty honestly** to people who would prefer a confident number.
+
+Notice that all four are harder than the tasks they replace. The floor of the profession rises. An analyst whose value was assembling a spreadsheet has a problem; one whose value was judgement now has better inputs.
+
+## What you should demand from research now
+
+If you rely on someone else's analysis — human or automated — the standards should go up, because the cost of meeting them has fallen.
+
+1. **Coverage of the whole universe, not a shortlist.** If a screen only ever surfaces well-known names, ask what was excluded and why.
+2. **Stated definitions.** Every metric should be defined precisely enough that you could recompute it.
+3. **Evidence held out of sample.** Any claim about what works should be tested on data the method never saw during design.
+4. **Explicit uncertainty.** Research that never says "we do not know" is not being careful; it is being marketed.
+5. **A trail back to the source.** Any figure from a generated summary should be traceable to the filing it came from. Verify against the original — see [how to read a NEPSE company financial report](/blogs/how-to-read-a-nepse-company-financial-report) for what to check.
+
+The realistic future is neither replacement nor business as usual. It is that the clerical half of analysis becomes free, and everything that made an analyst worth listening to in the first place becomes the entire job.

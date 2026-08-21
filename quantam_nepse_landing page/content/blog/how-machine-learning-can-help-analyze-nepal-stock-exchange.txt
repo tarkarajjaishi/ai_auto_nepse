@@ -1,0 +1,88 @@
+title: How Machine Learning Can Help Analyze Nepal Stock Exchange Data
+slug: how-machine-learning-can-help-analyze-nepal-stock-exchange
+description: Applying machine learning to NEPSE data: which datasets are usable, how to frame the problem, how to validate honestly, and the mistakes that produce fake results.
+category: ai-and-nepse
+tags: Machine Learning, NEPSE Data, Quantitative Analysis, Nepal Stock Exchange, Backtesting
+---
+Machine learning is useful on Nepal Stock Exchange data, but not for the reason it is usually proposed. It is a poor tool for guessing tomorrow's price and an excellent one for finding structure in datasets too large to inspect — which is exactly what NEPSE's broker-level floorsheet is. Get the problem framing right and the work is productive. Get it wrong and you will produce a model that looks superb in testing and does nothing in the market, which is the standard outcome.
+
+The difficulty in Nepal is not access to algorithms. Every technique worth using is freely available and runs on a laptop. The difficulty is that financial data breaks nearly every assumption those techniques were designed around: the relationships shift over time, samples overlap, the signal is faint, and there are far more ways to accidentally cheat than to genuinely succeed.
+
+This article covers what you can actually build with NEPSE data, how to frame and validate it so the result means something, and the specific failures that produce confident nonsense.
+
+## The datasets you have, and what each is good for
+
+Four sources, with different strengths.
+
+1. **Daily price and volume history.** The backbone. Usable for volatility estimation, trend and regime description, and relative comparison. Weak for direction prediction, which is what everyone tries first.
+2. **The broker-level floorsheet.** NEPSE's genuinely distinctive dataset — trade-level records with broker identity, which many larger markets never publish. Rich enough for participation, concentration and flow analysis. The one place where a real informational edge is plausible, because so few people have processed it.
+3. **Company fundamentals.** Quarterly and annual figures. Low frequency, so any model built on them has very few independent observations per company, which sharply limits what can be claimed.
+4. **Text — disclosures, filings, news.** Best handled by language models for extraction and summarisation rather than as a prediction input. Sentiment scoring on a small, thinly covered market produces far noisier features than people expect.
+
+Notice that the first thing to decide is not the model. It is which of these four your question actually lives in.
+
+## Frame the problem so the answer can be wrong
+
+Most failed NEPSE modelling starts with "predict the price". That target is almost unlearnable at short horizons and it hides its own failure, because a model that simply predicts "roughly unchanged" scores well on error metrics while being useless.
+
+Better framings, in rough order of how likely they are to produce something real:
+
+- **Description.** Classify the current volatility regime. Measure how unusual today's activity is relative to this security's own history. No prediction involved, immediately useful, and verifiable.
+- **Ranking.** Instead of predicting a return, ask whether the model's ordering of securities relates to what happened next. Ranking is a weaker claim than forecasting and therefore easier to establish honestly.
+- **Classification with a real baseline.** Will this stock outperform the market over a defined horizon? Always compare against the naive baseline — always answering "no" — because in a market where the median outcome is often negative, a trivial rule can beat an elaborate one.
+- **Anomaly detection.** Flag sessions that do not resemble this stock's usual behaviour. This is a screening tool, not a signal; the move has usually already happened by the time the flag appears.
+
+> A model that cannot be shown to be wrong has not been tested. It has been described.
+
+## Features that survive, and features that are illusions
+
+Feature construction is where most of the damage happens, because plausible-sounding quantities on NEPSE data are frequently proxies for something trivial.
+
+Reliable inputs: returns over several horizons, realised volatility, turnover relative to the security's own history, position within its recent range, and participation breadth from the floorsheet.
+
+Inputs to distrust:
+
+- **Anything measured in share counts rather than value.** A cheap stock trades in large lots. Average trade size in shares is largely an inverse price proxy, and every metric built from it inherits that.
+- **Raw broker net quantities.** Every share bought is sold, so market-wide net flow is exactly zero by construction. A metric that appears to find a net buyer across the market is re-describing turnover.
+- **Concentration measures without a baseline.** Concentration in a thinly traded security is mostly a statement about liquidity. Compare against the security's own typical concentration, not against a fixed number.
+- **Anything correlated above about 0.7 with turnover.** It probably is turnover. Test this explicitly before you build on it.
+- **Rankings computed over the full sample.** If you rank the universe using data from the whole history, you have leaked the future into every early date. Rank point-in-time, using only what was known then.
+
+A useful habit: whenever a new feature looks powerful, regress it against the obvious explanations — price level, turnover, market direction, and the date itself. Most candidates die there, and the ones that survive are worth the effort.
+
+## Validation is the whole discipline
+
+Standard cross-validation is invalid on time-series financial data. Shuffling rows lets the model see the future, and overlapping return windows make adjacent samples nearly identical, so the test set is not independent of the training set.
+
+What honest validation requires:
+
+1. **Walk forward.** Train on a period, test on the period immediately after it, roll forward, repeat. Never test on anything earlier than the training window.
+2. **Report every year separately.** A single average hides everything. Many NEPSE strategies are one strong market period carrying an otherwise flat record, and the per-year table is where that becomes visible.
+3. **Demean by date.** If the whole market rose on a day, every stock's raw return that day reflects it. Subtract the cross-sectional mean before attributing anything to your signal, or you have built a market-direction detector.
+4. **State a baseline and beat it.** Random entry into the same universe over the same horizon. If your rule does not clearly beat random selection, you have nothing, however impressive the equity curve looks.
+5. **Count your attempts.** Twenty variants tested means one will look significant by chance. Adjust for that, or the significance you report is fiction.
+6. **Freeze a holdout you have never looked at.** Once you have examined a period, it is no longer out of sample, whatever you call it.
+
+Most published NEPSE strategies fail at points two, three and five. Applying just those three kills the large majority of promising-looking results, which is unpleasant and is the entire value of doing it. [Backtesting a NEPSE Trading Strategy: Complete Beginner Guide](/blogs/backtesting-a-nepse-trading-strategy-complete-beginner-guide) goes deeper on the mechanics.
+
+## The data problems specific to Nepal
+
+Before any of the above matters, the data has to be right, and NEPSE data has particular failure modes.
+
+**Corporate actions.** Bonus issues, rights and dividends shift the price series without anything happening to the business. Unadjusted, they appear as sharp falls, and models learn from phantom events. Detect them by the gap at the open rather than by the size of the fall, and remember that NEPSE's daily circuit limit is wider than the ten percent people often assume.
+
+**Format drift in historical files.** Older archived data frequently differs from recent data in line endings, number formatting and identifier conventions. A parser that quietly discards rows it cannot read produces a clean dataset from a fraction of the sessions, and nothing warns you. Reconcile row counts and totals against an independent source before trusting any archive.
+
+**Non-numeric identifiers.** Not every participant code in a trade file is a plain number. Code that assumes otherwise can silently drop entire categories of trades while every consistency check still passes.
+
+**Survivorship.** Building your universe from currently listed securities excludes everything that stopped trading, which flatters every historical result.
+
+**Thin history.** Many instruments simply do not have enough trading days for a statistical claim to mean anything. Set a minimum and exclude the rest openly rather than scoring them anyway.
+
+## What to expect if you do this properly
+
+Expect most of your ideas to die. That is not a sign you are doing it badly; it is the sign that your tests work. The families of signal that most often survive honest testing are the dull ones — volume and participation confirming a move that has already begun, rather than anything claiming to see it in advance.
+
+Expect the edge, if you find one, to be small, unstable across years, and vulnerable to costs. Expect the strongest practical benefit to be descriptive: knowing precisely what happened in a stock, measured against its own history, before you decide anything.
+
+If you want to start, do it in this order: build a clean, verified dataset; reproduce one simple known statistic by hand to prove the pipeline; frame a descriptive question rather than a predictive one; and only then reach for a model. For the broader picture on where prediction genuinely ends, see [Can Artificial Intelligence Predict NEPSE?](/blogs/can-artificial-intelligence-predict-nepse) and [Machine Learning for NEPSE: How Stock Data Can Be Analyzed](/blogs/machine-learning-for-nepse-how-stock-data-can-be).

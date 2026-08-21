@@ -1,0 +1,87 @@
+title: NEPSE Quantum: Connecting AI, Quantitative Analysis and Nepal's Stock Market
+slug: nepse-quantum-connecting-ai-quantitative-analysis-and-nepal-stock
+description: How artificial intelligence, quantitative method and NEPSE's published data fit together, what each part contributes, and the failure points that break the chain between them.
+category: nepse
+tags: NEPSE Quantum, Quantitative Analysis, NEPSE AI, Nepal Stock Exchange, Floorsheet Data, Data-Driven Investing
+---
+Three ideas get bolted together in Nepali market conversation — artificial intelligence, quantitative analysis, and the Nepal Stock Exchange — usually without anyone explaining how they connect. They connect through one uncomfortable requirement: every claim has to become a number that can be recomputed tomorrow, on the same inputs, with the same answer.
+
+That requirement is the whole discipline. Quantitative analysis is the practice of turning a market opinion into a defined calculation. Artificial intelligence is a set of techniques for finding and applying such calculations at a scale no person can match by hand. NEPSE is the source of raw material — daily prices, volumes, sector sub-indices, company disclosures, and a broker-level floorsheet that most markets do not publish to the public at all.
+
+Take any one of the three away and the other two stop being useful. Data without method is a spreadsheet nobody reads. Method without data is a theory. Both without machinery is a person doing arithmetic on three hundred securities and quietly giving up on two hundred and eighty of them.
+
+## Quantitative analysis is the older half of this story
+
+Long before machine learning arrived, quantitative investing already existed, and its core move was not computational. It was definitional.
+
+Instead of saying "this stock looks strong", you say "this stock's close is above its own average of the last fifty sessions, and its turnover this week is above its own typical weekly range". The second statement is duller. It is also testable, arguable, and identical when your neighbour applies it.
+
+That shift from adjective to definition does most of the work. It lets you:
+
+- Apply the same test to every listed security rather than the handful you happen to follow.
+- Check whether the test would have told you anything useful in past years.
+- Discover that a rule you were sure about has no relationship to what happened next.
+
+The third outcome is the most valuable and the least popular. A good quantitative process kills more ideas than it keeps. If yours has never rejected one of your own beliefs, it is not measuring, it is decorating. The mechanics of that testing are covered in [Backtesting a NEPSE Trading Strategy: Complete Beginner Guide](/blogs/backtesting-a-nepse-trading-strategy-complete-beginner-guide).
+
+## What AI adds that quantitative method alone does not
+
+Classical quantitative analysis needs a human to propose the rule. Machine learning can search a space of rules, weigh many weak indications at once, and handle inputs that do not fit neatly into a formula — text, for instance.
+
+Three additions are real:
+
+1. **Scale of comparison.** A model can measure every security against its own history, every session, without skipping. Humans skip.
+2. **Non-obvious combinations.** Several individually unimpressive signals can carry information jointly. Finding that combination by hand is guesswork; it is exactly what a fitting procedure does.
+3. **Unstructured text.** Quarterly reports and disclosures are prose. Language models can extract figures and tone across hundreds of documents, which no analyst does thoroughly.
+
+There is also a cost, and it is severe. The more freely a model searches, the more easily it finds patterns that exist only in the sample it was shown. In a market with a few hundred listed companies and a history measured in years rather than decades, that risk is not theoretical — it is the default outcome unless you actively defend against it.
+
+> A flexible model on a small market will always find something. The discipline is in proving that the something survives data the model never saw.
+
+## Where NEPSE's data is unusually generous
+
+The floorsheet deserves specific attention. NEPSE publishes trade-level records identifying the brokers on each side. Many larger markets release nothing comparable to the public.
+
+This makes descriptive questions answerable that elsewhere require paid data:
+
+- Which brokers were net buyers of a security over a defined window, and is that unusual relative to their own normal activity?
+- Was today's turnover concentrated in a few brokers or spread widely?
+- How does a session's activity compare with that stock's own typical range?
+
+These are statements of fact, not forecasts, and they are a far more reliable product than prediction. The limitation is equally important: the floorsheet identifies brokers, not clients. One client trading through three brokers looks like three participants; three clients through one broker look like one. Any conclusion about "who is accumulating" has to survive that ambiguity, and many popular claims do not.
+
+There is a harder constraint still. Every share bought is sold. Across the whole market, net buying is exactly zero by construction. Any metric that appears to reveal a hidden net buyer market-wide is re-describing turnover under a more exciting name. Testing for that is routine work in [How Quantitative Analysis Can Improve NEPSE Stock Research](/blogs/how-quantitative-analysis-can-improve-nepse-stock-research).
+
+## The chain from raw data to a number on a screen
+
+Connecting the three parts is a pipeline, and each stage has a characteristic way of failing.
+
+1. **Collection.** Archive prices, volumes, floorsheet rows and disclosures. Failure: silently dropping malformed rows and never noticing the gap.
+2. **Normalisation.** Adjust for corporate actions, handle non-trading days, reconcile sources. Failure: a bonus adjustment that turns an ordinary session into a phantom crash.
+3. **Computation.** Turn the archive into defined measures. Failure: a measure that is mathematically fine but labelled as something it is not.
+4. **Validation.** Test whether the measure has any relationship to later outcomes, out of sample and year by year. Failure: reporting the average and hiding that most individual years lost.
+5. **Presentation.** Show the number with its date, its source session, and its uncertainty. Failure: yesterday's close presented as a live price.
+
+That last one is the most common defect in market software anywhere, and the least forgivable. A number that is correct but undated is indistinguishable from a number that is wrong.
+
+## Why "Quantum" here is not a claim about physics
+
+Worth stating plainly: the name is not an assertion that quantum computers are being used to analyse Nepali equities. They are not, anywhere, in production, for any market. Quantum hardware today is small, noisy, and not competitive with ordinary computers on the sorts of calculations market analysis actually requires.
+
+Anyone selling you market software on the basis of quantum physics is selling vocabulary. The honest reading of the word in a brand is aspirational — a signal about ambition and method, not about hardware. If you want the technical position, [What Is Quantum Computing and Could It Change Nepal Stock Market?](/blogs/what-is-quantum-computing-and-could-it-change-nepal) sets out what the machines can and cannot do.
+
+## What to demand before you trust any such system
+
+Whether the tool is yours, a broker's, or a subscription service, the same short list applies.
+
+- **Every figure carries its session.** If you cannot tell which trading day produced a number, treat it as unusable.
+- **Description and prediction are visibly separated.** "This broker accounted for a large share of today's volume" is a fact. "Therefore the price rises" is a claim requiring evidence.
+- **Results are shown per year, not only in aggregate.** A strategy that made its entire return in one exceptional stretch is not a strategy.
+- **The system reports when it does not know.** A tool with a confident answer for every security every day is not measuring anything.
+- **The same inputs give the same output.** If yesterday's screen cannot be reproduced, no claim about it can be checked.
+
+## What to do with this
+
+Start with description, not prediction. Pick one measure you can define precisely — a stock's turnover relative to its own history, or a broker's activity in a name relative to that broker's own baseline — and track it for a few weeks before drawing conclusions from it. You will learn more from watching one honest number behave than from a dashboard of forty you cannot explain.
+
+Then apply the sceptical test to everything else you are shown, including anything built here. The market for confident-sounding market software is far larger than the market for accurate market software, and in Nepal it is only beginning to grow. The defence is the same as it has always been: ask what the number means, ask which day it came from, and ask what evidence exists that it ever mattered.

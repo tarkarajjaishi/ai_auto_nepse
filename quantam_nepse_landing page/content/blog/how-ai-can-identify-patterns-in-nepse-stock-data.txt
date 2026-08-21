@@ -1,0 +1,80 @@
+title: How AI Can Identify Patterns in NEPSE Stock Data
+slug: how-ai-can-identify-patterns-in-nepse-stock-data
+description: What a genuine pattern in NEPSE data is, which datasets are worth searching, and the kill tests that separate a real relationship from one your model invented.
+category: quantitative-finance
+tags: NEPSE AI, Machine Learning, Quantitative Analysis, Floorsheet Data, Nepal Stock Exchange, Backtesting
+---
+A pattern, in the statistical sense, is a conditional relationship that repeats: when this condition holds, the distribution of what happens next is measurably different from the distribution when it does not. That is a much narrower thing than what most people mean by a chart pattern, and the difference is the whole subject.
+
+A machine looking at NEPSE data will always find patterns. That is not a claim about the market; it is a property of search. Give an algorithm a few hundred symbols, a decade of daily bars, and fifty candidate features, and it has millions of combinations to try. Some will look excellent purely by chance. The skill in this work is almost entirely in ruling things out, not in finding them.
+
+So the useful question is not whether AI can identify patterns in NEPSE data. It obviously can. The question is which of those patterns existed before the search began, and that requires a discipline most published analysis skips.
+
+## The datasets worth searching
+
+Nepal has a narrower data landscape than developed markets, but one part of it is unusually rich.
+
+- **Daily price and volume history.** Open, high, low, close and traded quantity per symbol. This is the standard starting point and also the most heavily mined. Anything obvious here has been looked for many times.
+- **The broker-level floorsheet.** NEPSE publishes trade-level records showing which broker bought and which sold. Very few markets make this available, and very few retail investors in Nepal use it at scale. This is where the genuinely unexplored ground is.
+- **Company fundamentals.** Quarterly and annual figures, with a publication lag that must be respected exactly.
+- **Corporate actions.** Bonus issues, right issues, dividends. These are not just adjustments to apply — the announcement and ex-date behaviour is itself a dataset.
+- **Sector membership.** Sub-index classification, which lets you separate a stock's own move from its sector's.
+- **Text.** Company disclosures, announcements and news, which language models can now read at scale.
+
+## The families of pattern a model can look for
+
+Different techniques answer different questions, and it helps to be explicit about which one you are asking.
+
+**Time-series structure within a symbol.** Does today's return carry information about tomorrow's? Do volatility bursts cluster? Are there stretches where a stock trends and stretches where it mean-reverts? Volatility clustering is one of the few relationships that shows up robustly in almost every equity market studied, and there is no strong reason NEPSE would be an exception.
+
+**Cross-sectional ranking.** Rather than predicting a stock's return, rank all liquid symbols against each other on the same day and ask whether the top of the ranking outperforms the bottom. This is usually the more tractable problem, because it cancels out the market-wide move that dominates a small, retail-driven exchange.
+
+**Anomaly detection.** Instead of predicting, flag what is unusual: a volume spike far outside a symbol's own history, a price move without a matching volume move, a broker suddenly accounting for a much larger share of a stock's turnover than usual. Anomaly detection is honest about what it does — it surfaces things for a human to look at, and does not claim to know what happens next.
+
+**Clustering and correlation structure.** Which stocks actually move together, as opposed to which ones share a sub-index label? Sector classification is administrative; measured co-movement is empirical, and the two disagree more often than you would expect.
+
+**Text extraction.** Pulling figures and tone out of quarterly reports and disclosures consistently, across hundreds of documents, so a human can compare like with like.
+
+## The floorsheet, and the trap inside it
+
+The floorsheet is the most interesting NEPSE dataset and the one most likely to produce a false discovery, because it invites a specific mistake.
+
+There is a conservation identity in trade data: every share bought is sold. Across the whole market, net buying and net selling sum to exactly zero. This is arithmetic, not a finding. Any metric that appears to reveal a hidden net accumulator across the entire market is either measuring something else or has an error in it.
+
+What survives that identity are relative and distributional measures within a single stock. How concentrated was today's buying across brokers? How much of a broker's activity in a name is churn — buying and selling the same day — versus a directional position held across sessions? How does that concentration compare with the same stock's own recent history?
+
+Even then, be careful. Many broker-flow metrics turn out on inspection to be turnover in disguise. A stock with heavy trading will look interesting on almost any activity-derived measure. The correct control is to neutralise turnover explicitly — rank stocks within turnover buckets, or regress the signal on turnover and study the residual — and see whether anything is left. Frequently nothing is.
+
+> A model always finds a pattern. The only question that matters is whether the pattern was there before you went looking for it.
+
+## Why NEPSE is a hard place to do this
+
+Several features of the market make honest pattern discovery harder here than in a large developed exchange, and none of them are reasons not to try. They are reasons to expect fewer findings and to test them harder.
+
+- **Short usable history.** A decade of daily data on a few hundred symbols sounds like a lot until you count independent observations. For a signal measured over a twenty-day horizon, one year gives you roughly a dozen non-overlapping periods.
+- **Thin and uneven liquidity.** Many symbols do not trade every day. Gaps in a price series are not zeros, and treating them as such creates artificial patterns.
+- **Daily price limits.** When a stock hits its circuit, the observed close is not the price at which the market cleared. Returns are censored, and models that ignore this will mis-learn the tails.
+- **Regime change.** Regulatory and monetary shifts alter market behaviour structurally. A relationship fitted across a period containing such a shift may describe two different markets averaged together.
+- **A dominant common factor.** In a retail-driven market, most stocks move with the index most of the time. A model that appears to predict individual stocks often just predicts the market, which is a much less useful thing.
+
+## The kill tests
+
+Before believing any pattern found in NEPSE data — by a model, by a human, or by you — put it through these. Most candidates die at the first or second.
+
+1. **Out-of-sample.** Fit on one period, test on a period the search never touched. Not a random split of the rows, which leaks information across time, but a clean forward split.
+2. **Per-year breakdown.** Report the result for every year separately, not just the full-sample average. A signal that works in two strong years and loses in five is not a signal; it is a market call.
+3. **Point-in-time construction.** Every input must have been knowable at the moment of the decision. Quarterly results were not available on the last day of the quarter. Sector classifications and index membership as they are today were not what they were then.
+4. **Survivorship.** If the universe was chosen from symbols that exist and trade well now, the test is contaminated by hindsight.
+5. **Control for the obvious.** Neutralise turnover, price level, sector and market beta, and see whether the effect survives. Many published factors are one of these four wearing a different name.
+6. **Multiple testing.** If you tried two hundred variants, the best one will look impressive by chance alone. Adjust the significance bar for how many things you tested, or hold out data you never touch until the very end.
+7. **Costs and capacity.** A pattern that vanishes after brokerage, fees, taxes and the spread you would actually pay is not tradeable. In thin names, the size you can transact without moving the price is a hard limit.
+
+A finding that survives all seven is rare, and the honest expectation is that most of what you test will not. That is the normal outcome of this work and not a failure of the method. [Backtesting a NEPSE trading strategy](/blogs/backtesting-a-nepse-trading-strategy-complete-beginner-guide) sets out how to run these tests properly, and [how machine learning can help analyse Nepal Stock Exchange data](/blogs/how-machine-learning-can-help-analyze-nepal-stock-exchange) covers the broader pipeline.
+
+## What to actually do
+
+If you are evaluating a tool, a service or your own work, ask for the failures rather than the successes. A credible pattern-finding process can tell you what it tested and rejected, over which years, on which universe, with which costs assumed. One that only shows winners has not done the work, or is not showing it.
+
+If you are doing this yourself, start with anomaly detection rather than prediction. Surfacing unusual volume or unusual broker concentration for human review is achievable, useful and honest about its limits. Predicting returns is a much harder problem, and the sceptical treatment in [can AI really predict NEPSE](/blogs/can-ai-really-predict-nepse-separating-technology-from-hype) is worth reading before you assume otherwise.
+
+And keep a written record of every hypothesis you test, including the ones that fail. Without it you cannot know how many things you tried, and without that number you cannot judge whether your one good result means anything at all.

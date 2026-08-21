@@ -1,0 +1,89 @@
+title: How an AI Stock Screener Could Change Nepali Investing
+slug: how-an-ai-stock-screener-could-change-nepali-investing
+description: What changes for a Nepali investor when a screener covers the whole market instead of a familiar watchlist, and the four problems it leaves exactly where they were.
+category: nepse-stocks
+tags: NEPSE Stocks, Stock Screener, Investing in Nepal, Data-Driven Investing, Retail Investors
+---
+The practical effect of a good screener is not that it picks better stocks. It is that it changes what a single investor can pay attention to. Most retail decisions in Nepal are made across a watchlist of perhaps ten to thirty familiar names — the ones friends discuss, the ones in the news, the ones already held. A screener replaces that with the whole listed market, evaluated the same way, every session.
+
+That sounds like a small change. It is not. It shifts where your ideas come from, and idea generation is the part of investing most people never examine.
+
+This article is about the second-order effects: what actually changes in behaviour, what changes in the market if enough people adopt these tools, and which problems stay exactly where they were.
+
+## The search cost collapses, and that reshapes the shortlist
+
+Reviewing several hundred companies by hand is not something a working person does. So the realistic universe for most investors is whatever they already know about — which means the ideas arriving on your desk are filtered by what other people talk about, not by any property of the companies.
+
+When the cost of screening the full market falls to near zero, three things follow.
+
+- **The neglected tail becomes reachable.** Smaller and less-discussed companies get evaluated on the same terms as the crowd favourites. Some of them deserve the neglect. Finding out which is now cheap.
+- **Familiarity stops being a filter.** You no longer implicitly exclude a company because you have not heard of it, which is a bias with no relationship to returns.
+- **Absence becomes informative.** When a stock everyone is discussing does not appear on any sensible screen, that is a data point worth understanding.
+
+The screener does not make you right. It makes the set of things you consider much larger and much less socially determined.
+
+## A written rule beats a remembered one
+
+The second change is about consistency rather than coverage. A screen forces you to state, in advance and in writing, what a candidate looks like. That single act removes a surprising amount of self-deception.
+
+Human criteria drift. Yesterday you wanted cheap; today, after a run in the market, you want momentum. You will not notice the drift, because you never wrote the first version down. A screen written down can be argued with, tested against history, and — crucially — will keep returning uncomfortable names when the market mood has turned.
+
+> The value of a written screen is that it is the same on your worst day as on your best. It has no memory of the loss you took last week and no enthusiasm for the story you read this morning.
+
+That discipline matters more in a retail-dominated market than in an institutional one. Where price is set largely by individual sentiment, the investor running a fixed process is doing something structurally different from most of the participants around them.
+
+## A record you can actually learn from
+
+The third change is the one people underrate: a screener produces a dated log of what it recommended, whether or not you acted.
+
+Without that log, learning from your own investing is nearly impossible. You remember the positions you took and the outcomes you cared about. You do not remember the ten names you dismissed, which is exactly the sample you need to know whether your judgement adds anything on top of the screen.
+
+Keep every run. Six months later you can answer questions that are otherwise unanswerable:
+
+1. Did the names the screen ranked highest behave differently from the ones it ranked in the middle?
+2. When I overrode the screen, was I right more often than not?
+3. Did the screen's edge, if it had one, hold in every year or only in one good stretch?
+4. Which component of the score was doing the work, and which was decoration?
+
+That is the difference between using a tool and being an investor who improves.
+
+## What happens if everyone uses one
+
+Worth thinking about, because it is the honest counterweight to all of the above.
+
+If a large number of participants run similar screens on the same public data, the obvious signals get competed away. That is how markets work everywhere, and there is no reason NEPSE would be exempt. The value of a widely available screen decays as it becomes widely used.
+
+Two things soften this. First, execution differs: two people running the same screen still size differently, hold differently and panic at different points, and those choices dominate outcomes more than selection does. Second, the deeper inputs — particularly careful work on the broker-level floorsheet, which NEPSE publishes in unusual detail — are hard enough to process correctly that they do not commoditise quickly.
+
+But you should expect any simple, popular screen to work less well over time, and you should be suspicious of a tool that claims otherwise.
+
+## The four things that do not change
+
+A screener is a research instrument. It leaves the following exactly where it found them.
+
+- **Liquidity.** If a stock trades thinly, a high score does not create a seller when you want out. Position size has to respect the actual traded volume, not the score.
+- **Information asymmetry.** Public data is public. Whatever is known to insiders and not to the market is not in the dataset, and no amount of modelling recovers it.
+- **Your risk tolerance and time horizon.** These are personal facts about your circumstances. A screen has no view on how much you can afford to lose or when you need the money.
+- **The market's overall direction.** In a broad decline, a well-selected portfolio still falls. Selection and market exposure are separate decisions and should be managed separately.
+
+There is also a fifth item, less obvious: a screen cannot tell you whether its own edge is real. Only out-of-sample testing does that, and most published claims have never faced one.
+
+## The false-authority risk
+
+The most dangerous property of a numerical score is that it looks objective. A number carries an authority a sentence does not, even when the number is the output of arbitrary weights chosen by someone who never explained them.
+
+Protect yourself with three habits.
+
+- Insist on seeing the components behind any composite score, and their definitions.
+- Distrust any score with no history of being wrong. A process that has never produced a bad call has not been running long enough or is not being honestly reported.
+- Remember that precision is not accuracy. A score of 72.4 is not more trustworthy than "above average"; it just looks it.
+
+## What this could mean for the market as a whole
+
+If a meaningful share of Nepali retail investors moved from tip-driven to evidence-driven decisions, the plausible effects are modest but real: attention spread more evenly across listed companies rather than concentrated in a handful of names, more scrutiny of reported fundamentals, and a slightly higher cost to running a stock on narrative alone. None of that happens quickly, and none of it makes the market efficient. It would make it a little better researched, which is a lower bar and a worthwhile one.
+
+## What to do
+
+Start with the process, not the tool. Write down, in a paragraph, what you are looking for and why you believe it should matter. Then run a screen that encodes it, keep every result, and review the log honestly after a few months — including the names you passed over.
+
+If you want the mechanics of how such a screen is built and where it goes wrong, read [how intelligent filters work](/blogs/ai-stock-screening-for-nepse-how-intelligent-filters-work). For the broader method behind evidence-based selection, see [quantitative investing in Nepal](/blogs/quantitative-investing-in-nepal-a-beginner-guide) and [the rise of data-driven investing](/blogs/data-driven-investing-in-nepal-the-rise-of-quantitative).

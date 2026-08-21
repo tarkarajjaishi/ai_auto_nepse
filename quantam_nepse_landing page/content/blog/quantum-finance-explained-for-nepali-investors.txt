@@ -1,0 +1,90 @@
+title: Quantum Finance Explained for Nepali Investors
+slug: quantum-finance-explained-for-nepali-investors
+description: The phrase quantum finance carries four completely different meanings, only some of them technical. Here is how to tell them apart and what each one is worth to a NEPSE investor.
+category: quantum-finance
+tags: Quantum Finance, Nepal Stock Exchange, Investor Education, NEPSE, Investment Risk, Financial Technology
+---
+"Quantum finance" is not one thing. The phrase covers four separate activities that share a word and almost nothing else, and being unable to tell them apart is what makes an investor vulnerable to the version that is pure marketing.
+
+Two of the four are legitimate technical fields. One is a legitimate but obscure branch of mathematical modelling that has nothing to do with quantum computers. The fourth is a sales vocabulary attached to products whose actual method is either ordinary or absent.
+
+If you learn to place a claim into the right box, most of the confusion resolves itself. Here is each box, what it actually contains, and what it is worth to someone investing in the Nepal Stock Exchange.
+
+## Meaning one: quantum computers applied to finance
+
+This is the literal reading — using quantum hardware to perform financial calculations faster than a classical computer can.
+
+It is a real research field with a short list of targets: optimisation problems with awkward discrete constraints, Monte Carlo simulation for pricing and risk, and certain machine-learning formulations. The theoretical gains are specific and mostly modest. For simulation, the proven result is a quadratic reduction in the samples needed for a given precision — a genuine improvement, and a long way from magic. For optimisation, the proposals are heuristics with no proof they beat good classical solvers.
+
+The practical position is simpler still: no financial institution anywhere runs production trading or research on quantum hardware. The machines are too small and too error-prone. The technical reasons are set out in [Quantum Computing in Finance: What Could It Mean for NEPSE?](/blogs/quantum-computing-in-finance-what-could-it-mean-for).
+
+Worth to a NEPSE investor today: nothing.
+
+## Meaning two: quantum-inspired classical algorithms
+
+This one is more interesting than it sounds, and it is the box most real commercial work belongs in.
+
+Researchers studying quantum algorithms have repeatedly found that the mathematical insight behind a quantum speed-up can be reimplemented on ordinary computers. The result is a family of quantum-inspired methods — tensor network techniques, particular sampling schemes, reformulations of optimisation problems — that run on the laptop you already have.
+
+These are legitimate. Some are genuinely useful. But note what has happened: the quantum research produced a classical product. A company using such a method and describing itself as a quantum company is stretching the truth. Ask which machine the code runs on. If the answer is a normal server, the word quantum is describing intellectual heritage, not hardware.
+
+Worth to a NEPSE investor: occasionally real, but indistinguishable in practice from any other well-built classical software. Judge it on results, not vocabulary.
+
+## Meaning three: quantum formalism as a modelling language
+
+There is an academic literature, decades old, that borrows mathematical machinery from quantum mechanics — path integrals, operator formalisms, wave-function analogies — and applies it to option pricing and market modelling. No quantum computer is involved. It is classical mathematics that happens to reuse notation developed by physicists.
+
+This is honest work, though its practical influence on how markets are actually traded has been limited. It is also the source of most public confusion, because a paper titled with the word quantum gets read as being about quantum computers when it is about differential equations.
+
+Worth to a NEPSE investor: essentially zero, unless you have a specific research interest. Nepal's market is plain equity. The instruments this literature addresses barely exist here.
+
+## Meaning four: quantum as sales vocabulary
+
+The fourth box has no technical content. It is the use of quantum, quantum leap, quantum algorithm or quantum trading in the name of a product, course, signal group or advisory scheme, chosen because the word sounds advanced and cannot be checked by a non-specialist.
+
+This is the version most likely to reach a Nepali investor, and it deserves direct treatment.
+
+> When a word is used because it cannot be verified rather than because it is accurate, that is the whole reason it was chosen.
+
+The warning signs are consistent, and none of them require you to understand physics:
+
+- **Returns are promised or implied.** No legitimate technology produces guaranteed returns. In a market as volatile as NEPSE, a promised number is a fabrication regardless of the technology behind it.
+- **The method is secret.** "Proprietary quantum algorithm" with no explanation is not a method, it is a refusal. You do not need the source code, but you need to know what the system measures.
+- **No losing periods are ever shown.** Every honest strategy has bad stretches. A results table without them has been selected, not measured.
+- **Urgency and limited seats.** A genuine analytical edge does not need a countdown timer.
+- **The seller is not licensed to advise.** Securities advice in Nepal is a regulated activity. Check registration before money moves, not after.
+
+Worth to a NEPSE investor: strictly negative.
+
+## The question that separates the boxes
+
+One question does most of the sorting: **what does the system compute, and on what hardware?**
+
+A real quantum-computing claim answers with an algorithm name and a machine. A quantum-inspired claim answers with an algorithm name and an ordinary server, honestly. A modelling claim answers with equations. The marketing version cannot answer at all, and will change the subject to results, testimonials, or the complexity of the technology.
+
+Ask it plainly and watch what happens to the conversation. That reaction is the test.
+
+## What is genuinely worth your attention instead
+
+The technologies that can actually change how you research a Nepali stock are already here, and none of them are quantum.
+
+1. **Systematic screening.** Applying a defined rule to every listed security rather than the ten you follow. Ordinary software, enormous improvement in coverage.
+2. **Floorsheet analysis.** NEPSE publishes broker-level trade data that most markets keep private. Machine processing makes months of it readable. It answers descriptive questions precisely — which brokers were active in a name, how concentrated a session was — without pretending to forecast.
+3. **Honest backtesting.** Testing a rule on history you did not use to build it. This is the single highest-value habit available to a retail investor and it needs no special hardware.
+4. **Language models on disclosures.** Extracting figures and tone from quarterly reports at a scale no person reads. Useful, imperfect, and worth verifying against the source document.
+
+The limits of that last category — particularly around prediction — are covered honestly in [Can Artificial Intelligence Predict NEPSE?](/blogs/can-artificial-intelligence-predict-nepse).
+
+## The one quantum topic that will affect you
+
+Cryptography, and not through your portfolio.
+
+The security of online trading platforms, depository records and bank connections depends on public-key mathematics that a large quantum computer would break. The algorithm for breaking it has been known for a long time; only the hardware is missing. Standards bodies have already selected replacement algorithms designed to resist quantum attack, and migrating to them is a multi-year infrastructure project for financial institutions worldwide, Nepal included.
+
+That is the quantum development with a real consequence for the Nepali market. It will arrive as a software update from your broker rather than as a product you buy, and nobody will market it, because security upgrades are a cost rather than a feature.
+
+## What to do
+
+Treat the word quantum in any Nepali financial product as a claim requiring evidence, exactly like a claim about returns. Ask which algorithm, which hardware, and what the classical comparison is. Accept "we use classical machine learning and here is what it measures" as a better answer than any quantum claim, because it is checkable.
+
+Then put your effort where it compounds: understanding what you own, reading the disclosures, and testing your rules against history. The groundwork is unglamorous and it is set out plainly in [How to Analyze a NEPSE Stock Before Buying](/blogs/how-to-analyze-a-nepse-stock-before-buying). No vocabulary substitutes for it, quantum or otherwise.

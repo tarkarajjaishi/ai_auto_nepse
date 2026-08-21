@@ -1,0 +1,81 @@
+title: From AI to Quantum: The Next Evolution of Stock Market Intelligence
+slug: from-ai-to-quantum-the-next-evolution-of-stock
+description: Market intelligence advances in stages, and each one only works if the stage below it is solid. Here is the full ladder, where Nepal stands on it, and why skipping steps fails.
+category: quantum-finance
+tags: Market Intelligence, Quantum Finance, Artificial Intelligence, NEPSE, Quantitative Analysis, Data Infrastructure
+---
+Every article about the future of market analysis presents the same sequence — human judgement, then computers, then artificial intelligence, then quantum — as though it were an escalator. It is not. It is a ladder, and each rung only holds if the one below it is solid.
+
+That distinction matters more than it sounds, because the characteristic failure in market technology is not choosing the wrong tool. It is reaching for a rung three above where you are actually standing. A firm that cannot reliably state which trading session a number on its screen came from will not be rescued by a neural network, and a firm whose backtests are not honestly out of sample will not be rescued by a quantum solver.
+
+This article lays out the full ladder, states what each stage genuinely adds and what it characteristically gets wrong, and locates where Nepal's market currently stands. The conclusion is unfashionable: for NEPSE, almost all the available gain sits at stages most people consider beneath discussion.
+
+## Stage one: judgement and anecdote
+
+The base of the ladder is how most investing has always been done. You watch a few stocks, read a few reports, talk to people, and form a view.
+
+What it adds is real: context, scepticism, and knowledge of things that never appear in data — which promoters are credible, how a company behaved during a previous stress, what a sector's regulation is likely to do next.
+
+Its failure mode is equally real. Judgement is inconsistent. The same person applies different standards on different days, remembers vivid outcomes rather than representative ones, and cannot examine more than a handful of securities properly. In a market of several hundred listed companies, that is a coverage problem no amount of skill fixes.
+
+## Stage two: spreadsheets and ratios
+
+The second rung is systematic calculation on a small scale. EPS, price-to-earnings, book value, dividend history, a simple valuation model.
+
+This is where most active Nepali investors operate, and it is a genuine advance because it makes comparison possible. Two companies expressed in the same ratios can be argued about on common ground.
+
+Its failure mode is scope. A spreadsheet holds the twenty companies you already thought about. It does not tell you about the one you have never heard of that just did something unusual. And ratios computed once go stale silently, which is how people end up comparing a current price against an earnings figure from a much earlier reporting period.
+
+## Stage three: complete, reproducible description
+
+This rung gets skipped almost universally, and it is the most valuable one available in Nepal right now.
+
+Stage three means holding a clean archive of everything the market publishes — daily prices for every listed security, the broker-level floorsheet, corporate actions, quarterly financials — and computing descriptive measures over all of it, identically, every session.
+
+The questions it answers are not predictions. They are facts that are currently unknown simply because nobody has the machinery to look:
+
+- Which stocks traded unusually heavily relative to **their own** typical range, rather than relative to the market's?
+- Was today's volume in a given stock concentrated in a few brokers or spread across many?
+- How does a sector's behaviour this month compare with its own history?
+- Which companies' reported figures have changed materially since the last quarter, across the entire listed universe rather than the ones you follow?
+
+NEPSE publishes a broker-level floorsheet, which many larger exchanges do not make public at trade level. It is the richest dataset a Nepali retail investor can legally obtain, and it is almost entirely unexploited because reading it by hand is impossible. That is a stage-three problem, solvable with ordinary computers and discipline.
+
+> The largest unexploited edge in Nepal's market is not a cleverer model. It is looking at all of the data instead of some of it.
+
+Its failure mode is arithmetic disguised as insight. Because every share bought is also sold, any net buying measured across the whole market is zero by construction — so a metric that appears to reveal a hidden accumulator is often just re-describing turnover. Stage three is only trustworthy when each measure is tested against the boring explanation first.
+
+## Stage four: statistical and machine learning models
+
+Only now does modelling belong. At this rung you are searching for relationships between what you can observe and what happens next.
+
+What it adds is the ability to weigh many weak pieces of evidence at once, and to state a view with a measured confidence rather than a feeling. Language models extend this to text, letting you extract figures and tone from hundreds of disclosures rather than the few you would read.
+
+Its failure mode is the most expensive on the ladder: fitting the past. A flexible model applied to a short, noisy history will find beautiful patterns that do not repeat. In Nepal this is aggravated by structure — a relatively short continuous record, a market whose composition has changed within that record, and prices across many listed companies that move together on the same days, so the number of genuinely independent observations is far smaller than the row count suggests.
+
+The discipline that makes stage four honest is unglamorous: test on data you never looked at while building, report performance year by year rather than in aggregate, compare against buying and holding and against random entry into the same universe, and include costs. Most claimed edges do not survive that. The classical version of this argument is set out in [How Quantitative Analysis Can Improve NEPSE Stock Research](/blogs/how-quantitative-analysis-can-improve-nepse-stock-research).
+
+## Stage five: quantum acceleration
+
+The top rung is the one everybody wants to discuss, and it is the least relevant to Nepal today.
+
+Quantum computing offers speedups on specific, well-defined problems: estimating averages over random scenarios, certain constrained optimisation problems, particular linear algebra tasks with restrictive conditions attached. These matter when a computation is genuinely the bottleneck — large derivative books, portfolios with heavy real-world constraints, risk calculations run repeatedly under stress.
+
+Two things follow. First, no quantum algorithm predicts a price; they compute known quantities faster. Second, a speedup only helps if computation was your constraint, and in NEPSE analysis it is not. The constraint is data completeness at stage three and honest validation at stage four. What the algorithms actually do, without the mathematics, is covered in [Quantum Algorithms and Financial Markets: A Beginner Guide](/blogs/quantum-algorithms-and-financial-markets-a-beginner-guide).
+
+## Which rung is a platform really standing on?
+
+The vocabulary of stage five is cheap and gets applied to work at stage two. Four questions locate any tool honestly.
+
+1. **Where does the data come from and how complete is it?** A tool that covers the whole listed universe, every session, is doing different work from one that covers a watchlist.
+2. **Can it tell you which session a number is from?** A stale figure presented as current is the single most common defect in market software, and a platform that cannot answer this has not solved stage three.
+3. **Does it separate description from prediction?** "This broker bought a large share of today's volume" is a fact. "Therefore the price will rise" is a claim requiring evidence, and the two should never be presented in the same voice.
+4. **Will it show you the years it lost?** Any system that only reports aggregate performance is hiding the distribution, and the distribution is where the truth lives.
+
+## What to do about it
+
+If you are an investor, stop evaluating tools by the technology they name and start evaluating them by the rung they actually occupy. A tool that reads the entire floorsheet reliably and labels its own freshness is worth more than one that claims machine intelligence and cannot tell you when its figures were computed.
+
+If you are building, work bottom-up and resist the pull upward. Complete the archive. Make every number reproducible. Measure each stock against its own history. Only then model, and only then let the model tell you it has no edge, because that is the most likely honest result and the one worth trusting.
+
+The next evolution of market intelligence in Nepal is not a jump from AI to quantum. It is the far duller and far more valuable step of actually finishing the stages beneath both. For the wider comparison, see [AI vs Quantum Computing in Stock Market Analysis](/blogs/ai-vs-quantum-computing-in-stock-market-analysis) and [From Share Market Apps to AI Market Intelligence: The Evolution of NEPSE Tools](/blogs/from-share-market-apps-to-ai-market-intelligence-the).

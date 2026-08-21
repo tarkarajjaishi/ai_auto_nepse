@@ -1,0 +1,83 @@
+title: Technical Indicators Every AI Stock Model Should Understand
+slug: technical-indicators-every-ai-stock-model-should-understand
+description: The few technical indicators that carry genuinely distinct information, what each really measures, and why feeding thirty into a NEPSE model makes it worse.
+category: data-and-research
+tags: Technical Indicators, NEPSE AI, Machine Learning, Quantitative Analysis, Nepal Stock Exchange
+---
+There are hundreds of published technical indicators. There are roughly five things they measure. Almost every indicator is one of those five measurements with a different smoothing constant, a different normalisation, or a different name attached by whoever popularised it, and treating them as independent inputs is the most common way a model's feature set gets ruined.
+
+For an automated system this matters more than it does for a human chart reader. A person glancing at three overlapping momentum oscillators simply sees the same thing three times and moves on. A model given the same three inputs weights that single piece of information three times over, and then reports high confidence in a view that rests on one measurement.
+
+So the useful question is not which indicators to use. It is which distinct quantities exist, which single representative of each to feed the model, and what each one breaks on.
+
+## The five things indicators actually measure
+
+1. **Trend or location.** Where price sits relative to its own recent history. Moving averages, the distance between price and a moving average, and channel positions all answer this.
+2. **Momentum or rate of change.** How quickly price has moved recently, usually rescaled into a bounded range. RSI, stochastic oscillators and rate-of-change all belong here, and they are heavily correlated with each other.
+3. **Volatility.** How wide the typical move is. Average true range, the standard deviation of returns, and the width of a Bollinger band are three views of the same underlying quantity.
+4. **Participation.** How much trading is happening relative to normal, and where in the range it occurred. Volume ratios, on-balance volume and volume-weighted average price live here.
+5. **Relative strength.** How the instrument is doing compared with its sector or the market rather than in absolute terms.
+
+If your feature set does not have at least one input from each of those five, it has a blind spot. If it has six inputs from any single one, it has redundancy that will be invisible in the code and obvious in the results.
+
+> Two features called different things can be the same number. Compare their values, not their names, before you trust a weighting.
+
+## What each family genuinely tells a model
+
+**Moving averages** are a low-pass filter and nothing more. Their value is that they define a reference level that adapts, so "expensive" and "cheap" become relative to the stock's own recent behaviour rather than to an absolute number. Their cost is lag, which is not a flaw to be engineered away but the price of the smoothing. Longer window, more stability, more delay.
+
+**MACD** is the difference between two moving averages, so it is a trend measurement expressed as a rate. Understand that it is arithmetic on the same input as the moving averages you already have.
+
+**RSI and stochastic oscillators** compress recent movement into a bounded range, conventionally with readings above seventy and below thirty called overbought and oversold. The bounded scale is genuinely useful for a model, because it makes stocks comparable regardless of price. The overbought and oversold labels are much weaker than their reputation: a strongly trending stock can stay at an extreme reading for a long stretch, and treating that as a reversal signal is how people fight trends.
+
+**Average true range** is the most under-used input in retail practice and one of the most valuable for a model. It converts every threshold you care about — stop distance, what counts as a large move, position size — into units of the stock's own volatility. A fixed percentage stop applied across a whole universe is really a bet on which stocks are volatile.
+
+**ADX** measures how much trend exists without saying which direction, which makes it a regime input rather than a signal. Its main use is deciding which other rules should be active.
+
+**Volume measures** are the noisiest family and the most valuable when handled carefully. The single most important transformation is to compare a stock's volume with its own typical range rather than with the market's, because absolute turnover across a market is enormously uneven.
+
+**Relative strength against a sector index** is frequently the highest-value feature in a cross-sectional model. NEPSE publishes sub-indices for banking, development banks, finance, hydropower, microfinance, life and non-life insurance, hotels and tourism, manufacturing, trading, investment, mutual funds and others. A large part of any stock's movement is its sector's movement, and removing that leaves a much cleaner measure of the stock itself.
+
+## The NEPSE-specific complications
+
+Indicators are defined on assumptions that a market like Nepal's does not always satisfy.
+
+- **Daily price limits truncate the range.** When a stock reaches its permitted daily limit, the recorded high and low understate the actual pressure, and range-based indicators read low precisely when the market is most one-sided.
+- **Thin trading breaks smoothing.** A stock that trades sparsely produces flat stretches punctuated by jumps. Every indicator computed on that series inherits the artefact. Screen for a minimum liquidity level before computing anything, rather than trusting the numbers and being surprised later.
+- **Corporate actions poison history.** Bonus and rights adjustments restate the price series. Every indicator with a lookback window that spans the restatement is wrong until the series is adjusted, and the failure is silent.
+- **Correlation across the market is high.** When most stocks move together, an indicator that looks like it is selecting stocks may only be reflecting the day. Demeaning by date across the universe is the fix.
+- **The floorsheet adds a family the standard toolkit lacks.** Broker-level data supports participation measures that no conventional indicator captures — concentration of a session across brokers, net flow by broker over a window, how broad participation is compared with the stock's own baseline. Treat these with the same scepticism as anything else: many of them correlate strongly with plain turnover, and some share-count-based measures are an inverse-price proxy in disguise. Check what survives after neutralising volume and price.
+
+## Parameters are where overfitting hides
+
+Every indicator has a lookback length, and every lookback length is a free parameter. Search across a few indicators and a few window lengths and you will find a combination that performed beautifully on your sample. That is arithmetic, not discovery — with enough combinations, something always fits.
+
+Three habits keep this under control.
+
+- Choose parameters for a reason and leave them alone. Round numbers chosen in advance are more honest than tuned ones.
+- Check the neighbourhood. If a fourteen-session window works and a twelve or sixteen-session window does not, you have found noise. A real effect degrades gradually as you move the parameter.
+- Prefer fewer indicators with fixed settings over many with tuned ones. The combinatorics of the second option guarantee a flattering backtest.
+
+## A defensible minimum feature set
+
+If you were building a NEPSE model and wanted the smallest set covering all five measurements without redundancy, this is a reasonable starting point.
+
+1. Price relative to a medium-length moving average, expressed in units of that stock's volatility.
+2. Realised volatility or average true range over a recent window, and its ratio to a longer window so the model can see whether volatility is rising.
+3. One bounded momentum oscillator, chosen and never supplemented with a second.
+4. Turnover relative to the stock's own median turnover over a longer window.
+5. Return relative to the stock's sector index over the same horizon you are predicting.
+6. Optionally, one floorsheet participation measure that has survived a turnover control.
+
+Six inputs. That is not a limitation; a compact, non-redundant set with a clean chronological validation will beat a sprawling one nearly every time, and when it fails you will be able to see why.
+
+## What to check before you trust an indicator
+
+- Compute the correlation matrix of your features. Anything above roughly nine-tenths is a duplicate — keep one.
+- Confirm every indicator uses only data available at the time, with no centred windows and no full-sample statistics.
+- Verify behaviour on illiquid names and on days at the price limit.
+- Confirm the series is corporate-action adjusted across every lookback window used.
+- Test whether the indicator still carries information after removing the market-wide daily move.
+- Report performance per year, not just in aggregate.
+
+Indicators are a language for describing price behaviour compactly and comparably. That is all they are, and it is enough. They do not contain a forecast, and any system that presents them as one is selling the wrong thing. For the statistical foundations underneath them, read [Time-Series Analysis of NEPSE Stocks Explained](/blogs/time-series-analysis-of-nepse-stocks-explained); for how they fit into a full pipeline, [How to Build an AI Model for NEPSE Stock Analysis](/blogs/how-to-build-an-ai-model-for-nepse-stock) and [AI-Based Technical Analysis for NEPSE Stocks](/blogs/ai-based-technical-analysis-for-nepse-stocks).

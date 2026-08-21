@@ -1,0 +1,85 @@
+title: NEPSE Quantum Explained: AI, Data and the Future of Investing in Nepal
+slug: nepse-quantum-explained-ai-data-and-the-future-of
+description: A plain walkthrough of how NEPSE data becomes a usable number, stage by stage, and where AI genuinely fits in the process rather than where the marketing puts it.
+category: nepse
+tags: NEPSE Quantum, Nepal Stock Exchange, Market Data, NEPSE AI, Quantitative Analysis, Investing in Nepal
+---
+The clearest way to explain NEPSE Quantum is to follow a single number from the exchange to your screen, and to point out at each stage what can go wrong. Almost every failure in market software happens in one of those stages, and almost none of them happen in the part people find interesting.
+
+You do not need a technical background to follow this. The stages are ordinary: collect, store, measure, model, display. What is unusual is how much of the value sits in the first two and how little sits in the fourth, which is the reverse of how these systems are usually advertised.
+
+By the end you should be able to interrogate any Nepali market tool, including this one, and know which questions actually separate a useful instrument from a decorated one.
+
+## Stage one: collection
+
+Every session, the exchange produces a set of records. Daily open, high, low, close and volume for each traded security. The broker-level floorsheet listing individual trades. Index and sub-index values. Separately and irregularly, companies publish financial reports and disclosures.
+
+What goes wrong here is mundane and consequential. A session's file arrives late or not at all. A file is republished in a corrected form after the fact. A security did not trade at all, which is different from having traded at an unchanged price, and a system that records the previous close in the gap has invented a fact.
+
+The discipline that fixes this is unglamorous: collect the raw file rather than a summary, verify it arrived complete, and never silently fill a hole with an assumption. Tomorrow's question will need the column today's summary discarded, and a summary cannot be un-summarised.
+
+## Stage two: the archive
+
+Collected data becomes an archive, and the archive is where research either becomes possible or quietly becomes impossible.
+
+Three properties matter.
+
+**It never shrinks.** A rebuild that fails halfway must not leave a shorter history than it found. This sounds obvious and is the most common way market archives get damaged, because the damage looks exactly like normal data.
+
+**It handles corporate actions.** Bonus shares, rights issues and splits change the price without changing what a holder owns. An unadjusted series records these as crashes that never happened, and every volatility and trend measure computed over it is wrong. Detecting them is subtler than flagging large falls, because NEPSE applies a daily circuit limit and a genuine limit-down session can resemble an adjustment. The reliable signal is the gap at the open, cross-checked against the corporate action record.
+
+**It knows when each fact became knowable.** Every stored value carries the date it could first have been seen. Without that, any historical test reads facts from the future and produces results that are impressive and meaningless.
+
+> The hardest engineering problem in market software is not the model. It is guaranteeing that the number on the screen is from the session it claims.
+
+## Stage three: measurement
+
+With a trustworthy archive, measurement is mostly careful counting, and this is where most of the practical value lives.
+
+The core move is comparing a security against itself rather than against the market. A stock that normally trades thinly and one that normally trades actively need entirely different thresholds for the word "unusual". Measured properly, a metric answers a question of the form: relative to this instrument's own recent range, how far out is today?
+
+The same logic applies to the floorsheet. Was a session's volume concentrated among a few brokers or spread widely, relative to how that stock's volume is usually distributed? Is a broker's activity in this name unusual by that broker's own standards?
+
+And the same logic imposes a limit that has to be stated plainly. Every share bought is also sold, so any net buy-minus-sell imbalance measured across the whole market is zero by construction. A metric that appears to detect a hidden accumulator market-wide is re-describing turnover. It will produce confident output forever, because no outcome can contradict it. Eliminating that family of indicators is one of the most valuable things measurement discipline does.
+
+## Stage four: models and language
+
+This is the stage the marketing leads with, and it is the smallest.
+
+Statistical and machine-learning methods are useful here for a narrow set of jobs: describing volatility and trend regimes, ranking securities on a defined combination of measured features, and flagging observations that sit far outside an instrument's normal behaviour. Those are pattern-description tasks, and they are checkable the following session.
+
+They are not useful for forecasting tomorrow's close. That remains close to a coin flip in every liquid market examined seriously, and a smaller market makes such claims less reliable rather than more, because there is less independent data to test against. Any accuracy figure quoted without an out-of-sample period and a worst-stretch number is a marketing figure. [Can Artificial Intelligence Predict NEPSE?](/blogs/can-artificial-intelligence-predict-nepse) sets out the limits in full.
+
+Language models have a clearer role. Quarterly reports and disclosures are documents, and models can extract figures and summarise tone across many of them quickly. Two cautions apply: extraction errors are silent, so every extracted number should link back to its source; and models handle Nepali-language text less reliably than English, because far less Nepali material exists to learn from. A system doing this work should say which language a source was in and how the figure was obtained.
+
+## Stage five: what you actually see
+
+The display layer is where correctness becomes visible or disappears.
+
+Every number should carry the session it came from. During a trading session, a screen showing the previous close is wrong even when the figure itself is accurate, because you cannot tell which one you are looking at. A live number should carry its age, and a stale one should look stale rather than looking like a price.
+
+The same applies to computed boards. A ranking is only as current as the last time it was rebuilt, and a screen that shows it without saying which session it reflects is presenting history as the present. [NEPSE Today: How to Read a Trading Session Properly](/blogs/nepse-today-how-to-read-a-trading-session-properly) covers how to read the underlying session data yourself, and [What Is LTP in NEPSE? Complete Explanation](/blogs/what-is-ltp-in-nepse-complete-explanation) explains why the last traded price is more slippery than it looks.
+
+## Where AI fits, in one paragraph
+
+AI is a component in stages three and four, not the system. It reads text nobody has time to read, ranks securities against defined criteria, and describes patterns in a way that can be inspected. It does not know why a promoter is selling, what a policy change will mean, or whether a company's disclosures are complete. Treating it as an oracle rather than an instrument is the single most expensive mistake available in this field.
+
+## The parts that are honestly uncertain
+
+Several questions here do not have settled answers, and it is more useful to say so than to pretend.
+
+- Whether any floorsheet-derived signal has durable predictive value, once turnover and price level are properly neutralised, is unresolved. Many candidates fail that test.
+- How well sentiment analysis performs on Nepali-language sources is not well established, and results should be treated as provisional.
+- How much of any historical result reflects a specific market period rather than a general property is always uncertain in a market with a limited history.
+
+Uncertainty stated openly is not weakness. It is the difference between a research process and a sales page.
+
+## How to read anything on this site, or any other
+
+1. Check the session stamp before you read the number.
+2. Ask what the metric is measured against, and be suspicious if the answer is the market rather than the instrument's own history.
+3. Separate what happened from what is claimed to follow, and require evidence only for the second.
+4. Prefer a tool that sometimes says it does not know.
+5. Look for a published failure. If there is none, assume the testing was not done.
+
+Follow those five and you will read Nepali market data better than most people using far more sophisticated tools. For the reasoning behind the approach, see [What Is NEPSE Quantum? A New Approach to Nepal Stock Market Intelligence](/blogs/what-is-nepse-quantum-a-new-approach-to-nepal).

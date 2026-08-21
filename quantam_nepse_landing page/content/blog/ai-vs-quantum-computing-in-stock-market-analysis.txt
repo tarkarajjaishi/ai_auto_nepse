@@ -1,0 +1,75 @@
+title: AI vs Quantum Computing in Stock Market Analysis
+slug: ai-vs-quantum-computing-in-stock-market-analysis
+description: AI and quantum computing solve opposite problems in market analysis — one infers from data, the other computes faster. Why that distinction decides which matters for NEPSE today.
+category: quantum-finance
+tags: Quantum Computing, NEPSE AI, Machine Learning, Market Analysis, Nepal Stock Exchange, Investment Technology
+---
+These two technologies get grouped together as "advanced" and treated as competing answers to the same question. They are not. They address opposite halves of a problem, and once you see the split, almost every confused claim about them sorts itself out.
+
+Artificial intelligence is about **inference**: given data, what can be concluded? Its constraint is the data — how much exists, how noisy it is, whether the relationship it contains is stable.
+
+Quantum computing is about **computation**: given a well-defined calculation, how fast can it be performed? Its constraint is hardware and problem structure — whether a quantum algorithm exists for the shape of your problem, and whether a machine big enough to run it exists.
+
+Neither substitutes for the other. A faster processor does not create information that was never in the dataset, and a better inference method does not make an intractable calculation finish.
+
+## Different questions, illustrated on the same data
+
+Hand each technology the same input — the Nepal Stock Exchange's broker-level floorsheet, plus daily prices, over several years — and watch what each is actually for.
+
+**What a machine-learning system does with it.** It computes features: turnover relative to a stock's own history, broker concentration in a session, price position within a recent range, sector behaviour. It fits a model relating those features to what happened next. Then, if the work is honest, it tests that model on years the fitting never saw and usually discovers the relationship is far weaker than it appeared. The bottleneck throughout is signal — there is not much of it, and it moves.
+
+**What a quantum computer does with it.** Nothing that a classical machine cannot already do faster. Aggregating the floorsheet, computing features and fitting a model are ordinary calculations that finish on ordinary hardware in seconds or minutes. There is no queue. There is no calculation an analyst wants that is blocked by processing power, and the encoding step required to load a large classical dataset into quantum states would itself cost more than the classical computation.
+
+> Nobody in Nepal is waiting on a faster computer. They are waiting on better data, a longer history, and a more honest test.
+
+That is the practical comparison, and it is not close.
+
+## Where each technology sits on the maturity curve
+
+**AI is deployed, imperfect and improving.** Machine-learning models run in production across finance globally, and increasingly in Nepal for screening, ranking, document processing and risk. They work in the sense that they are useful, not in the sense that they are accurate about the future. Short-horizon price prediction remains close to a coin flip in every liquid market studied.
+
+**Quantum computing is pre-deployment everywhere.** Machines exist and are real. They are also small, and their qubits lose their state quickly enough that long calculations degrade into noise. Error correction — the known fix — requires encoding one reliable logical qubit across many physical ones, at an overhead that puts useful financial algorithms out of reach of current hardware. Demonstrations of quantum advantage have been on artificial tasks, and several have later been matched by improved classical methods.
+
+The maturity gap is measured in decades of engineering, not product cycles. That is not pessimism about the physics; it is a statement about what exists.
+
+## The intersection, described honestly
+
+Quantum machine learning is where the two fields formally meet, and it is the most oversold corner of both.
+
+The idea is to encode data into quantum states and exploit the resulting high-dimensional structure for tasks like classification. Several difficulties are unresolved. Many theoretical speed-ups assume a form of quantum memory that lets you load large classical datasets efficiently, and no hardware provides it. Others have been undermined by classical algorithms inspired by the quantum method itself, which achieve comparable results on ordinary computers.
+
+There is a deeper objection specific to markets. Quantum machine learning, at best, computes a model faster. Market prediction is not limited by model-fitting speed. It is limited by weak, unstable relationships in limited data — a statistical problem, not a computational one. Faster fitting on the same thin dataset produces overfitted models sooner, which is worse rather than better.
+
+## What neither technology fixes
+
+Four constraints apply to any market analysis in Nepal, no matter what runs it.
+
+1. **Limited history.** NEPSE is a young market with a few hundred listed securities. Statistical confidence comes from independent observations. No processor manufactures observations, and no model invents them.
+2. **Overfitting.** More search capacity over a small dataset finds more patterns that do not repeat. Both technologies increase search capacity. Only discipline reduces the damage.
+3. **The conservation identity.** Every share bought is sold, so market-wide net buying is exactly zero. Metrics that appear to reveal a hidden accumulator across the whole market are re-describing turnover. That is arithmetic; it survives any hardware.
+4. **Reflexivity.** A rule that works and becomes widely known stops working, because participants trade against it. This is a property of markets, not of software.
+
+Any comparison of technologies that ignores these four is comparing engines while the road is missing.
+
+## Which one deserves your attention
+
+For a Nepali investor, analyst or developer, the allocation is lopsided and worth stating bluntly.
+
+- **Learn the statistics first.** Out-of-sample testing, base rates, the difference between correlation and a tradable relationship. This is the foundation both technologies stand on, and most retail losses attributed to bad tools are really failures here.
+- **Then learn applied machine learning.** Feature construction, validation, and the specific ways models mislead you on financial time series. A grounded starting point is [Machine Learning for NEPSE: How Stock Data Can Be Analyzed](/blogs/machine-learning-for-nepse-how-stock-data-can-be).
+- **Follow quantum computing as general interest.** It is one of the most significant engineering projects of the era. Track it the way you track any technology that may matter in a decade, without letting it influence a decision today.
+- **Do not buy a product for its quantum branding.** No deployed quantum advantage exists in equity analysis anywhere. In a market context, the word in a product name is vocabulary.
+
+## The one place quantum wins outright
+
+There is a category where quantum computing beats AI decisively for finance, and it is not analysis. It is cryptography.
+
+The public-key mathematics protecting trading platforms, depository records and interbank messaging is vulnerable to a known quantum algorithm. Only the hardware is missing. Machine learning has no equivalent threat and no equivalent remedy; the response is a migration to post-quantum cryptographic standards that have already been selected by standards bodies.
+
+For Nepali market infrastructure — brokers, the depository, banks, exchange technology vendors — that is the quantum question with a genuine timeline. Encrypted traffic recorded today can be decrypted once capable machines exist, which is why the work starts before the machines do.
+
+## What to do this week
+
+Pick one measurable claim you already believe about NEPSE — that a particular sector leads the index, that heavy broker concentration precedes a move, that a stock behaves differently after a run of quiet sessions. Define it precisely enough to compute. Then test it on history you did not use to form the belief.
+
+That exercise will teach you more about market analysis than either technology will, and it will tell you which of your convictions survive contact with evidence. Most will not. When you are ready to compare that process against your own judgement, [AI vs Human Stock Analysis: Which Is Better for NEPSE?](/blogs/ai-vs-human-stock-analysis-which-is-better-for) takes the comparison further, and [From AI to Quantum: The Next Evolution of Stock Market Intelligence](/blogs/from-ai-to-quantum-the-next-evolution-of-stock) covers what an actual transition between the two would require.

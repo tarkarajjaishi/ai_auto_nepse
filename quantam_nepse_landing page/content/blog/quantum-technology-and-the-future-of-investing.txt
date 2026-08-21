@@ -1,0 +1,82 @@
+title: Quantum Technology and the Future of Investing
+slug: quantum-technology-and-the-future-of-investing
+description: Quantum technology is three fields, not one. Here is which parts touch investing, which part is already an operational problem for finance, and how to judge a quantum theme.
+category: quantum-finance
+tags: Quantum Technology, Quantum Computing, Future of Investing, NEPSE, Financial Infrastructure, Post-Quantum Cryptography
+---
+Quantum technology is not one field. It is three, they mature at different speeds, and only one of them currently presents a concrete problem for financial institutions. Confusing them is why most discussion of quantum and investing lands somewhere between vague and wrong.
+
+The three are computing, communication and sensing. Quantum computing gets the coverage and is the least mature. Quantum communication — chiefly the cryptographic consequences — is where the practical deadline sits, because encrypted data captured today can be decrypted later once suitable machines exist. Quantum sensing is the most commercially advanced of the three and has almost nothing to do with markets, though it touches industries that are listed in them.
+
+For an investor, that produces two separate questions. What does quantum technology change about the practice of investing, and what does it mean to invest in the theme itself? The answers are quite different, and the second is where most money gets lost.
+
+## Three technologies, briefly and accurately
+
+**Quantum computing** uses quantum states to perform calculations that are structured so wrong answers cancel out and the right one survives. It is genuinely powerful for a narrow set of problems and useless for most others. Current machines are noisy and small; the algorithms with the strongest financial applications need machines with error correction, which is an enormous engineering step still ahead.
+
+**Quantum communication** covers both the threat and one proposed defence. The threat is that a large fault-tolerant quantum computer running Shor's algorithm would break the public-key cryptography that secures financial traffic today. The defence being deployed in practice is not exotic hardware but new mathematics: replacement algorithms designed to resist quantum attack, which run on ordinary computers. Quantum key distribution exists too, but it needs dedicated optical links and does not travel far without repeaters, which limits it to specialised deployments.
+
+**Quantum sensing** uses quantum effects to measure time, gravity and magnetic fields with extraordinary precision. This is the most deployed of the three today, and its relevance to investors is indirect: it affects navigation, mineral surveying, and medical imaging — industries whose companies are listed, in markets that list them.
+
+## The part that is already an operational problem
+
+Of everything in this article, one item belongs on a real institution's agenda now.
+
+The cryptographic threat has an unusual time structure. A machine capable of breaking today's public-key encryption does not exist, and building one is hard. But an adversary can record encrypted traffic today and decrypt it whenever such a machine arrives. Anything whose confidentiality must outlast that arrival is therefore already exposed. In finance that includes customer identity records, depository and settlement data, and long-lived contracts.
+
+The response is a migration project, not a research project. Standards bodies have already selected quantum-resistant algorithms, and the work of moving to them is the ordinary, slow business of auditing systems, replacing libraries and re-issuing certificates. For banks, brokers and depositories anywhere — Nepal included — this is the quantum item with genuine urgency, and it is entirely unglamorous.
+
+> The realistic first encounter between quantum technology and your investments is not a smarter trading model. It is a security upgrade you will never see.
+
+## What actually changes in how portfolios are managed
+
+Assume for a moment that capable quantum computers arrive. What changes for the practice of investing?
+
+- **Risk measurement gets cheaper.** Estimating tail losses relies on simulating many scenarios, and quantum amplitude estimation improves the accuracy-per-unit-of-work on that class of problem. You get a better-measured risk figure, not a forecast.
+- **Constrained optimisation becomes more tractable.** Real portfolio construction is bound by lot sizes, position limits and transaction costs, which make the problem combinatorial. This is a genuine target, though classical solvers have kept pace so far.
+- **Scenario analysis widens.** When scenarios are cheap you can afford to ask what your portfolio does across a much larger range of futures, rather than the handful you currently test.
+
+Notice the pattern. Every one of those improves how uncertainty is handled. None of them reduces uncertainty. No quantum algorithm predicts a price, and the reason is not hardware — it is that prediction is limited by how much signal exists in the data. That argument is made in full in [Quantum Computing for Stock Market Prediction: What Is Possible?](/blogs/quantum-computing-for-stock-market-prediction-what-is-possible).
+
+## Quantum as an investment theme
+
+Here is where investors get hurt, and the failure mode is not specific to quantum.
+
+Themes attract capital on the strength of the story long before the economics arrive. The technology can be entirely real and the investment still poor, for reasons that are structural rather than technological:
+
+1. **Timing.** A transformative technology that transforms things slowly is a bad investment at a price that assumes it transforms things quickly.
+2. **Value capture.** Even where a technology succeeds, the profit may accrue to component suppliers, cloud platforms or end users rather than to the firms whose names carry the theme.
+3. **Pure-play scarcity.** Very few listed companies derive most of their revenue from quantum work. Most exposure is a small division inside a large diversified business, which means you are buying the parent company and calling it a quantum position.
+4. **Definition creep.** As a theme becomes fashionable, the label loosens. Firms doing conventional work start describing it in quantum vocabulary, and the category stops meaning anything.
+
+None of that is a prediction about how quantum investments will perform. It is a description of how technology themes have repeatedly behaved, and it is the sceptical frame worth carrying into any of them.
+
+## What this means from Nepal specifically
+
+NEPSE lists Nepali companies — banks, hydropower developers, insurers, microfinance institutions, manufacturers, hotels. There is no domestic quantum industry to buy, and there is unlikely to be one soon. So for a Nepali investor the theme is not directly investable at home, and the far more relevant question is what the technology does to the market you already participate in.
+
+The realistic answer, in order:
+
+- **Security infrastructure changes first**, invisibly, through the depository, the brokers and the banks.
+- **Institutional risk tooling changes second**, and only for the institutions large enough to have a modelling function at all.
+- **Retail analysis changes last**, if ever, because retail analysis in Nepal is nowhere near the limit of what ordinary computers can already do.
+
+That last point matters most. The gap between what NEPSE data could tell an investor and what most investors currently extract from it is enormous, and closing it requires no exotic hardware. The broker-level floorsheet alone is richer than what many larger markets publish, and it is barely used. The nearer-term picture is set out in [The Future of Investing in Nepal: AI, Automation and Data](/blogs/the-future-of-investing-in-nepal-ai-automation-and).
+
+## The skills that hold their value
+
+If the technology is uncertain, invest in the things that stay valuable regardless of which way it goes.
+
+Understanding what a number means and which session it came from. Knowing the difference between a description and a prediction. Being able to test a claim out of sample and accept the answer when it is negative. Reading a financial statement. Sizing a position so that being wrong is survivable.
+
+None of that is made obsolete by better hardware. All of it becomes more valuable as the volume of confident-sounding technological claims increases, because the scarce skill in that environment is evaluation, not access.
+
+## What to watch for
+
+Three signals tell you the ground is genuinely shifting rather than the vocabulary.
+
+**Post-quantum requirements appearing in financial regulation and vendor contracts.** This is the earliest concrete indicator, and it will show up in procurement documents rather than headlines.
+
+**Demonstrations at realistic problem sizes.** A quantum result on a handful of assets is a research milestone. A result on a portfolio of the size an institution actually manages is a different kind of event.
+
+**Claims that name their algorithm and their classical baseline.** Any serious quantum claim can state which algorithm ran on what hardware and what the ordinary solution to the same problem cost. Any claim that cannot is branding. The vocabulary itself is worth learning for that reason alone — start with [What Is Quantum Computing and Could It Change Nepal's Stock Market?](/blogs/what-is-quantum-computing-and-could-it-change-nepal).

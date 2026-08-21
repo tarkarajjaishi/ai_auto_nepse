@@ -1,0 +1,79 @@
+title: AI-Based Technical Analysis for NEPSE Stocks
+slug: ai-based-technical-analysis-for-nepse-stocks
+description: What machine learning adds to chart analysis on NEPSE, why standard indicator settings distort in a thin market, and how to judge an AI technical signal before acting on it.
+category: nepse-analysis
+tags: Technical Analysis, NEPSE AI, Machine Learning, Chart Analysis, Nepal Stock Exchange
+---
+Technical analysis on NEPSE is usually done by eye. You open a chart, notice that the price has crossed an average, see a pattern that resembles one you have a name for, and act. The method is not worthless — it encodes real information about trend and participation — but it is unreproducible, and it is unusually easy to fool in a market with thin trading and daily price limits.
+
+Applying machine learning to that work changes two specific things. It makes the definitions fixed, so the same chart produces the same verdict every time. And it lets you check whether the pattern you believe in has ever actually preceded the outcome you expect, across every stock and every session rather than the few you remember.
+
+What it does not do is turn a chart into a forecast. Everything a technical indicator computes is a summary of what has already happened. The claim that a particular summary predicts what happens next is a hypothesis, and it needs testing on NEPSE data specifically, because results from large foreign markets do not transfer cleanly.
+
+## Indicators are measurements, not signals
+
+An average is the mean of recent closes. A momentum oscillator is the ratio of recent gains to recent losses. A volatility band is a distance from a mean expressed in standard deviations. None of these contain an opinion. They are descriptions, and they are precise ones.
+
+The signal is the extra step: the assertion that when the measurement takes a certain value, something follows. That step is where all the risk lives, and it is where most retail technical analysis skips straight past the evidence.
+
+> An indicator tells you what the price has done. It has no view on what the price will do. Everything after that is your hypothesis, and hypotheses have to be tested.
+
+Machine learning is useful here mainly as a discipline. It forces you to state the target explicitly — what outcome, over what horizon — and it measures how often the pattern preceded that outcome versus how often it preceded nothing.
+
+## The parameter problem, which is bigger in Nepal
+
+The familiar indicator settings are conventions from another market and another era. There is nothing special about a fourteen-period oscillator or a twenty-day band. They are defaults that stuck.
+
+This creates the most common failure in AI-assisted technical work: tuning parameters per stock until the result looks good. With enough settings to choose from, some combination will look excellent on any history, and it will mean nothing. The more stocks you tune individually, the more certain you are to be fitting noise.
+
+The defensible approach is the opposite of tuning. Pick a small number of settings, keep them the same for every stock, and check that the result is not wildly sensitive to the exact choice. If a rule works at twenty days and fails at eighteen and twenty-two, it has found an accident, not a behaviour.
+
+## NEPSE distortions a model has to handle
+
+Standard technical machinery assumes a continuously traded series with unbounded daily moves. NEPSE breaks that assumption in four specific ways, and each one corrupts indicators silently.
+
+- **Daily price limits.** A genuine shock cannot arrive in one bar. It arrives as a run of capped days, which flattens measured volatility exactly when volatility is highest and makes momentum measures look artificially orderly.
+- **Corporate action restatements.** When a company issues bonus or rights shares, the price is adjusted. Unhandled, this appears as a large single-day fall that never occurred, and every average, band and momentum reading downstream of it is wrong. The tell is a gap at the open with no matching news, not the size of the fall.
+- **Thin trading and repeated prints.** A stock that barely trades can show an unchanged close for days. Volatility measures read that as calm. It is not calm, it is absence, and the moment it does trade the move can be large.
+- **High correlation across the board.** Nepal's listed universe is concentrated in a few sectors that move together. A "breakout" on a day when almost everything broke out is a statement about the market, not the stock.
+
+Any model that ignores these will produce confident readings on fictional data. This is the single most common reason a technical system that looked strong in testing behaves strangely in live use.
+
+## Features that survive a thin market
+
+Some measurements hold up better than others under these conditions. A short list of the ones worth building on:
+
+1. **Distance from the stock's own mean, in units of its own volatility.** Comparable across a cheap stock and an expensive one, which raw rupee distance is not.
+2. **Volume relative to the stock's own recent range.** Absolute turnover only tells you the stock is large. Relative turnover tells you today is unusual for it.
+3. **Participation, not just quantity.** How many brokers were involved, from the floorsheet, and whether that is normal for this stock. A move on broad participation is a different event from the same move on one broker's activity.
+4. **Trend measured on longer windows than feel natural.** Short windows in a thin market are dominated by the mechanics of trading rather than by direction.
+5. **Rank within the day.** Where this stock sits relative to every other stock today, which strips out the market-wide move that otherwise dominates every indicator.
+
+Of the classic confirmations, volume is the one that most consistently earns its place. A price move on unusual volume is a meaningfully different observation from the same move on ordinary volume, and it is one of the few technical qualifiers that tends to hold up when tested honestly.
+
+## Pattern recognition: real and imagined
+
+Machines can be trained to recognise chart shapes. Whether they should be is the harder question.
+
+The problem is that named chart patterns are defined loosely enough that a flexible model will find thousands of them, and human memory only retains the ones that were followed by a big move. That is pareidolia with a training loop. A model given free rein over a short history will discover shapes that have no future.
+
+Pattern work becomes defensible when the pattern is defined precisely before the search, tested against a proper benchmark — how often does the outcome follow anyway, without the pattern — and evaluated on data the designer never used to design it. Most published pattern claims fail the second test, which is why they replicate poorly.
+
+## How to judge an AI technical signal
+
+Before you act on one, whether yours or a product's, get answers to these:
+
+- **What exactly is it measuring, in one sentence?** If the answer requires a paragraph of jargon, nobody has checked it.
+- **Is it corporate-action safe?** Ask specifically how adjusted prices are handled.
+- **Is it compared to a benchmark?** Against a random entry on the same day, and against simply holding.
+- **Is it stable across nearby parameter settings?**
+- **Does it vary across the universe?** A score that says roughly the same thing about almost every stock cannot rank anything, however good its logic looks.
+- **What does it do in a strong market?** Many technical signals are a disguised bet that everything goes up.
+
+## A practical setup
+
+Use technical measurement for what it is genuinely good at: timing and risk, not selection. Let fundamentals and business judgement decide what you would be willing to own, then let a fixed technical rule decide when and how large.
+
+Keep the indicator set small and identical across stocks. Compute everything on adjusted prices, and put a check in place that flags a suspicious single-day gap before it poisons a month of readings. Rank within the session rather than in absolute terms. And record what your rule said each day before you knew the outcome, because a technical method that is only reviewed after the fact is a memory, not a system.
+
+For the underlying measures and why each exists, see [technical indicators every AI stock model should understand](/blogs/technical-indicators-every-ai-stock-model-should-understand). For the modelling side of a price series, [time-series analysis of NEPSE stocks](/blogs/time-series-analysis-of-nepse-stocks-explained) covers the assumptions that quietly fail here, and [how AI can identify patterns in NEPSE stock data](/blogs/how-ai-can-identify-patterns-in-nepse-stock-data) goes further into the pattern question.

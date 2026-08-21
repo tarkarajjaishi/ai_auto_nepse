@@ -1,0 +1,89 @@
+title: NEPSE and Artificial Intelligence: From Traditional Investing to Intelligent Investing
+slug: nepse-and-artificial-intelligence-from-traditional-investing-to-intelligent
+description: Moving from traditional to intelligent NEPSE investing is not about replacing your judgement with a machine. It is about making your process explicit and testable.
+category: ai-and-nepse
+tags: NEPSE AI, Intelligent Investing, Nepal Stock Exchange, Quantitative Analysis, Floorsheet Data, Investing in Nepal
+---
+Most Nepali investors already run a process. It is rarely written down, but it exists: a watchlist built from conversation, a glance at the day's movers, a look at last quarter's EPS, a feeling about whether the market is heavy or light. The move from traditional to intelligent investing is not a move from human judgement to machine judgement. It is a move from an implicit process to an explicit one.
+
+That distinction matters because it tells you what artificial intelligence can and cannot do for you here. It cannot supply conviction you do not have. It can take a rule you already apply loosely and apply it to every listed security, every session, in the same way each time, and keep a record of what it found.
+
+What follows walks through a traditional NEPSE process step by step, shows what each step becomes once it is instrumented, and is honest about the parts that do not improve at all.
+
+## The traditional process, described honestly
+
+Strip away the vocabulary and a typical retail process in Nepal looks like this:
+
+1. A stock enters your attention through a friend, a group message, a news item, or the top-gainers list.
+2. You check the last traded price and the day's change, and form a first impression from that alone.
+3. You look at the broker-wise summary if your platform shows one, and note whether anything looks unusual.
+4. You compare the P/E or EPS against a rough sense of what the sector trades at.
+5. You read whatever recent commentary exists, most of it opinion rather than analysis.
+6. You buy an amount that feels appropriate, and you exit when the position feels wrong.
+
+There is nothing foolish in any single step. Each one is a reasonable question. The failure is structural: the steps are performed on a handful of stocks, in a different order each time, against a baseline that lives only in your memory, with no record of why you decided what you decided.
+
+## Four things a manual process cannot do
+
+**It cannot cover the market.** NEPSE lists securities across banking, development banks, finance, hydropower, microfinance, life and non-life insurance, hotels and tourism, manufacturing, trading, investment and mutual funds. Nobody reads all of them daily. You read the same dozen names, which means your opportunity set is not the market. It is your habit.
+
+**It cannot hold a baseline.** "That is heavy volume" is a comparison, and the thing being compared against is a recollection. A stock that normally trades thinly and one that normally trades actively need completely different thresholds, and human memory does not keep separate thresholds for hundreds of names.
+
+**It cannot remember accurately.** You remember the trade that worked. You remember the reason you gave afterwards, not the reason you gave before. Without a written record there is no way to learn whether your rule works, because the evidence has been quietly edited.
+
+**It cannot notice absence.** A machine can tell you that a stock you follow has barely traded for several sessions, or that a filing you would have expected has not appeared. A human notices what is on the screen, not what is missing from it.
+
+## What "intelligent" actually adds
+
+Intelligent investing begins with an unglamorous act: writing a rule down precisely enough that a computer could execute it without asking you a follow-up question.
+
+"Unusual volume" becomes a definition, with turnover measured against that stock's own recent range, over a stated number of sessions, with a stated threshold. The moment the rule is written, three things change.
+
+- **Ranking replaces scanning.** Instead of browsing stocks, you look at the ones that satisfy a condition, ordered by how strongly they satisfy it.
+- **A measured baseline replaces an impression.** Each stock is judged against its own history rather than against the market's mood or your memory of last month.
+- **A record replaces recollection.** The rule produced a list, the list is stamped with the session it came from, and the outcome can later be checked against what the rule actually said rather than what you now recall it saying.
+
+None of that requires a neural network. Most of the value in quantitative work in a market like Nepal's comes from careful counting, and only a small part from modelling. If the technology is what attracted you, that ordering will disappoint. If you came because you want your decisions to be defensible, it is exactly right.
+
+## The floorsheet is where automation earns its keep first
+
+NEPSE publishes a broker-level floorsheet of trades. Many exchanges publish nothing comparable to the public. It is the richest dataset a Nepali retail investor can readily obtain, and it goes largely unread for a simple reason: reading it by hand is impractical, and a one-line summary of it is not a substitute for the file.
+
+Machine processing turns that file into answerable questions. Which brokers sat consistently on one side of a stock across the last several sessions, and is that unusual for those brokers? Was a session's volume concentrated among a few participants or spread widely? How does today's activity compare with this stock's own typical session rather than with the market's?
+
+Those are descriptions, not forecasts. They tell you precisely what happened. That is a far lower bar than predicting what happens next, and a far more reliable one.
+
+There is a trap in this data that catches nearly everyone who starts exploring it. Every share bought is also sold, so any net buy-minus-sell imbalance measured across the whole market is zero by construction. A metric that appears to reveal a hidden net accumulator across the entire exchange is usually re-describing turnover in more exciting language. Before believing a floorsheet signal, ask what result would have proved it false.
+
+> A number that could not possibly have come out the other way is not evidence. It is arithmetic wearing a costume.
+
+## What does not change
+
+Instrumentation does not repeal the fundamentals. A company's earnings, its book value, its dividend behaviour and the quality of its disclosures still drive long-run outcomes, and no amount of pattern recognition substitutes for reading a financial statement. For that side of the work, start with [How to Analyze a NEPSE Stock Before Buying](/blogs/how-to-analyze-a-nepse-stock-before-buying) and [What Is EPS in Nepal Stock Market?](/blogs/what-is-eps-in-nepal-stock-market).
+
+Nor does a machine repair a bad rule. Automation multiplies whatever process you feed it. A poor rule applied consistently across the entire market is a poor rule applied more often, and it will produce a tidy report that is confidently wrong.
+
+And a model only sees what is recorded. Governance, management intent, a shift in policy, the reason a large holder is selling: none of these live in the price series, and pretending otherwise is how quantitative work turns overconfident.
+
+## Where the claims outrun the evidence
+
+Three claims deserve resistance whenever you meet them.
+
+**Short-horizon price prediction.** Forecasting tomorrow's close is close to a coin flip in every liquid market that has been studied seriously, and NEPSE gives no reason to expect an exception. A tool reporting high accuracy is usually predicting something trivial, such as a stock staying near its recent level.
+
+**A backtest presented as a result.** A strategy tuned on the same history it is measured against will always look excellent. The only interesting numbers are how it behaved on data the designer had never seen, and how it behaved in its worst stretch rather than on average. [Can Artificial Intelligence Predict NEPSE?](/blogs/can-artificial-intelligence-predict-nepse) goes further into this.
+
+**"AI-powered" as a label.** The phrase names a category, not a capability. Ask what the system measures, on which data, and what it reports when it does not know.
+
+## How to make the shift yourself
+
+You can start without writing a line of code.
+
+1. Write your current process in ten lines. If you cannot, you do not yet have a process, you have a set of habits.
+2. Take one belief you rely on and define it numerically, with a threshold and a window. Argue with the definition until it is unambiguous.
+3. Check the session behind every number you look at. A previous close presented as a live price is the most common failure in market software, and the number itself looks perfectly normal.
+4. Keep a decision log, recording the reason before the outcome is known. This is the step that separates learning from storytelling.
+5. Test one belief against history, and look specifically at the periods where it lost. Any idea can be made to shine over its best stretch.
+6. Judge any tool by whether it is reproducible, whether it labels how old its data is, and whether it has ever published something that did not work. A research process that has never rejected one of its own ideas has not been testing them.
+
+Intelligent investing is, in the end, a modest promise. It does not tell you what will rise. It makes sure that when you decide, you have genuinely looked at everything you claimed to look at, and that a year later you can prove it. For the wider picture, see [Quantitative Investing in Nepal: A Beginner Guide](/blogs/quantitative-investing-in-nepal-a-beginner-guide).

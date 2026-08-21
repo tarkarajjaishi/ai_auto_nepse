@@ -1,0 +1,84 @@
+title: Data-Driven Investing in Nepal: The Rise of Quantitative Analysis
+slug: data-driven-investing-in-nepal-the-rise-of-quantitative
+description: Why rule-based analysis is spreading among Nepali investors, what changed to make it possible, how to judge a data product, and which decisions data will never make for you.
+category: quantitative-finance
+tags: Data-Driven Investing, Quantitative Analysis, NEPSE, Nepal Stock Exchange, Market Intelligence
+---
+Nepali investing has been a conversational business. A tip from a colleague, a view from a broker, a chart shared in a group, a company report skimmed the night before a decision. The information is real, but the process is unrecorded, and nobody — including the investor — can say afterwards what the decision was actually based on.
+
+What is changing is not that better information has appeared. NEPSE has published its price data and its broker-level floorsheet for a long time. What changed is that processing that information stopped being expensive. A single person with an ordinary laptop can now do work that previously needed a desk, a team, and a data budget.
+
+That shift is what "data-driven investing" means in Nepal, and it is more modest and more useful than the marketing around it. It does not promise better predictions. It promises that your decisions become repeatable, reviewable, and comparable across the whole market instead of the six stocks you happen to follow.
+
+## Three things arrived at once
+
+The move from conversation to computation happened because three constraints lifted together.
+
+**Access.** Daily prices, volumes, sector indices and the floorsheet are public. The floorsheet in particular is unusual — many exchanges publish nothing comparable at trade level — and it has sat largely unused simply because reading it by hand is impractical past a handful of sessions.
+
+**Compute.** Aggregating months of trade records across the entire board is now a matter of seconds on hardware anyone can afford. That was the real barrier, and it is gone.
+
+**Tools.** The modelling and analysis software that professionals use is free and documented. The remaining barrier is knowing which questions are worth asking, which is a matter of judgement rather than budget.
+
+None of these is an advantage over other investors by itself. They are available to everyone. The advantage, such as it is, comes from using them thoroughly while most participants do not.
+
+## Why a retail market makes evidence more valuable
+
+There is a persistent assumption that a small, retail-heavy market is somehow beyond analysis — too sentiment-driven, too prone to rumour. The opposite argument is stronger.
+
+Where professional coverage is thin, most of the available public data is genuinely unexamined. Nobody has read every floorsheet. Nobody has compared every stock against its own history. In a heavily researched market that work is done thousands of times over before you wake up. Here, doing the ordinary work completely is itself a differentiator.
+
+> The edge in Nepal is unlikely to come from a clever model. It comes from being the one participant who actually looked at everything before deciding.
+
+That is an uncomfortable conclusion for anyone hoping for sophistication, and a reassuring one for anyone without it. Completeness beats cleverness in an under-covered market.
+
+## What a data-driven decision actually looks like
+
+Two investors consider the same stock. Both conclude it is worth buying.
+
+The first noticed it rising, remembered a positive comment about the sector, checked that the last quarterly result was reasonable, and bought an amount that felt right. If it works, the lesson is unclear. If it fails, the lesson is unclear.
+
+The second defined the universe first, ranked every eligible stock on three measures they can explain, read the top of that list, wrote down what would prove the thesis wrong, sized the position based on how much the stock typically moves and how easily it can be sold, and recorded the whole thing before the outcome existed. If it works or fails, the record says which part was responsible.
+
+Neither investor knows the future. The difference is that only one of them will be better at this in three years, because only one is generating information about their own process.
+
+## The credibility test for a Nepali data product
+
+As more tools appear claiming to bring AI or quantitative analysis to NEPSE, you need a way to sort them. Six questions do most of the work:
+
+1. **Does every number say which session it is from?** A figure computed from an old session and presented as current is the most common and most damaging failure in market software. If the interface cannot tell you how fresh a number is, do not trust the number.
+2. **Does it separate description from prediction?** "This broker accounted for a large share of today's volume" is a fact. "Therefore the price will rise" is a claim that requires evidence.
+3. **Are the results out of sample?** A backtest on the same history used to design the strategy will always look good. Ask what happened on data the designer had never seen.
+4. **Is there a year-by-year record?** Headline totals hide the fact that most of the gain came from one exceptional stretch and most periods lost.
+5. **Is it reproducible?** The same inputs should give the same output tomorrow. If a score changes and nobody can say why, it is not a measurement.
+6. **Does it ever say it does not know?** A system with a confident answer for everything is not measuring anything.
+
+A tool that fails the first question fails all of them, because everything downstream inherits the staleness.
+
+## The failure modes to expect as this grows
+
+Quantitative analysis in Nepal will produce its own genre of mistakes, and they are predictable enough to name now.
+
+**Overfitted backtests sold as results.** The easiest way to produce an impressive chart is to tune a strategy until the past looks perfect. It costs nothing and it convinces most audiences.
+
+**Metrics that re-describe turnover.** A very large family of floorsheet measures reduces, after the arithmetic, to how much the stock traded. They look like insight into hidden buyers and they rank the most active stocks. Every share bought is sold, so any market-wide net imbalance is zero by construction, and a metric that appears to show otherwise is measuring something else.
+
+**Survivorship in every direction.** Testing on stocks that are listed and liquid today quietly excludes everything that failed, and flatters every result.
+
+**Crowding.** If a simple published rule becomes popular in a market this size, the behaviour it exploits can change. That risk is real and is worth stating even by people who publish such rules.
+
+## What does not become quantitative
+
+Some of the most important questions in Nepali investing are not measurable, and it is dishonest to pretend otherwise.
+
+Whether a management team is competent and straight. Whether a promoter's incentives align with minority shareholders. Whether a hydropower project will reach completion on anything like its stated schedule. How regulation will move. Whether the liquidity you see on a calm day will exist on the day you need to sell.
+
+Data will tell you where to look and how much to risk. It will not tell you whether to trust the people running the company. Keep those two jobs separate and give each the method it deserves.
+
+## Where to start
+
+Start smaller than you want to. Pick one decision you make regularly and write down the rule you are actually using, including every threshold. Compute it for the whole board on one past date and look at what it selects, especially at the bottom of the list. Check whether the top simply contains the most traded stocks, and whether you could have computed it with only the information available on that date.
+
+Then keep a record: what you decided, why, what would have proved you wrong, and what happened. Six months of that record is worth more than any product you could buy, because it is about your decisions rather than someone else's model.
+
+If you want the surrounding picture, [how data science is changing stock market research in Nepal](/blogs/how-data-science-is-changing-stock-market-research-in) covers the wider shift, [the role of big data in Nepal's stock market](/blogs/the-role-of-big-data-in-nepal-stock-market) looks at the raw material, and the practical method sits in [how quantitative analysis can improve NEPSE stock research](/blogs/how-quantitative-analysis-can-improve-nepse-stock-research).

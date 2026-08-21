@@ -1,0 +1,87 @@
+title: AI in Nepal Stock Market: What Nepali Investors Need to Know
+slug: ai-in-nepal-stock-market-what-nepali-investors-need
+description: A plain guide to what artificial intelligence can and cannot do in the Nepal share market, which claims to distrust, and the questions to ask before you rely on any AI tool.
+category: ai-and-nepse
+tags: NEPSE AI, Nepal Stock Exchange, Investing in Nepal, Machine Learning, Market Analysis
+---
+Artificial intelligence has arrived in the Nepali share market conversation faster than any explanation of it. You will see the phrase attached to screeners, Telegram groups, mobile apps, paid signal services and course advertisements, and in most cases the word is doing no work at all beyond making the product sound modern.
+
+The useful version of AI in NEPSE is real, but it is not the version being advertised. It does not forecast tomorrow's closing price. It reads more data than you can, more consistently than you can, and it tells you what is actually in that data. That is a genuine advantage in a market where most participants are working from a fraction of the available public information.
+
+This article is a practical orientation: what the technology genuinely does, where it fails, and how to tell a serious tool from a repackaged one before you pay for it or, worse, trade on it.
+
+## The four things people mean by "AI for NEPSE"
+
+They are not equally mature, and conflating them is how investors get misled.
+
+1. **Data processing at scale.** Aggregating the broker-level floorsheet, computing every stock's statistics against its own history, comparing hundreds of securities on identical rules. This is the most reliable category and the least glamorous. It is also where nearly all the practical value currently sits.
+2. **Pattern recognition on prices.** Machine-learning models that read historical bars and look for structure. Genuinely useful for describing volatility and regime, far weaker at predicting direction.
+3. **Language models over text.** Reading quarterly reports, disclosures and news, extracting figures, summarising tone. Strong at extraction and summary, unreliable when asked to judge whether something is good news.
+4. **Automated rules and risk.** Applying position sizing and stop rules identically every time. This is essentially solved, and it is a discipline tool rather than an intelligence one.
+
+When somebody says their product uses AI, the first question is which of these four they mean. If the answer is vague, it is usually the second one, badly.
+
+## Why Nepal is a better fit for this than people assume
+
+Small markets are often dismissed as too thin for quantitative work. In one respect NEPSE is unusually well suited to it.
+
+NEPSE publishes a broker-level floorsheet. Many markets, including much larger ones, never expose trade-level broker identity to the public. That means Nepali retail investors have access to a dataset that would be an expensive institutional product elsewhere, and almost nobody uses it, because reading it by hand is impossible and reading it by machine requires a small amount of engineering.
+
+> The advantage in Nepal is not exotic modelling. It is that nearly nobody has read the data that is already public.
+
+The second reason is coverage. The market is retail-dominated and analyst coverage is thin. In a heavily researched market, the ordinary work is already done by thousands of professionals before you wake up. In NEPSE, doing the ordinary work completely is still a differentiator.
+
+## What AI does not do, however it is described
+
+Be blunt with yourself about these.
+
+**It does not predict prices.** Short-horizon direction prediction is close to a coin flip in every liquid market that has been tested honestly. A tool claiming high accuracy is nearly always measuring something trivial, such as correctly predicting that a stock will stay roughly where it is.
+
+**It does not remove risk.** It relocates it. A model that sizes positions mechanically loses money mechanically when it is wrong. What good software does is make the risk explicit and bounded, not absent.
+
+**It does not know things that are not in the data.** A promoter's intentions, an unannounced policy change, a decision inside a regulator — none of that is in the floorsheet or the price history. Models are confident about the world they were shown and silent about the rest.
+
+**It does not replace reading the financials.** An AI summary of a quarterly report is a starting point that saves you time, not a substitute for looking at the numbers yourself. If you would not act on a friend's summary of a report, do not act on a machine's. See [How to Read a NEPSE Company Financial Report](/blogs/how-to-read-a-nepse-company-financial-report) for what to look at directly.
+
+## Claims that should make you suspicious
+
+Treat these as warning signs rather than selling points.
+
+- **An accuracy percentage with no definition.** Accurate at what, over what horizon, measured against what baseline? "85% accurate" without those three answers is meaningless.
+- **A backtest as the main evidence.** A strategy tuned on the history it is measured against always looks excellent. Ask whether it survived on data the designer had not seen when the rule was written.
+- **A single spectacular period.** Many NEPSE strategies are one bull run wearing a lab coat. Ask for results year by year, not as an average.
+- **Signals without reasons.** If a tool cannot tell you which fact triggered its output, you cannot judge it, and neither can it.
+- **No mention of losses.** Every real process loses regularly. A record that shows only wins is a record that is not showing you everything.
+- **A number that never says which session it is from.** This is the most common and most underestimated defect in Nepali market software.
+
+## The questions to ask before you trust a tool
+
+Five, and they are short enough to ask anyone.
+
+1. Which session is this number from, and what happens on the screen when the data goes stale?
+2. Is this a description of what happened, or a prediction of what will happen? Where is the line drawn in your interface?
+3. How was this signal tested, and what did it look like in the years when it did not work?
+4. Can I reproduce the same output tomorrow from the same inputs?
+5. What does this tool refuse to tell me? A system with an answer for everything is not measuring anything.
+
+A serious builder will enjoy those questions. A seller will deflect them.
+
+## A trap specific to floorsheet data
+
+This one is worth understanding even if you never touch the data yourself, because it explains why so many broker-based claims are hollow.
+
+Every share bought is sold. That means any net buy/sell imbalance measured across the whole market is exactly zero, always, by construction. So when a service tells you it has detected "smart money accumulating in the market", the market-wide version of that statement is arithmetically impossible. At the individual stock level, the identity still holds within each trade — for every broker buying, another is selling.
+
+What can be measured honestly is concentration, participation, and change in the mix of brokers over time. What cannot be measured is a hidden net buyer across the market. Most metrics that appear to find one are re-describing turnover with a more dramatic name. A deeper treatment of the modelling side is in [How Machine Learning Can Help Analyze Nepal Stock Exchange Data](/blogs/how-machine-learning-can-help-analyze-nepal-stock-exchange).
+
+## What to actually do with AI as a Nepali investor
+
+Use it to widen what you see and to enforce consistency, not to hand over judgement.
+
+- Let it do the reading. Screening hundreds of securities on identical rules is exactly what it is good for, and exactly what you cannot do by hand.
+- Treat every flagged stock as a prompt to investigate, never as an instruction. The correct next step is opening the financials, not opening a position.
+- Insist on knowing the age of every number before you act on it.
+- Write down your reason for each trade before you place it. Compare that record with the outcome later. It is the only honest feedback you will ever get about your own process.
+- Keep your position sizing decided in advance, by rule. This is the one place where mechanical discipline reliably improves outcomes, and it requires no AI at all.
+
+The technology is real and it is worth using. What is not real is the promise that it knows the future. If you keep those two apart, you will get most of the benefit and avoid nearly all of the damage. For the broader question of whether prediction is possible at all, see [Can Artificial Intelligence Predict NEPSE?](/blogs/can-artificial-intelligence-predict-nepse).

@@ -1,0 +1,96 @@
+title: Backtesting a NEPSE Trading Strategy: Complete Beginner's Guide
+slug: backtesting-a-nepse-trading-strategy-complete-beginner-guide
+description: How to test a NEPSE trading rule against history without fooling yourself — data, execution assumptions, costs, out-of-sample splits and seven common mistakes.
+category: data-and-research
+tags: Backtesting, NEPSE Strategy, Quantitative Research, Trading Rules, Risk Management
+---
+A backtest answers one narrow question: if you had followed this exact rule in the past, what would have happened? It does not tell you what will happen. Its real value is as a filter — it kills bad ideas cheaply, before they cost you money, and it forces you to state a vague intuition precisely enough to be wrong.
+
+That filtering only works if the test is honest. A backtest is trivially easy to rig, usually without meaning to. Small, innocent-looking choices — which price you assume you got, which stocks you included, how many parameter combinations you tried — can turn a strategy with no edge into a chart that climbs beautifully from left to right. Nearly every impressive backtest a beginner produces contains at least one of these, and the flattering result is the evidence that it does.
+
+This guide walks the whole process for the Nepal Stock Exchange, in the order you should do it, with the specific traps flagged where they occur.
+
+## Step 1: Prepare the price data properly
+
+Everything rests on this, and it is the least interesting part, which is why it gets skipped.
+
+- **Adjust for corporate actions.** Bonus shares and rights issues change the price scale overnight. An unadjusted series shows a sudden fall that never happened. Any momentum or trend rule reading that series will interpret a bonus issue as a crash and act on it, which is pure noise dressed as a signal.
+- **Do not fill gaps with flat prices.** Thinly traded NEPSE stocks skip sessions. Carrying yesterday's close forward creates fake zero-return days that make the stock look far calmer than it is and distort every volatility calculation.
+- **Check the extremes.** Scan for single-day moves larger than the market's daily circuit allows. Anything beyond that limit is a data error or an unadjusted corporate action, not a trade you could have made.
+- **Know what your history actually contains.** Older data files often have formatting quirks — different line endings, decimal quantities, non-numeric broker codes in floorsheet records — that a naive parser drops silently. A parser that discards rows without complaining will hand you a clean-looking dataset that is missing most of a year.
+
+Validate before you model. Count the rows per year and per symbol and look at the shape of that count. Sudden dips almost always mean a parsing failure rather than a quiet market.
+
+## Step 2: Write the rule down completely
+
+A rule is complete when someone else could execute it without asking you a question. That means specifying, in advance:
+
+1. **Universe** — which stocks are eligible, and by what liquidity test, evaluated as of each historical date rather than today.
+2. **Entry** — the exact condition, and on which bar it is evaluated.
+3. **Exit** — target, stop, time limit, or signal reversal. Every entry needs an exit rule defined before the trade starts.
+4. **Sizing** — how much capital per position, and the maximum number of open positions.
+5. **Rebalancing** — how often the portfolio is refreshed and what triggers a change.
+
+If any of these is decided while looking at the results, the test is contaminated. This specification-first discipline is the same one described in [Building a Quantitative Strategy for the Nepal Stock Exchange](/blogs/building-a-quantitative-strategy-for-the-nepal-stock-exchange).
+
+## Step 3: Get the execution assumptions right
+
+This is where most beginner backtests quietly cheat. The signal is computed from today's closing price, and the backtest then fills the trade at today's closing price. You cannot know the close before the close. That one line of code is worth an enormous amount of fictional profit.
+
+The safe convention is to compute the signal from data up to and including one session's close, and fill the trade at the next session's opening price or later. Then add realistic friction on top:
+
+- **A slippage assumption** on entry and exit, larger for less liquid names.
+- **Commission and regulatory charges** at the rates that actually apply to the trade size you would place.
+- **Capital gains treatment**, which differs by holding period and materially changes the ranking of a high-turnover strategy against a slow one.
+- **A liquidity cap** — you cannot buy more than a plausible fraction of a session's traded volume without moving the price yourself.
+- **Circuit days**, where an exit may simply be unavailable. Assuming a fill on a limit-move day records a trade that could not have happened.
+
+> The gap between a backtest and reality is not a rounding error. Costs and timing are where a modest edge goes to die, and they belong in the test from the first run, not added later as a sanity check.
+
+## Step 4: Split the data by time
+
+Never judge a strategy on the data you used to design it. Reserve a block of history the strategy has never seen, build and tune on the earlier block, then test once on the later one.
+
+Better still is **walk-forward testing**: train on a window, test on the period immediately after, roll forward, repeat. You get a sequence of out-of-sample results across genuinely different market conditions rather than a single number from a single stretch. The mechanics, including purging and embargo gaps that stop information bleeding across the boundary, are covered in [How Machine Learning Models Analyze Financial Time-Series Data](/blogs/how-machine-learning-models-analyze-financial-time-series-data).
+
+The rule that comes with this: you get one out-of-sample test. If you look at the result, adjust the strategy, and test again, that block is now part of your design data and has stopped being evidence.
+
+## Step 5: Measure the right things
+
+A single total return figure hides everything that matters. Report at least these, and read them together:
+
+- **Return, and the market's return over the same period.** A strategy that made money in a rising market may have added nothing. Compare against simply holding the index.
+- **Maximum drawdown.** The worst peak-to-trough fall you would have had to sit through. This, not the total return, determines whether you would actually have stuck with it.
+- **A per-year table.** The single most useful diagnostic in backtesting. A strategy whose entire result comes from one exceptional year is not a strategy, it is one lucky period. Break the results down year by year and look at how many were losers.
+- **Trade count.** Thirty trades cannot support a confident conclusion no matter how good the average looks.
+- **The distribution, not the mean.** Check whether the average trade is representative or whether a thin tail of enormous winners is carrying everything. If removing the best five trades destroys the result, the strategy is a lottery ticket with extra steps.
+
+## Step 6: Test it against luck
+
+The question that separates serious work from wishful work: **is this better than random?**
+
+Build a null comparison. Take the same universe, the same holding period, the same number of trades, but pick the entries at random dates and symbols. Repeat that many times and look at the distribution of outcomes. If your strategy's result sits comfortably inside that distribution, it has no measurable edge — regardless of how good the equity curve looks.
+
+Two refinements matter. Sample the null without replacement so it reflects a portfolio you could actually have held. And if you tested many variants, raise the bar accordingly: testing twenty ideas and finding one that clears a 5% significance threshold is exactly what chance produces. The honest correction is to require far stronger evidence when you have looked in many places.
+
+## The seven mistakes that inflate results
+
+1. **Look-ahead** — using any information stamped after the decision moment, including today's close for today's trade.
+2. **Survivorship bias** — testing only stocks that exist today, excluding those that were delisted or suspended.
+3. **Point-in-time failure** — applying today's liquidity or sector list to old dates.
+4. **Overfitting** — tuning parameters until the curve looks right, then reporting the tuned result as if it were a forecast.
+5. **Multiple testing** — running many variants and reporting only the winner.
+6. **Ignoring costs** — especially fatal for high-turnover rules.
+7. **Ignoring capacity** — a result driven by trades in stocks too thin to absorb your order size.
+
+## What a good outcome actually looks like
+
+If your first serious backtest shows a strategy that beats the market comfortably in every year with a shallow drawdown, the correct first assumption is that you have a bug. Find it before you celebrate. Re-run with the entry shifted one session later; if the edge vanishes, you had look-ahead.
+
+The realistic result is that most ideas produce nothing once costs and out-of-sample testing are applied. That is not a failure of your effort — it is the test working. A research process that never returns a negative result is not finding edges, it is failing to look for them, a point argued more fully in [Can Artificial Intelligence Predict NEPSE?](/blogs/can-artificial-intelligence-predict-nepse) and in [Historical NEPSE Data and Machine Learning](/blogs/historical-nepse-data-and-machine-learning-what-can-we).
+
+## What to do next
+
+Start smaller than you want to. Take one rule you already half-believe, apply it to the twenty most liquid NEPSE stocks, fill at the next open, subtract realistic costs, and produce a per-year table. That is a weekend of work and it will tell you more than a month spent building a sophisticated framework around an untested idea.
+
+Then, before any money moves, run the rule forward on paper for a period with real timestamps, recording every decision as it happens. A rule that survives history and then survives a live paper period has earned a small allocation. Nothing less has.

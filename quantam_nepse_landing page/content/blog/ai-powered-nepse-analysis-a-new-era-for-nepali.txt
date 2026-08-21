@@ -1,0 +1,87 @@
+title: AI-Powered NEPSE Analysis: A New Era for Nepali Investors
+slug: ai-powered-nepse-analysis-a-new-era-for-nepali
+description: What changes in your own research routine when analysis is automated: a practical NEPSE workflow, the new behavioural traps, and the record every investor should keep.
+category: ai-and-nepse
+tags: NEPSE AI, Investing in Nepal, Stock Research, Nepal Stock Exchange, Investment Process
+---
+The phrase "a new era" usually means a new product. Here it means something narrower and more useful: for the first time, an ordinary Nepali investor can run a complete, identical research process over the entire market without hiring anyone. The tools are cheap, the data is public, and the barrier that kept this work inside institutions was never intelligence — it was the sheer clerical volume of it.
+
+What that changes is your routine, not your returns. Nothing about automated analysis makes a stock go up. What it does is remove the excuse for deciding on a fragment of the evidence, which is how most retail money in Nepal is actually lost.
+
+So the honest way to write about this is not to describe the technology again. It is to describe what a research week looks like when the clerical work is done for you, and what new mistakes become available once it is.
+
+## The old routine, described honestly
+
+Most Nepali investors run something like this. A name comes to your attention — a group, a friend, a rising chart. You open it, look at the price history, check the LTP and market capitalisation, maybe glance at EPS and P/E, read whatever news exists, and form a view. If the view is positive you buy, sizing the position by how confident you feel.
+
+There is nothing stupid about that process. The problem is what it leaves out.
+
+- The stock arrived by attention, not by any test. Everything you never heard about was excluded before evidence entered.
+- The checks vary. You looked at three years of history for one stock and one for another, and you cannot remember which.
+- Nothing is comparable. "P/E looks reasonable" is a judgement against a vague memory of other companies, not against this stock's own history or its sector.
+- Nothing is recorded. When it works or fails, you learn nothing transferable, because you cannot reconstruct what you actually believed.
+
+Automation fixes exactly these four things and none of the others.
+
+## The routine that replaces it
+
+The workable version is not complicated. It is a pipeline with a human at the end.
+
+1. **The machine screens everything.** The same rules applied to every listed security, run before the market opens. Not your watchlist — the whole market, including the names you have never heard of.
+2. **A short list arrives, with reasons.** Each entry says which condition it met. If a tool cannot tell you why a stock appeared, it has not screened, it has guessed.
+3. **You read the survivors properly.** Financial report, disclosures, sector context. This is where your time goes now, and it is where it should always have gone. [How to Analyze a NEPSE Stock Before Buying](/blogs/how-to-analyze-a-nepse-stock-before-buying) covers the checklist itself.
+4. **You size by rule, not by feeling.** Decided before you look at the chart, not after.
+5. **You write down why.** One paragraph. What you believe, what would prove you wrong, and roughly when you would expect to know.
+
+Step five is the one everybody skips and the only one that compounds.
+
+> Automation gives you back the hours. What you do with them decides whether it was worth anything.
+
+## What genuinely improves
+
+Three things, and they are worth being specific about because they are often overstated.
+
+**Coverage.** You stop being limited to the fifteen names that circulate in Nepali investor conversation. The stocks you examine are chosen by a rule you can inspect, which means your opportunity set stops being a function of your social circle.
+
+**Comparability.** Each security measured against its own history. This is a bigger deal than it sounds in a market with wildly different price levels and liquidity across sectors — a turnover figure that is extraordinary for a small hydropower issue is a slow morning for a large commercial bank.
+
+**Reach into the floorsheet.** NEPSE publishes broker-level trade data, which most markets do not expose publicly. It is unreadable by hand and ordinary by machine. It cannot tell you where a price is going, but it can tell you precisely who was active, how concentrated the day was, and whether that is unusual for this stock. Description, not prophecy.
+
+## The new mistakes this era makes available
+
+Every tool that removes friction also removes the friction that used to protect you. Watch for these in yourself.
+
+- **Overtrading dressed as diligence.** A screen that produces thirty candidates a week will get you into thirty positions a year you did not need. More analysis should usually mean fewer trades, not more.
+- **False precision.** A score of 74 feels more real than "this looks decent". It is not. The number carries an implied accuracy that no NEPSE dataset supports.
+- **Borrowed conviction.** Acting because the system flagged it, without having read the company, is the same behaviour as acting on a tip. The source changed; the process did not.
+- **Confirmation at scale.** If you keep adjusting the screen until it surfaces the stock you already wanted to buy, you have automated your bias rather than removed it.
+- **Trusting a stale number.** The most common defect in market software is a figure from an old session shown as though it were current. Check the date every time, especially when the interface is polished.
+
+## The record that makes any of this compound
+
+If you take one habit from this article, take this one, because it costs nothing and is the only genuine feedback loop available to a retail investor.
+
+For every position, before you enter, write four lines: the reason, the evidence you relied on, what would tell you that you were wrong, and the size and why. Then leave it alone. Review the file every few months.
+
+What that record does is separate two things that are otherwise permanently tangled: whether your reasoning was sound, and whether the trade made money. Those are different questions, and in a market with a strong overall direction they get confused constantly. A good decision can lose. A bad decision can win handsomely and teach you a habit that eventually ruins you.
+
+No AI system provides this. It has to come from you, and it is more valuable than any signal you will ever buy.
+
+## Where the sceptical line sits
+
+It would be dishonest to end without naming what this era does not deliver.
+
+It does not deliver prediction. Short-horizon price forecasting is close to a coin flip everywhere it has been tested properly, and NEPSE is not exempt from statistics because it is small. It does not deliver certainty about broker behaviour either — every share bought is sold, so any claim about a hidden net buyer across the market is arithmetically empty, and many broker metrics that look profound turn out to be turnover wearing a costume.
+
+It does not deliver protection from yourself. The gap between what a strategy returns and what an investor holding it returns is caused entirely by the investor's behaviour during the periods when it is not working.
+
+What it delivers is that you will have looked at everything, in the same way, with the age of every number visible, before you decide. That is the whole offer. For the argument about where prediction genuinely ends, read [Can AI Really Predict NEPSE? Separating Technology From Hype](/blogs/can-ai-really-predict-nepse-separating-technology-from-hype).
+
+## What to do this week
+
+- Write down your current process as it actually is, not as you would describe it to someone else. The gaps will be obvious immediately.
+- Pick one rule you would want applied to every listed security, and define it precisely enough that a machine could run it.
+- Start the decision journal today, on your existing positions. Reconstruct why you bought them. If you cannot, that is the finding.
+- Before your next trade, check which session every number on your screen came from.
+
+None of that requires buying anything. The technology is the easy part of this new era; the discipline is the part that was always missing. For the wider view of where this is heading, see [Data-Driven Investing in Nepal: The Rise of Quantitative Analysis](/blogs/data-driven-investing-in-nepal-the-rise-of-quantitative).

@@ -1,0 +1,82 @@
+title: Quantitative Investing in Nepal: A Beginner's Guide
+slug: quantitative-investing-in-nepal-a-beginner-guide
+description: A practical start to rule-based investing in NEPSE: the data you can get, how to write a testable rule, how to size positions, and the mistakes that cost beginners most.
+category: quantitative-finance
+tags: Quantitative Investing, NEPSE, Beginner Guide, Investing in Nepal, Trading Strategy
+---
+Quantitative investing means deciding in advance, in writing, what you will buy and sell and how much, then following it. That is the whole idea. It does not require a mathematics degree, a machine-learning model, or expensive software. It requires you to convert the rules you already use into rules you can check.
+
+You almost certainly already invest quantitatively, badly. "I buy when it has fallen a lot and the company is fine" is a rule. It is just an unwritten one, with no definition of "a lot", no definition of "fine", and no record of how it has performed. The step from that to a quantitative process is smaller than it looks, and most of the benefit arrives immediately.
+
+This guide is the version you can start in a spreadsheet, with data you can get in Nepal, in an evening.
+
+## What you are actually buying with the effort
+
+Three things, in order of value.
+
+The first is **consistency**. The same rule applied on your worst day as on your best, without yesterday's loss shrinking today's position or last week's win inflating it. In a retail-dominated market that swings on sentiment, this is worth more than any clever formula.
+
+The second is **coverage**. A rule can be applied to every listed stock in the time it takes you to read one annual report. You stop being limited to the handful of names you happen to follow.
+
+The third is **a record**. When a written rule loses money you can find out whether the rule was wrong, the market changed, or you did not follow it. When an unwritten judgement loses money, you learn nothing you can use.
+
+## The data a Nepali investor can actually get
+
+Start with what is available, not with what you wish existed.
+
+- **Daily price and volume** for every listed security. This is the backbone of nearly all rule-based work.
+- **The broker-level floorsheet.** NEPSE publishes trade records with broker identifiers. This is unusually granular by international standards and is almost entirely unexploited by retail investors, because reading it manually is impractical.
+- **Company financials.** Quarterly and annual reports, from which the familiar measures — earnings per share, book value, price to earnings — are derived.
+- **Sector sub-indices.** Banking, development banks, finance, hydropower, microfinance, life and non-life insurance, hotels and tourism, manufacturing, trading, investment, mutual funds and others.
+
+Two warnings about the data before you build anything on it. Prices are restated when a company issues bonus or rights shares, and if you do not handle that, your series contains a crash that never happened. And a thinly traded stock can print the same price for days, which is not stability, it is absence.
+
+## Write a rule you could compute by hand
+
+Your first rule should be simple enough that you could work it out with a calculator for a single stock. This is not a beginner's compromise, it is a diagnostic requirement. If you cannot compute it by hand, you will never be able to tell why it failed.
+
+A complete rule needs four parts, and beginners usually write only the second:
+
+1. **Universe.** Which stocks are eligible at all. Almost always a liquidity condition — the stock must have traded enough, on enough days, for you to get in and out. Decide this before you look at returns.
+2. **Entry.** The specific condition to buy, with every threshold named.
+3. **Exit.** Both the good exit and the bad one. A rule without an exit is not a rule, it is a purchase.
+4. **Size.** How much of your capital goes in, and what determines that.
+
+> The first rule you write should be boring enough to embarrass you. Complexity is what you add after simplicity has failed for a reason you can name, not before.
+
+## Testing without fooling yourself
+
+Once the rule exists you will want to know how it has done. This is where nearly everyone goes wrong, and the errors all point the same way: they make the rule look better than it is.
+
+- **Do not tune and test on the same history.** Any rule adjusted until it looked good on the past will look good on the past. Hold back a period you never look at while designing, and test on that once.
+- **Do not choose your universe with hindsight.** If you test on the stocks that are liquid and listed today, you have excluded everything that stopped trading, and your result describes survivors.
+- **Look at every year separately.** A total return dominated by one exceptional stretch is not evidence of a repeatable edge. Ask what the typical year looked like, and the worst one.
+- **Include costs.** Brokerage, and realistically the price you would get in a thin stock rather than the closing price you tested on.
+- **Compare against doing nothing.** If your rule does not beat simply holding, it is a hobby.
+
+The full discipline is laid out in [Backtesting a NEPSE Trading Strategy](/blogs/backtesting-a-nepse-trading-strategy-complete-beginner-guide), and it is worth reading before your first test rather than after.
+
+## Position sizing is where beginners actually lose
+
+Most new quantitative investors spend their effort on entry rules and almost none on size. The proportions should be reversed.
+
+A rule that is right slightly more often than chance can compound handsomely with sensible sizing, and can ruin you with reckless sizing. The mechanism is simple: losses need larger gains to recover from, so a few oversized positions can undo a long run of correct decisions.
+
+The practical version for Nepal: size by volatility and by liquidity. A stock that swings widely gets a smaller position than a steady one for the same conviction. A stock that trades thinly gets a smaller position still, because your exit is not guaranteed at the price on the screen. And cap the total exposure to any single sector, because in a market this concentrated, five bank stocks are closer to one position than to five.
+
+## Your first month
+
+1. **Week one.** Collect daily price and volume history for the stocks you can. Get it into one place you can filter and sort.
+2. **Week two.** Write one rule, all four parts, in plain sentences. Compute its entry condition by hand for three stocks to make sure you understand it.
+3. **Week three.** Apply it to history, honestly. Note every trade it would have made, including the losers, and look at the per-year record.
+4. **Week four.** Run it forward on paper, without money. Record what it says each day and what you were tempted to do instead. That gap is the thing you are really trying to close.
+
+Only after that should real money follow, and it should start small enough that the first losing stretch teaches you something rather than removing you from the game.
+
+## What to expect, honestly
+
+Most rules do not work. That is the normal outcome, and finding it out cheaply is a success, not a waste. Of the rules that do survive testing, most produce a modest edge that shows up over many trades and is invisible over ten. And the market can change in ways that break a rule that worked for years.
+
+None of that is a reason to avoid quantitative investing. It is a reason to expect from it what it actually offers: not certainty, but a process that improves because you can see where it broke.
+
+If you are still building the foundations, [how to start investing in NEPSE](/blogs/how-to-start-investing-in-nepse-beginner-guide) covers the mechanics, and [what LTP means in NEPSE](/blogs/what-is-ltp-in-nepse-complete-explanation) settles a detail that trips up more spreadsheets than it should.

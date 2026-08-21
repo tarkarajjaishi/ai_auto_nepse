@@ -1,0 +1,89 @@
+title: AI, Quantitative Finance and the Future of NEPSE
+slug: ai-quantitative-finance-and-the-future-of-nepse
+description: Quantitative finance is a discipline of falsification, not prediction. What transfers to a small retail market like NEPSE, what does not, and where AI actually belongs.
+category: quantitative-finance
+tags: Quantitative Finance, NEPSE Analysis, Machine Learning, Backtesting, Nepal Stock Exchange, Investment Research
+---
+Quantitative finance is widely misunderstood as the practice of using mathematics to predict prices. It is closer to the opposite. The working method of a good quantitative researcher is to generate ideas and then try extremely hard to kill them, on the assumption that almost all of them deserve to die. What survives that process is a small, unglamorous set of relationships that hold up across time, across stocks, and after costs.
+
+That framing matters for Nepal, because the arrival of AI tooling makes idea generation nearly free. Anyone can now produce a hundred plausible-looking NEPSE strategies in a week. Generation was never the bottleneck. Falsification is, and AI does not help with it — if anything it makes the problem worse by producing candidates faster than they can be honestly tested.
+
+This article covers the parts of quantitative finance that transfer to the Nepal Stock Exchange, the structural features of our market that break the standard playbook, and the specific places where machine learning earns its keep.
+
+## What a quantitative process actually consists of
+
+Strip away the vocabulary and the pipeline has five stages, and four of them are about disproof.
+
+1. **A stated hypothesis** with an economic reason behind it. Not "this pattern appeared in the data" but "this should work because of how participants behave, and here is what would make it stop working."
+2. **A precise definition.** The rule must be computable identically on any date without human judgement. If it needs interpretation, it cannot be tested.
+3. **A historical test on data you did not use to build it.** Building and testing on the same history measures your memory, not the market.
+4. **A survival check across sub-periods.** A strategy that works in aggregate but only through two strong years is a strategy about those two years.
+5. **A cost and capacity check.** Commission, spread, and the effect of your own trading on a thin order book. Many signals that look profitable on paper are entirely consumed by these.
+
+Most retail strategies never reach stage three. Most published strategies fail at stage four. Very few thin-market strategies survive stage five. This is normal and should be expected, not treated as a sign that something went wrong.
+
+> A backtest is not evidence that a strategy works. It is the minimum standard a strategy must clear before it is worth taking seriously at all.
+
+## The multiple testing problem, which AI makes worse
+
+Suppose you test one hundred indicator variants on the same history. Some will look excellent purely by chance — that is arithmetic, not bad luck. The more variants you try, the more impressive the best one looks, and the less its result means.
+
+This is the central failure mode of machine-driven strategy research, and it is now within reach of every investor with a laptop. A tool that lets you scan thousands of parameter combinations is a tool that will hand you a beautifully fitted illusion within minutes.
+
+The defences are unfashionable and effective:
+
+- **Count your attempts.** Your result must clear a bar that accounts for how many things you tried, not the bar you would use for a single planned test.
+- **Fix the test before you look.** Decide the evaluation window, the metric and the threshold in advance.
+- **Keep a period genuinely untouched.** Once you look at it, it stops being out-of-sample. You get one honest look.
+- **Report your failures.** A research process that only records winners has no information in it. Ninety dead ideas and one survivor is a healthy ratio.
+- **Prefer fewer parameters.** Every tunable number is another place for the data to be fitted rather than explained.
+
+The practical mechanics of doing this on Nepali data are covered in [backtesting a NEPSE trading strategy](/blogs/backtesting-a-nepse-trading-strategy-complete-beginner-guide).
+
+## What is different about NEPSE
+
+The standard quantitative playbook was developed on large, deep, heavily institutional markets. Several of its assumptions do not hold here, and pretending they do is how imported strategies fail quietly.
+
+**The cross-section is small.** Classic factor research relies on sorting hundreds or thousands of stocks into groups and comparing the extremes. With a listed universe the size of Nepal's, splitting into quintiles leaves few stocks per bucket, and a single unusual name can dominate a result. Every cross-sectional finding on NEPSE needs to be checked for whether it survives dropping its largest contributors.
+
+**Liquidity is uneven and often thin.** A signal that requires taking a meaningful position in a lightly traded stock may not be executable at anything close to the tested price. Capacity is not a footnote in a market this size; it is frequently the deciding constraint.
+
+**Daily movement limits change the shape of returns.** When a stock can only move so far in a session, strong information does not fully arrive in one day. This affects momentum measurement, stop-loss behaviour and volatility estimation in ways that formulas calibrated on unrestricted markets do not anticipate.
+
+**Participation is retail-dominated.** Behavioural effects are likely to be stronger and more persistent than in institutional markets. This is an opportunity — but it also means relationships can be unstable, because the composition of participants changes as the market grows.
+
+**The usable history is short.** Nepal's market is young, and reliable machine-readable history is shorter still. A test spanning a handful of market cycles cannot distinguish a durable effect from a regime that happened to last.
+
+**Hedging tools are limited.** Much of institutional quantitative finance is built around going long and short simultaneously to isolate a signal. Where that is not available, a "market-neutral" result on paper is not something you can actually hold.
+
+These constraints do not make quantitative work impossible in Nepal. They make it a different discipline: fewer positions, longer holding periods, simpler rules, and far more attention to whether a result depends on a handful of stocks or sessions. That case is developed further in [building a quantitative strategy for the Nepal Stock Exchange](/blogs/building-a-quantitative-strategy-for-the-nepal-stock-exchange).
+
+## Where AI genuinely helps
+
+Machine learning is oversold as a signal discovery engine and undersold everywhere else. The places it clearly earns its place in a NEPSE pipeline are these.
+
+- **Extracting structure from unstructured sources.** Quarterly reports, disclosures and announcements are text and images. Turning thousands of them into consistent, comparable figures is exactly what modern models are good at, and it is drudgery no analyst does at scale.
+- **Data quality detection.** Anomaly detection on incoming data catches parsing errors, missing sessions and unadjusted corporate actions far better than manual inspection.
+- **Behavioural grouping.** Clustering stocks by how they actually trade often produces more useful groupings than the declared sub-index, because two hydropower companies with very different float and liquidity do not behave alike.
+- **Combining many weak signals.** Where you already have a set of individually defensible measures, a model can weight them more consistently than a hand-tuned formula — provided the inputs were validated first.
+- **Enforcing process.** The most underrated use. A machine applies the same rule on the day you are frightened as on the day you are confident.
+
+Notice that none of these is "the model tells you what to buy". The unifying theme is that AI is best at the parts of research that are laborious and well-defined, not at the parts that are uncertain and consequential. That balance is examined in [AI versus human stock analysis](/blogs/ai-vs-human-stock-analysis-which-is-better-for).
+
+## The honest outlook for NEPSE
+
+Quantitative methods will spread in Nepal, and the sequence is fairly predictable. First the data infrastructure improves and becomes routinely machine-readable. Then systematic screening becomes normal among serious retail investors. Then the easiest inefficiencies — the ones visible from simple public data — get competed away, as they have in every market that industrialised.
+
+The effects that survive longest will be those tied to structural features rather than to patterns: constraints on who can hold what, the behaviour of a retail-dominated participant base, and the liquidity limits that prevent large capital from arbitraging small opportunities away. Those are slower to erode because they cannot be traded away by anyone with a spreadsheet.
+
+## What to do with this
+
+If you are moving towards a quantitative approach on NEPSE, set your standards before you set your parameters.
+
+- Write the hypothesis and the falsification test **before** running anything.
+- Insist on per-year results, not just aggregate ones. An effect that appears in three years and disappears in four is a coin flip with a good story.
+- Check every result for concentration: how much of it comes from the top few stocks or sessions.
+- Include realistic costs from the first test, not as an adjustment at the end.
+- Accept that most of what you test will not work. That is the finding, and recording it honestly is what makes the next test worth running.
+
+The future of NEPSE analysis is not a model that predicts prices. It is a research culture where claims come with tests attached, and where "we tried this and it did not hold up" is publishable rather than embarrassing. For the beginner path into that culture, start with [quantitative investing in Nepal](/blogs/quantitative-investing-in-nepal-a-beginner-guide).

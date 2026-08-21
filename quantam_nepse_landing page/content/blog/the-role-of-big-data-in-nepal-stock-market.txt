@@ -1,0 +1,83 @@
+title: The Role of Big Data in Nepal's Stock Market
+slug: the-role-of-big-data-in-nepal-stock-market
+description: NEPSE data is granular rather than large. What the broker floorsheet can support, the joins and corporate actions that corrupt it, and the claims it cannot back.
+category: data-and-research
+tags: Big Data, Nepal Stock Exchange, Floorsheet Analysis, Market Data, Quantitative Research
+---
+"Big data" is the wrong phrase for what NEPSE offers, and getting the phrase right changes what you expect from it. The Nepal Stock Exchange does not generate the terabyte-scale tick feeds that the term usually implies. A few hundred listed companies and a single daily session produce a dataset that fits comfortably on an ordinary laptop.
+
+What NEPSE does offer is granularity. It publishes a broker-level floorsheet — a record of trades identifying the broking houses on each side. Many larger exchanges publish nothing comparable to the public. That detail, not volume, is the genuine data advantage available to a researcher in Nepal, and it is badly under-used by retail investors.
+
+The useful question, then, is not "how do we handle big data" but "what can be established from data this granular, and what cannot". The rest of this article answers that, including the several ways the data quietly corrupts an analysis if you are careless.
+
+## The four datasets that actually exist
+
+Almost every serious NEPSE analysis is built from some combination of these.
+
+1. **Daily price and volume.** Open, high, low, close and traded quantity per symbol per session, plus turnover. The backbone of anything technical or statistical.
+2. **The floorsheet.** Individual contracts with buying and selling broker codes, quantity and rate. This is the granular layer, and the only one that describes who traded, at broker resolution.
+3. **Company fundamentals and disclosures.** Quarterly and annual reports, corporate action announcements, and other filings. Mostly published as documents rather than as clean tables.
+4. **Index and sub-index levels.** The headline index plus sector sub-indices — banking, development banks, finance, hydropower, microfinance, life and non-life insurance, hotels and tourism, manufacturing, trading, investment, mutual funds and others.
+
+Everything else — sentiment from news, social discussion, macroeconomic series — is derived or external, and should be treated as a supplement rather than a foundation.
+
+## The identity that invalidates a whole category of claims
+
+Before building anything on floorsheet data, internalise this: every share bought is sold. Buy quantity and sell quantity are the same trades viewed from opposite sides. Any market-wide net buy or sell imbalance is therefore identically zero — not small, not usually zero, exactly zero by construction.
+
+This kills a family of appealing-sounding metrics. "Smart money is net accumulating the market" cannot be measured, because the market's net is zero. Products that appear to show it are either measuring one subset against another, or re-describing turnover in a way that produces a number correlated with activity rather than with direction.
+
+At single-stock level the identity still constrains you. Some broker is the largest net buyer of every stock on every day, because someone has to be. "A broker is accumulating this stock" is therefore true almost everywhere and means nothing until it is compared against what is normal for that stock and that day.
+
+> If a metric goes up when trading activity goes up, check whether it is a signal or simply turnover wearing a different name. Most floorsheet metrics that look exciting fail this test.
+
+## Where the real difficulty lies
+
+Not in scale. In cleaning and joining. These are the failure modes that produce confidently wrong results.
+
+- **Format drift.** Files collected over years are not uniform. Line endings change, quantities appear with decimal points in older files, and a naive integer conversion can silently discard a large share of rows. Silently is the operative word — the code does not fail, it just processes less than you think.
+- **Non-numeric codes.** Not every participant identifier is a number. Assuming they all are drops entire categories of rows while every internal consistency check stays green, because both sides of those trades vanish together.
+- **Symbol changes and corporate actions.** Companies merge, rename and restructure. A price series joined across a name change without adjustment produces a phantom gap.
+- **Ex-dates.** After a bonus or rights issue the price is restated. Detect this by the gap at the open rather than by the size of a fall, because a genuinely large decline and a restatement look similar in a close-to-close series and are completely different events.
+- **Point-in-time correctness.** Fundamentals must be joined at their publication date, not their period date. Otherwise your historical analysis knows things nobody knew at the time, and every backtest built on it is fiction.
+
+A practical discipline: after any large data-processing job, reconcile a derived total against an independent source. Floorsheet quantities summed per symbol should reconcile with daily traded volume. When they do not, you have found a parsing bug rather than a market anomaly — and that is by far the more likely explanation.
+
+## What the data can genuinely support
+
+Given careful handling, this dataset is enough for real work.
+
+- **Activity and unusual-participation detection.** Measuring whether today's volume, turnover or broker concentration is far outside that stock's own recent baseline. This is a screen for something worth looking at, not a directional call.
+- **Liquidity measurement.** How much can realistically be traded, at what participation, over what period. This is unglamorous and it constrains every strategy you might build.
+- **Volatility and risk modelling.** Volatility clusters and persists, so it is genuinely forecastable in a way direction is not.
+- **Sector behaviour.** How sub-indices lead, lag and co-move. Note that sector labels are incomplete for part of the listed universe, so any "share of the market" figure computed from a partial mapping overstates itself and can manufacture apparent rotation.
+- **Cross-sectional comparison.** Ranking companies against peers on the same day, on the same definitions — the foundation of any screen worth running.
+
+## What it cannot support
+
+Equally important, and rarely stated by people selling analytics.
+
+- **Client-level identification.** The floorsheet identifies broking houses, not the underlying clients. A single client trading through several brokers is invisible, and several clients through one broker are indistinguishable. Any narrative about a specific operator's behaviour is an inference about brokers, not about people.
+- **Intraday microstructure across history.** Without a stored tick or depth archive, questions about order-book dynamics cannot be answered retrospectively.
+- **Deep-learning-scale pattern discovery.** A young market with a few hundred correlated symbols does not provide the number of independent examples that data-hungry architectures require. Simpler models with fewer parameters are not a compromise here; they are the correct choice.
+- **Anything about the future with confidence.** More data narrows uncertainty slightly. It does not remove it.
+
+## The honest research standard
+
+Because the dataset is small enough to test many ideas quickly, it is also small enough to fool yourself quickly. The defences are the same everywhere and are not optional.
+
+1. Reserve a later time period you do not look at until the work is final.
+2. Report results year by year, including bad years, not just in aggregate.
+3. Count how many variants you tried, and raise the bar accordingly.
+4. Neutralise for price level, turnover and sector before believing any new factor — a surprising number of "novel" metrics are one of those three in disguise.
+5. Compare against a fair null: random selection from the same universe on the same dates.
+
+Most ideas do not survive. A research process with no record of killed ideas is not a research process.
+
+## What to do with this
+
+If you are building anything on NEPSE data, spend your first effort on the boring part: parsing correctly, reconciling totals, and handling corporate actions. That work has a higher expected return than any modelling you will do afterwards, because a subtle data defect will not announce itself — it will simply produce a plausible, wrong answer.
+
+If you are consuming someone else's analysis, ask what dataset it came from, whether the numbers reconcile against traded volume, and whether the metric survives once turnover is controlled for.
+
+For how this data feeds actual research method, see [how data science is changing stock market research in Nepal](/blogs/how-data-science-is-changing-stock-market-research-in). For what statistical models can extract from the price history specifically, see [historical NEPSE data and machine learning](/blogs/historical-nepse-data-and-machine-learning-what-can-we), and for the sector layer, [understanding NEPSE sub-indices](/blogs/understanding-nepse-sub-indices-banking-hydropower-microfinance-and-more).

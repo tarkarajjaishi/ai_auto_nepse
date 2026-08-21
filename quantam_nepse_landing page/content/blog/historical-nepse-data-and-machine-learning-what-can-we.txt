@@ -1,0 +1,85 @@
+title: Historical NEPSE Data and Machine Learning: What Can We Learn?
+slug: historical-nepse-data-and-machine-learning-what-can-we
+description: What the Nepal Stock Exchange archive can genuinely support statistically, why the row count overstates the sample, and the data problems that invalidate studies.
+category: data-and-research
+tags: NEPSE Data, Machine Learning, Historical Analysis, Nepal Stock Exchange, Quantitative Research
+---
+A historical archive of NEPSE looks enormous when you count rows. Hundreds of instruments, thousands of sessions, and a broker-level floorsheet with many trades per session each: tens of millions of records. That number invites a dangerous conclusion — that there is plenty of data to learn from.
+
+There is not, and understanding why is the single most useful thing you can learn about the archive. The row count measures storage, not evidence. What determines how much you can conclude is the number of independent observations of the thing you are trying to learn, and for most market questions that number is small enough to be counted on your fingers.
+
+This article covers what the history can genuinely support, the data-quality problems that quietly invalidate results, and the questions worth pointing a model at.
+
+## Your sample is much smaller than your file
+
+Suppose you want to know whether a signal predicts a twenty-session return. Two consecutive predictions overlap by nineteen sessions, so they are nearly the same observation. Across hundreds of stocks the overlap is worse, because when the market moves, most stocks move with it — a session is closer to one observation than to hundreds.
+
+Three deflations apply, and they multiply:
+
+- **Horizon overlap.** Longer holding periods mean fewer genuinely independent windows in the same calendar span.
+- **Cross-sectional correlation.** Stocks in the same market, and especially in the same sector, share most of their variance. Five hundred correlated series are not five hundred experiments.
+- **Regime concentration.** Market history is not uniform. A handful of exceptional periods contribute most of the variation, so a study that spans several years may effectively be a study of two or three market conditions.
+
+The practical consequence is that a result which looks significant on paper often rests on a few independent episodes. That is why per-year tables matter more than aggregate statistics, and why a strategy whose entire edge comes from one strong year should be treated as having no edge at all.
+
+> The right question is never how many rows you have. It is how many times the market has independently shown you the thing you claim to have found.
+
+## The data-quality problems that actually bite
+
+These are not theoretical. Each of them silently produces confident, wrong results.
+
+1. **Corporate-action restatements.** Bonus and rights issues cause the quoted price to reset overnight. An unadjusted series records that as a catastrophic loss followed by recovery, and any model trained on it learns to buy fictional crashes. Detect these by the gap between the previous close and the next open rather than by the size of the fall, because a genuine sell-off is bounded by the daily price limit and happens through the session.
+2. **Format drift in the archive.** Older files often differ from newer ones — different line endings, quantities written with decimals, identifiers that are not numeric. Parsers that assume the modern format can silently drop large fractions of the history while every summary statistic still looks plausible.
+3. **Non-numeric identifiers.** Not every participant code in a floorsheet is a plain broker number. Code that assumes it is will drop those rows on both sides of the trade, and conservation checks will still pass because both sides vanished together. The only thing that catches this is cross-checking aggregated volume against the exchange's own daily figure.
+4. **Survivorship.** A universe assembled from instruments trading today, tested on the past, is a test conducted only on the ones that made it.
+5. **Look-ahead in derived tables.** Any statistic computed over the whole sample — a mean, a threshold, a rank — leaks the future into every point in time. Ranking the universe by full-sample turnover is a classic case, and it manufactures apparent skill out of nothing.
+
+If a study does not mention any of these, that is information about the study.
+
+## What the history can actually tell you
+
+Plenty, provided the questions are descriptive rather than prophetic.
+
+- **How a stock behaves relative to its own past.** Typical range, typical turnover, how often it moves more than usual. This is measurement, and it is reliable.
+- **How sectors relate to each other.** NEPSE's sub-indices cover banking, development banks, finance, hydropower, microfinance, life and non-life insurance, hotels and tourism, manufacturing, trading, investment, mutual funds and others. Measuring how much of an individual stock's movement is its sector rather than itself is one of the most useful things the archive supports.
+- **Where liquidity sits.** Turnover is heavily uneven across a market of this size, which determines what is realistically tradeable at your size. Any backtest that ignores this is trading positions that could not have been filled.
+- **Volatility persistence.** Calm and turbulent periods cluster. This is among the most robust properties in empirical finance and it shows up clearly in daily data.
+- **Broker participation structure.** The floorsheet lets you measure how concentrated a session was across brokers, and how that compares with the stock's own baseline.
+
+Notice that none of these are predictions. They are facts with context attached, and context is what turns a number into information. [Time-Series Analysis of NEPSE Stocks Explained](/blogs/time-series-analysis-of-nepse-stocks-explained) covers the statistical machinery behind several of them.
+
+## What the history keeps refusing to tell you
+
+Some questions have been asked repeatedly of floorsheet data and keep coming back empty. The pattern in the failures is instructive.
+
+Metrics that try to identify a hidden accumulating operator tend to collapse for a simple reason: on almost any stock, on almost any day, some broker is a net buyer. "A broker is accumulating" is true nearly always, so it separates nothing. Related families fail because of the conservation identity — every share bought is also sold, so market-wide net flow is exactly zero and any apparent aggregate imbalance is an artefact of how the sum was taken.
+
+The most common disguise is turnover. Broker concentration measures, pairwise flow measures, counts of counterparties, share-count clip sizes — many of these correlate strongly with how much a stock traded, or with its price level, and lose all apparent power once those are controlled for. The discipline that saves time is to run the control first: before investigating a promising metric, check what remains after neutralising volume and price.
+
+## How to use the archive without fooling yourself
+
+A workable research protocol for this market:
+
+1. Hold out a period you have never examined, and do not touch it until an idea is otherwise finished.
+2. Demean by date before comparing stocks, so that a market-wide move does not masquerade as stock selection.
+3. Report per-year results always, and the median outcome alongside the mean.
+4. Run a shuffled-label version of the whole pipeline. A model that still performs on scrambled labels has a leak in the code.
+5. Compare against a random-entry benchmark with the same trade count and holding period, not against zero.
+6. Include realistic transaction costs before declaring anything profitable.
+7. Count how many independent episodes actually support the result, and say the number out loud.
+
+[Backtesting a NEPSE Trading Strategy: Complete Beginner Guide](/blogs/backtesting-a-nepse-trading-strategy-complete-beginner-guide) works through these in the context of a full strategy test.
+
+## The most valuable thing history gives a Nepali investor
+
+Not a forecast. A baseline.
+
+Almost every retail judgement in this market is made without one. "High volume" usually means high compared with the last fortnight the investor happened to notice. "Expensive" usually means higher than when they first looked. "Unusual broker activity" usually means the first broker table they have read. A historical archive replaces every one of those impressions with a measured comparison against the stock's own record.
+
+That is unglamorous and it is where the genuine advantage sits. In a retail-dominated market, the participant who knows what normal looks like for each instrument is already ahead of the one reacting to whatever is on the screen today.
+
+## What to do next
+
+Before running another model, audit the archive itself. Pick ten sessions at random from the oldest part of your history and parse them by hand. Compare your aggregated volume against the exchange's published figure for those days. Look for symbols whose price gaps between close and open without a corresponding trading range. If any of those checks fails, fix the data — every hour spent there is worth ten spent on model selection.
+
+Then choose one descriptive question, answer it completely, and see whether the answer holds in every year separately. That single habit will separate you from most people using this data. For a broader view of what large-scale data does for the market, see [The Role of Big Data in Nepal Stock Market](/blogs/the-role-of-big-data-in-nepal-stock-market).

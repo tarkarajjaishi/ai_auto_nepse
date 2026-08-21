@@ -1,0 +1,73 @@
+title: Can Artificial Intelligence Predict NEPSE?
+slug: can-artificial-intelligence-predict-nepse
+description: A direct answer on whether AI can forecast the Nepal Stock Exchange, which parts of the market are genuinely predictable, and the tests any prediction claim must survive.
+category: quantitative-finance
+tags: NEPSE AI, Stock Prediction, Machine Learning, Nepal Stock Exchange, Quantitative Finance
+---
+The honest answer has two halves. Artificial intelligence cannot reliably tell you what a NEPSE stock will close at tomorrow, and any product that claims it can is either measuring something trivial or measuring it incorrectly. But "predict the market" is a loose phrase that hides several very different questions, and a few of them do have useful answers.
+
+Some properties of a market are far more forecastable than price direction. Whether a stock is likely to be volatile next week, whether it will trade enough for you to exit a position of your size, how far it usually travels from its own average before turning, which stocks are behaving unlike themselves right now — these have real statistical persistence. Short-horizon direction does not.
+
+So the useful version of the question is not whether AI can predict NEPSE. It is which NEPSE questions have predictable answers, and how you would know if a model had genuinely found one rather than fitted the past.
+
+## What "predict" has to mean before the question can be answered
+
+A forecast is only meaningful if it names four things: the quantity, the horizon, the benchmark, and the cost of being wrong.
+
+"This stock will go up" names none of them. "This stock has a higher-than-average chance of closing above today's price within ten sessions, compared with the average stock in the same sector over the same window" names all four, and can be tested. The second statement is far less exciting, which is exactly why most marketing prefers the first.
+
+The benchmark matters more than people expect. If most stocks in a rising market go up, a model that says "up" for everything will look accurate and add nothing. The only interesting question is whether it separates the stocks that rose from the ones that did not — and separation, not accuracy, is what has to be measured.
+
+## The things that are genuinely more predictable than price
+
+Direction is the hardest target in the market. These are easier, and more useful than they sound:
+
+- **Volatility.** Quiet periods tend to be followed by quiet periods, and violent ones by violent ones. This clustering is one of the most robust features of financial data anywhere, and it is what should drive your position size.
+- **Liquidity.** How much a stock trades tomorrow is well predicted by how much it traded recently. For a Nepali investor holding a thinly traded stock, this is often more important than the price forecast, because it determines whether you can leave.
+- **Range behaviour.** How far a stock normally moves from its own mean, in units of its own volatility, is stable enough to be useful for setting stops and targets.
+- **Unusual activity.** Detecting that today is abnormal for this stock — in volume, in participation, in broker concentration — is a description, not a forecast, and it is reliable precisely because it makes no claim about the future.
+- **Data quality events.** A model can flag a price series that has been restated after a bonus or rights adjustment, which otherwise looks like a crash and poisons every indicator computed on it.
+
+Notice that none of these tell you what to buy. They tell you where to look and how much to risk, which is where most of the actual money is made or lost.
+
+## Why NEPSE is harder than a large market, not easier
+
+There is a common assumption that a small, retail-dominated market must be easy to predict because it is "less efficient". The reasoning is appealing and mostly wrong.
+
+Nepal's market gives a model less to work with, not more. Its history is short, so there are few independent observations of a full cycle. Many stocks trade thinly, so their price series contain gaps and stale prints that look like signal. Daily price limits truncate large moves, so a genuine shock arrives as a sequence of capped days rather than one clean move, which distorts every return-based calculation. Corporate actions restate prices, and if the adjustment is not handled the model learns from a fictional crash.
+
+On top of that, the market is dominated by a relatively small set of sectors, so stocks move together far more than in a diversified market. When everything rises and falls at once, the number of genuinely independent things a model can learn from is much smaller than the number of rows in your dataset. A model trained on many thousands of stock-days may effectively be learning from a few dozen distinct market episodes.
+
+> A model that is right about direction slightly more often than chance, after costs, is a rare and valuable thing. A model that is right ninety per cent of the time has a bug, and you should go and find it.
+
+## The claim that is always false
+
+Any statement of the form "our AI predicts NEPSE with high accuracy" is not a strong claim, it is a diagnostic. High reported accuracy on short-horizon direction almost always comes from one of a handful of mistakes: the model was tested on the same data it was tuned on, a future value leaked into the inputs, the target was so easy that predicting "no big change" scored well, or the test universe only contains stocks that still exist and still trade today.
+
+That last one is worth naming. If you build your test on the stocks currently listed and liquid, you have quietly excluded everything that stopped trading, and your result is about survivors. It will look better than reality and will not repeat.
+
+## Five tests a NEPSE prediction should survive
+
+Before you act on any model output, yours or someone else's, ask for these:
+
+1. **Out of sample.** How did it perform on data the designer had never looked at when building it? A backtest on the fitting period is a hypothesis, not evidence.
+2. **Year by year.** A strategy that made everything in one exceptional stretch and lost in most other periods is not a strategy. Ask for the per-period breakdown, not the headline total.
+3. **Costs and spread.** Include brokerage, and be realistic about the price you would actually get in a thin stock. Many apparent edges are smaller than the cost of harvesting them.
+4. **Against a dumb benchmark.** Compare with buying at random, and with simply holding. If the model does not beat those, its sophistication is decoration.
+5. **A stated failure mode.** The designer should be able to tell you what market conditions break it. Anyone who cannot has not looked.
+
+## What a forecast is actually good for
+
+Treat a model output as a prior, not a verdict. Its job is to change the order in which you do your work — which twenty stocks you examine out of the whole board, which one you read the disclosures for tonight — and to set the size of the position, not the decision to take it.
+
+That reframing is the difference between a tool that helps and a tool that hurts. A ranking that puts a stock in the top decile is telling you it resembles a group that has historically behaved a certain way. It is not telling you this stock will. Once you have looked, [analysing the company itself](/blogs/how-to-analyze-a-nepse-stock-before-buying) still does the deciding.
+
+## What to do with this
+
+Start by demanding specificity from anything that claims to forecast. Ask what quantity, over what horizon, against what benchmark. Ask to see the year-by-year record rather than the total. Ask what would have to be true for the model to be wrong.
+
+Then use forecasts where they are strongest: sizing, filtering and attention. Let a model tell you that a stock is behaving unusually and that its typical range has widened, and let that shrink your position. Do not let it tell you a price.
+
+If you want to go further into how these claims are marketed and where the honest limits sit, read [Can AI Really Predict NEPSE? Separating Technology From Hype](/blogs/can-ai-really-predict-nepse-separating-technology-from-hype) and [AI Stock Prediction in Nepal: What Investors Should Understand](/blogs/ai-stock-prediction-in-nepal-what-investors-should-understand). If you intend to test a rule yourself, the discipline that matters most is in [Backtesting a NEPSE Trading Strategy](/blogs/backtesting-a-nepse-trading-strategy-complete-beginner-guide).
+
+The useful conclusion is unglamorous. Prediction is weak, description is strong, and risk control is where a machine reliably beats a human. Build on the parts that hold.

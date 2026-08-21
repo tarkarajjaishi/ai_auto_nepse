@@ -1,0 +1,83 @@
+title: Quantum Algorithms and Financial Markets: A Beginner's Guide
+slug: quantum-algorithms-and-financial-markets-a-beginner-guide
+description: A plain guide to the quantum algorithms finance actually studies, what their speedups mean in practice, the fine print each one carries, and how to judge a quantum claim.
+category: quantum-finance
+tags: Quantum Algorithms, Quantum Finance, Quantum Computing, NEPSE, Portfolio Optimisation, Investing in Nepal
+---
+Most explanations of quantum computing in finance stop at the metaphor: a quantum computer tries every possibility at once. That metaphor is wrong, and it is the reason so many people end up believing quantum machines will one day brute-force the market. They will not, and the reason why is worth understanding properly.
+
+A quantum computer does hold many possibilities simultaneously, but you cannot read them out. Measuring the machine collapses it to a single answer. The entire art of quantum algorithm design is arranging things so that the wrong answers cancel each other and the right one survives — a process called interference. Every algorithm below is a different trick for arranging that cancellation. Where no such trick exists, a quantum computer is no faster than a laptop.
+
+This guide walks through the algorithms that finance research actually concentrates on, states plainly what each is supposed to do, and gives the fine print each carries. You do not need mathematics to follow it. You do need to hold on to one idea: a speedup is always a speedup at a specific task, never a general improvement.
+
+## First, learn to read a speedup
+
+Two words separate the serious claims from the fantasy.
+
+**Quadratic** means that if a classical method needs a million steps, the quantum method needs roughly a thousand. That is a substantial improvement on a big problem and an irrelevant one on a small problem, particularly once you account for the overhead of running quantum hardware at all.
+
+**Exponential** means the classical cost grows explosively with problem size while the quantum cost grows gently. This is the transformative case. It is also rare, and every known financial application of an exponential speedup carries conditions severe enough to question whether the advantage survives contact with real data.
+
+> When someone quotes a quantum speedup, the useful question is not how large it is. It is what has to be true about your data for it to apply.
+
+## Grover's algorithm: searching an unstructured list
+
+Grover's algorithm finds a marked item in an unsorted collection with roughly the square root of the number of checks a classical search needs. It is the cleanest quantum result to explain and the most frequently misapplied to finance.
+
+The misapplication goes like this: markets have vast numbers of possible strategies, so a quantum computer could search them all and find the profitable one. The problem is that Grover's speedup requires a way to recognise the right answer when the algorithm encounters it. In markets, recognising a good strategy is precisely the thing nobody can do reliably — a strategy that looks excellent on history frequently fails afterwards. The bottleneck is not the size of the search. It is that the test you are searching against is unreliable.
+
+Where Grover-style search genuinely helps is in well-defined subproblems inside a larger financial calculation, not in strategy discovery.
+
+## Amplitude estimation: the Monte Carlo case
+
+This is the strongest near-term candidate in finance, and worth understanding in full.
+
+A great deal of financial mathematics comes down to estimating an average over random outcomes. What is the expected payoff of this instrument? What loss is exceeded only rarely? Classically you answer this by simulating scenarios — tens or hundreds of thousands of them — and averaging. The accuracy improves slowly: to halve your error you need roughly four times as many simulations.
+
+Quantum amplitude estimation improves that relationship quadratically. To halve the error you need roughly twice the work rather than four times. On a large derivatives book revalued repeatedly under stress, that difference is commercially meaningful.
+
+The fine print is substantial. The random model must be loaded into the quantum machine's state, and for many realistic distributions that loading step is itself expensive enough to consume the advantage. The circuits are deep, meaning they run for a long time relative to how long today's hardware stays coherent. And the benefit scales with the size of the simulation load — which, for a market whose instruments are mostly ordinary equity, is not large.
+
+## QAOA and VQE: optimisation under constraints
+
+Portfolio construction with real-world constraints is a hard combinatorial problem. You are not simply choosing weights; you are choosing them subject to whole-lot sizes, position limits, sector caps and transaction costs, and those constraints interact.
+
+Two related approaches — the quantum approximate optimisation algorithm and the variational quantum eigensolver — attack this by rewriting the portfolio problem as a search for the lowest-energy configuration of a physical system, then using a hybrid loop in which a quantum circuit proposes and a classical optimiser adjusts.
+
+Be clear about their status:
+
+- They are **heuristics**. Unlike Grover or amplitude estimation, they carry no proof of advantage.
+- Classical solvers for the same reformulated problems have improved substantially in response, and frequently win.
+- Published demonstrations typically involve portfolios far smaller than a real mandate, chosen so the problem fits on available hardware.
+
+That is not a reason to dismiss the approach. It is a reason to treat any claim of a working quantum portfolio optimiser as a research result rather than a product.
+
+## HHL and systems of equations
+
+The HHL algorithm solves systems of linear equations, and it is the source of most exponential-speedup headlines in quantum finance, because linear systems sit underneath regression, risk factor models and covariance work.
+
+Its conditions are severe and rarely quoted alongside the headline. The system must be sparse and well conditioned. The input must already be encoded in quantum form, which for classical market data is expensive. And critically, the output is a quantum state, not a list of numbers. If you want to read out every coefficient, the readout cost destroys the speedup. HHL is useful when you want a single summary property of the solution, not the solution itself.
+
+## Quantum machine learning
+
+The idea here is that certain quantum circuits compute similarity measures between data points which are costly to compute classically, and that a model built on such a measure might capture structure ordinary methods miss.
+
+Financial data is a hostile testing ground for this. The signal-to-noise ratio is low, the relationships are unstable over time, and the sample sizes are small relative to the number of things you might measure. A more expressive model class in that setting usually finds more spurious patterns, not more real ones. This is the same trap classical machine learning falls into, and it is explored for Nepal's market in [AI vs Quantum Computing in Stock Market Analysis](/blogs/ai-vs-quantum-computing-in-stock-market-analysis).
+
+## Why hardware noise is the whole story right now
+
+Every algorithm above assumes a quantum computer that behaves as specified. Real devices do not. Qubits lose their state, gates apply imperfectly, and errors accumulate as a circuit gets deeper.
+
+Error correction is the answer, and it is expensive: many physical qubits combine to form one reliable logical qubit. The algorithms with the most compelling finance applications are also the deepest, which means they are the ones that need error correction most and will arrive last. Anything you see running today on real hardware is a small demonstration, not a production system.
+
+## What a Nepali investor should take from this
+
+You are unlikely to run any of these algorithms. What you can do is judge claims about them correctly, which is a genuinely useful skill as the vocabulary spreads into local marketing.
+
+1. Ask **which algorithm** is being used. A specific name is a good sign; unnamed quantum intelligence is not.
+2. Ask what the **classical baseline** was. An advantage is a comparison, and if nobody measured the ordinary approach, nothing has been shown.
+3. Ask whether the claim concerns **prediction**. No algorithm above predicts a price. They compute known quantities faster.
+4. Ask whether the result was **out of sample**. This question ends more overstated claims than every quantum consideration combined.
+5. Ask what **problem size** was demonstrated. A result on a handful of assets does not extend to a real portfolio by assumption.
+
+The realistic path for market intelligence in Nepal runs through data quality and honest classical statistics long before it reaches quantum hardware. That sequence is set out in [The Future of Quantum Finance in Nepal](/blogs/the-future-of-quantum-finance-in-nepal), and the conceptual groundwork in [Quantum Finance Explained for Nepali Investors](/blogs/quantum-finance-explained-for-nepali-investors).

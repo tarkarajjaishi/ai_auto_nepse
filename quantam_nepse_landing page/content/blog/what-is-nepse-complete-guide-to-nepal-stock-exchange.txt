@@ -1,0 +1,90 @@
+title: What Is NEPSE? Complete Guide to Nepal Stock Exchange
+slug: what-is-nepse-complete-guide-to-nepal-stock-exchange
+description: A complete, plain guide to the Nepal Stock Exchange: who runs it, what is listed, how a trade reaches settlement, what every screen number means, and where beginners go wrong.
+category: investment-education
+tags: NEPSE, Nepal Stock Exchange, Investing in Nepal, Share Market, Investment Education, Stock Market Basics
+---
+NEPSE — the Nepal Stock Exchange — is the country's only stock exchange, based in Kathmandu. It is the single venue where shares of listed Nepali companies change hands, and every legitimate secondary-market trade in Nepali equity passes through it, executed by a licensed broker on your behalf.
+
+That is the whole definition, and it hides a common misunderstanding. NEPSE is not a company you invest in, and it is not the same thing as "the market going up". It is infrastructure: a matching system, a set of rules, a listing regime, and a published record of what traded. The NEPSE index you see quoted in the news is a summary statistic that the exchange calculates from the prices of listed shares. It is a thermometer, not the weather.
+
+This guide covers what NEPSE is, the four institutions that make a trade work, what is actually listed, how an order travels from your phone to your demat account, what each number on a typical screen means and where it misleads, and what a beginner should do first.
+
+## The four institutions, and who does what
+
+Almost every beginner's confusion comes from attributing everything to NEPSE. Four separate bodies are involved, and they have distinct jobs.
+
+- **NEPSE** operates the exchange itself: it lists companies, runs the trading system that matches buy and sell orders, and publishes the resulting prices, volumes and indices.
+- **The Securities Board of Nepal (SEBON)** is the regulator. It licenses market participants, approves public issues, sets disclosure rules and enforces them. If you have a complaint about market conduct, this is the escalation path.
+- **CDS and Clearing Limited (CDSC)** is the depository. Shares in Nepal are held electronically in a dematerialised — demat — account rather than as paper certificates, and this is the institution that maintains those records and clears trades.
+- **Brokers** are the licensed firms through which you place orders. You cannot trade on the exchange directly; a broker's system sits between you and it.
+
+Understanding the split saves real time. Your account, your allotment and your holdings are depository and broker matters. Prices, indices and the floorsheet are exchange matters. Rules and approvals are regulator matters.
+
+## What is listed on NEPSE
+
+Listed companies are grouped into sectors, and the exchange publishes a sub-index for each. The main groups are commercial banks, development banks, finance companies, microfinance institutions, life insurance, non-life insurance, hydropower, hotels and tourism, manufacturing and processing, trading, investment companies, mutual funds, and an "others" category.
+
+Two features of this list shape everything about investing here.
+
+First, financial institutions dominate. Banks, development banks, finance companies, microfinance and insurance together account for a very large share of listed names. That means a portfolio spread across many NEPSE stocks may be far less diversified than it looks, because those businesses respond to the same drivers — interest rates, liquidity conditions and central bank policy.
+
+Second, hydropower is the distinctive non-financial block, and it behaves on its own logic: project timelines, licensing, monsoon-driven generation and power purchase arrangements. A pre-generation hydropower company is a different kind of holding from an operating bank, though both appear as one line on the same screen. The sector-by-sector behaviour is worth studying separately, and is covered in [Understanding NEPSE Sub-Indices: Banking, Hydropower, Microfinance and More](/blogs/understanding-nepse-sub-indices-banking-hydropower-microfinance-and-more).
+
+## How a trade actually happens
+
+The path from decision to ownership has more steps than most beginners expect.
+
+1. **Open the accounts.** A demat account holds your shares electronically; a broker account lets you place orders. Both require identification documents, and you will also link a bank account for payments and payouts.
+2. **Place an order.** Through your broker's online trading system you specify the stock, the quantity and a price. An order with a fixed price only executes if the market reaches it; the alternative is to accept whatever the market offers, which in a thin stock can be considerably worse than the last traded price.
+3. **The system matches.** Orders queue by price and then by time. Yours executes when a counterparty's order meets it — which may be in full, in part, or never.
+4. **Settlement follows.** Money and shares change hands over the following working days, after which the shares appear in your demat account and are yours to sell. The cycle has been shortened over the years, so confirm the current one with your broker rather than assuming.
+5. **Costs apply at both ends.** Brokerage is charged on a tiered scale that falls as trade size rises, alongside regulatory fees, and realised gains are taxed on sale. Rates change; check the current schedule before assuming a small trade is economical.
+
+The exchange also applies safeguards to disorderly movement: a daily band limits how far a single stock's price can travel in one session, and there are market-wide mechanisms for extreme index moves. The mechanics of the session itself, including the pre-open period, are covered in [How Does the Nepal Stock Exchange Work?](/blogs/how-does-the-nepal-stock-exchange-work).
+
+Trading follows Nepal's working week rather than the Monday-to-Friday convention, and the exchange closes for public holidays, of which Nepal has many. Check the published calendar before assuming a session exists.
+
+## The numbers on every screen, and what each one hides
+
+Five figures appear on nearly every NEPSE quote page. Each is useful and each has a trap.
+
+**LTP — last traded price.** The price at which the stock most recently changed hands. Its trap is staleness: in an illiquid stock the last trade may be hours or days old, and it tells you nothing about the price at which you could actually transact now. For that you need the current buy and sell queue, not the LTP. This is explained further in [What Is LTP in NEPSE? Complete Explanation](/blogs/what-is-ltp-in-nepse-complete-explanation).
+
+**Market capitalisation.** Share price multiplied by the number of shares outstanding — what the market says the whole company is worth. Its trap is that price alone tells you nothing about size, so a high-priced share is not a large company and a cheap-looking one is not small.
+
+**EPS — earnings per share.** Profit divided by shares outstanding. Its trap is timing and annualisation: quarterly figures are often projected to a full year, and a company's share count changes with bonus issues and rights issues, which mechanically changes EPS without the business changing at all.
+
+**P/E ratio.** Price divided by earnings per share, a rough measure of how much you pay for each rupee of profit. Its trap is comparison across unlike businesses. A pre-generation hydropower company and a mature bank cannot be judged on the same P/E, and a low P/E on collapsing earnings is not cheap.
+
+**Book value per share.** The accounting value of the company's net assets per share. Its trap is that accounting value and economic value diverge, especially for lenders, where the honesty of the figure depends entirely on how loans are classified.
+
+> Every number on a market screen was computed at some moment. If a platform cannot tell you which session a figure comes from, you do not know what you are reading.
+
+## The floorsheet: NEPSE's unusual disclosure
+
+One feature of NEPSE deserves particular attention, because it is genuinely uncommon.
+
+The exchange publishes a floorsheet — a record of individual trades identifying the buying and selling broker. Many larger markets never release broker-level detail to the public at trade level. In Nepal it is available, and it is under-used by retail investors for the simple reason that reading thousands of rows by hand is impractical.
+
+Processed properly, it answers questions no price chart can: whether a day's volume was concentrated in a few brokers or spread widely, and how a stock's activity compares against its own normal range.
+
+It also carries a trap that catches nearly everyone who starts analysing it. Every share bought is also sold, so any net buying measured across the whole market is exactly zero by construction. A metric that appears to reveal a hidden accumulator across the market is usually re-describing turnover. Broker flow is worth studying — but only against a careful baseline.
+
+## What makes NEPSE different from larger markets
+
+Three structural facts should shape your expectations.
+
+It is **retail-dominated**, so sentiment moves faster and further than fundamentals sometimes justify, in both directions. It is **relatively small and young**, which means the historical record available for testing any strategy is shorter than the record used in the research imported from bigger markets. And **liquidity is uneven**: a handful of names trade heavily while many others trade thinly, so the practical difficulty of entering and exiting a position varies enormously between stocks that look identical on a screen.
+
+## What to do first
+
+If you are starting, the sequence that avoids the most expensive mistakes is unexciting.
+
+- Open the demat and broker accounts before you have a stock in mind, so that account friction never rushes a decision.
+- Learn to read one company's financial statements properly before comparing fifty on ratios you have not verified.
+- Check liquidity before conviction. A view you cannot exit is not a position, it is a commitment.
+- Assume any tip circulating on social media is already reflected in the price, and ask what the person telling you gains from your buying.
+- Size positions so that being wrong is survivable, because you will be wrong regularly and that is normal rather than a failure.
+
+A practical walkthrough of the account-opening and first-purchase process is in [How to Start Investing in NEPSE: Beginner Guide](/blogs/how-to-start-investing-in-nepse-beginner-guide). Nothing here is a recommendation to buy or sell; it describes how the market works so your own decisions rest on understood mechanics rather than guesses.
