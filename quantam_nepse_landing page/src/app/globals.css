@@ -737,6 +737,356 @@ body:has(.stage) {
   pointer-events: auto;
 }
 
+/* One cycle moves each layer by exactly ONE of its own periods (132 and 12),
+   so both loop seamlessly while travelling at different speeds — which is what
+   makes the pulse read as overtaking the dashes rather than sliding with them. */
+@keyframes mobitrace {
+  to {
+    background-position:
+      0 132rem,
+      0 12rem;
+  }
+}
+
+/* =================================================================== mobile
+   The artboard is 1280x720 and the desktop rule fits it INSIDE the viewport,
+   so a portrait phone picks the width term and renders the whole composition
+   at 375x211 — a postage stamp in the middle of a black screen. That is what
+   this section replaces.
+
+   The one thing that cannot change is the rem: every size in page.tsx is
+   written in design pixels and emitted as rem, so `font-size: 16px` would make
+   an 11px label 176px tall. The fix keeps the rem-to-pixel mapping and only
+   changes what it is measured against — 100vw/350 instead of 100vw/1280, which
+   is a 3.7x magnification, putting the widest card (318) at 341px on a 375px
+   screen and body text at ~12px instead of 3px.
+
+   The composition then reflows from an absolutely-positioned diagram into a
+   scrolling column. Nothing inside a card is touched: each keeps its design
+   width and height, so its internal layout is the one that was drawn.
+
+   The breakpoint is about LEGIBILITY, not device class. The artboard scales to
+   min(100vw/1280, 100dvh/720), so the rem is only readable once the viewport is
+   about 1024x576 — measured at 768x1024 the desktop rule gives 0.6px per rem and
+   an 11px label renders at 6.6px. A portrait tablet has the phone's problem, and
+   so does a landscape phone, which is why the second term is a height.
+
+   The column's own rem is capped as well as scaled: 100vw/350 alone would give a
+   1023px tablet 2.9px per rem and a 930px-wide card. min() holds it at 1.5px, so
+   the cards stay a readable measure and centre in the extra space. */
+@media (max-width: 1023px), (max-height: 599px) {
+  html:has(.stage) {
+    font-size: min(100vw / 326, 1.62px);
+    height: auto;
+  }
+
+  /* The artboard forbids scrolling on purpose; the column needs it back. */
+  html:has(.stage),
+  body:has(.stage) {
+    overflow-x: hidden;
+    overflow-y: auto;
+    /* and it needs the full width with it. A classic scrollbar takes 15px out
+       of the initial containing block, so `.window` — position:fixed, inset:0 —
+       measured 345px inside a 360px viewport and left a bare strip of page
+       background down the right edge. It reads as a frame around the design.
+       Phones use overlay scrollbars and never show this; every desktop window
+       under 1024px does. */
+    scrollbar-width: none;
+  }
+
+  html:has(.stage)::-webkit-scrollbar,
+  body:has(.stage)::-webkit-scrollbar {
+    display: none;
+  }
+
+  .stage {
+    width: 100%;
+    /* body is a GRID, so .stage is a grid item, and a grid item's min-width:auto
+       floors it at its own min-content — 818px here, from the welcome marquee.
+       width:100% loses to that floor, so the stage stayed 818px wide inside a
+       375px body and every descendant inherited the lie. The floor has to be
+       lifted at each level that has one: here, the Reveal wrappers, the top bar
+       and the marquee itself. */
+    min-width: 0;
+    height: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 30rem;
+    padding: 26rem 0 40rem;
+  }
+
+  /* The connector traces, comets and arrowheads are plotted in 1280x720 stage
+     coordinates. There is no reflowed position for them — a diagram's routing
+     is not a thing that stacks — so the column drops them and keeps the cards. */
+  .stage > svg,
+  .stage > div > svg,
+  .packet,
+  .comet,
+  .newsfeed {
+    display: none;
+  }
+
+  /* Reveal wrappers are `absolute inset-0` and each holds one to five cards.
+     Made static they become ordinary blocks in the column and stack their own
+     cards — which is why this is `position: static`, not `display: contents`:
+     contents removes the box, and with it the entrance animation these wrappers
+     carry, leaving cards stuck at opacity 0. */
+  /* RELATIVE, not static — and the z-index is not decoration.
+     .window and .bgvid are `position: fixed`, and CSS paints positioned
+     elements above non-positioned ones whatever the DOM order says. Turning
+     these wrappers static therefore dropped the whole composition UNDER the
+     dark window sheet and the video. The cards survived it by accident, since
+     backdrop-filter makes each its own stacking context and those paint in the
+     positioned layer; the top bar has no such filter, so it alone went dim —
+     which reads as a colour bug and is a paint-order one.
+     `relative` with inset:auto lays out exactly like static and puts the
+     wrapper back in the positioned layer. */
+  .stage > div:not(.window) {
+    position: relative !important;
+    z-index: 1;
+    inset: auto !important;
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    flex-direction: column;
+    align-items: center;
+    gap: 30rem;
+  }
+
+  /* EVERY child of a wrapper, not just the cards. The nav bar, the news ticker
+     and the exchange seal are absolutely positioned too, and leaving them out
+     put the seal at x=640 and the ticker at x=381 on a 375px screen — off the
+     side of the page, where nothing reports them as broken because the parent
+     clips instead of scrolling. */
+  .stage > div:not(.window) > *,
+  .topbar > * {
+    position: static !important;
+    inset: auto !important;
+    max-width: 100%;
+  }
+
+  /* The welcome marquee is 723px of pill on a 375px screen. It keeps its
+     shimmer and its scrolling text — only the frame is capped, and the text
+     inside was already built to travel through a window narrower than itself. */
+  .intro {
+    /* A SMALL rectangle sized to its own text, not a full-width band. It holds
+       four words now, and stretching that across the screen made a banner out
+       of a label. `flex: 0 0 auto` also drops the forced line break — the bar
+       wraps it onto its own row only when the logo and buttons fill the first,
+       which is what puts it under them without a rule saying so. */
+    width: auto !important;
+    max-width: none !important;
+    flex: 0 0 auto;
+    /* first in the navbar row, ahead of the two links */
+    order: -1;
+    /* min-width:0 is the whole fix. A flex item defaults to min-width:auto and
+       so refuses to shrink below its own min-content — one unbreakable line of
+       welcome text, 693px of it — which pushed the bar, every Reveal wrapper
+       and the stage itself out to 818px on a 375px screen. max-width could not
+       win against that; only lifting the floor can. */
+    min-width: 0 !important;
+    /* The full sentence is 766 design px on one line. At phone width it was
+       being clipped at both ends — "…marter way to experience NEPSE. Live
+       prices, broker flow" — which reads as a rendering fault rather than as a
+       sentence. Wrapping it fixed that but cost three lines, so the phone keeps
+       the greeting and drops the qualifier (see .intro-rest below); the pill is
+       one line again. white-space/height stay permissive so a longer greeting
+       would wrap rather than clip. */
+    text-align: center;
+    /* HIDDEN, still. Opening this up to let the text wrap also un-clipped the
+       .shine sweep, which then swept across the whole top of the page as a
+       diagonal white band. The wrap is done by white-space and height:auto
+       above; the clip was never what was cutting the sentence. */
+    overflow: hidden;
+  }
+
+  .intro-rest {
+    display: none;
+  }
+
+  /* The masthead. On the artboard the brand is a 16px mark beside 13px type
+     sitting in a 1160px bar — correct there, and far too quiet on a phone,
+     where it is the first and largest thing the page should say. Scaled to
+     fill the width it has, with the mark scaled to match the type. */
+  .brand {
+    width: 100%;
+    justify-content: center;
+    gap: 12rem !important;
+    /* ahead of the pill, so the masthead still owns the first line — it is
+       100% wide, which is what pushes everything else onto the row below */
+    order: -2;
+  }
+
+  .brand svg {
+    width: 34rem !important;
+    height: 34rem !important;
+  }
+
+  .brand-t {
+    font-size: 30rem !important;
+    font-weight: 600 !important;
+    letter-spacing: -0.4rem;
+  }
+
+  /* The bar is one flex row 1160 design px wide holding a logo, a long welcome
+     pill and a call to action. At a third of that width it has to wrap, and
+     centred — justify-between on two wrapped lines pushes them to opposite
+     edges. */
+  .topbar {
+    width: 100% !important;
+    min-width: 0;
+    height: auto !important;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 7rem;
+    /* no side padding: it inset the welcome pill 23px narrower than the cards
+       below it, and the pill's own max-width already holds it to the card
+       measure. The buttons are centred, so they need no gutter of their own. */
+    padding: 0;
+  }
+
+  /* ONE measure for every card. Their ten different widths (128 to 318 design
+     px) are the deliberate irregularity of the diagram, and side by side that
+     is what makes it read as a composition rather than a list. Stacked, the
+     narrow ones read as orphans beside the wide ones. 318 is the WIDEST of
+     them, so this only ever GROWS a card: more room than it was drawn for is
+     safe, less is what breaks an internal layout. */
+  .stage .glass {
+    width: 318rem !important;
+    /* An opaque BASE under the existing gradients — not a replacement for them.
+       .glass, .frost and .sheer each set `background` (the shorthand), which
+       fills background-image and resets background-color to transparent, so
+       .sheer is only 7-34% opaque and the trace line running behind the column
+       showed straight through the cards. Setting only background-color leaves
+       every gradient exactly as drawn and gives it something solid to sit on,
+       so the line is seen where it should be — in the gaps — and nowhere else.
+       The colour is the page's own ground, so nothing about the cards reads
+       differently. */
+    background-color: #04140d;
+  }
+
+  /* Two wrappers hold nothing visible — the screen-reader <h1> and the trace
+     SVG the column drops — but each still spends a 30rem flex gap, so 60px of
+     void opened between the welcome pill and the first card. They cannot simply
+     be display:none'd: that would take the <h1> out of the accessibility tree
+     and off the page Google reads. Cancelling the gap they own leaves both in
+     the document and out of the layout. */
+  .stage > div:not(.window):not(:has(.glass)):not(:has(.topbar)) {
+    margin-bottom: -30rem;
+  }
+
+  /* The connector, rebuilt for a column.
+     The desktop traces are an SVG routed through 1280x720 stage coordinates and
+     there is no reflowed version of them — a diagram's routing does not stack.
+     What CAN carry over is the SIGNAL: a dashed line with something travelling
+     along it, which is the thing the traces actually communicate.
+
+     It is drawn as ONE line per wrapper running the wrapper's full height and
+     into the gap below, not as a segment between each pair of cards. The cards
+     are opaque and sit on top, so the line is only ever SEEN in the gaps — and
+     drawing it this way avoids the trap: every card carries `overflow-hidden`
+     for its own value ticker, so a `::after` hung off a card would be clipped
+     away before it reached the gap.
+
+     :has(.glass) keeps it off the top bar's wrapper and the screen-reader
+     heading's. z-index -1 puts it behind the cards but still inside the
+     wrapper's stacking context, so it stays above the background video. */
+  .stage > div:has(.glass)::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    translate: -50% 0;
+    top: 0;
+    bottom: -30rem;
+    width: 2rem;
+    z-index: -1;
+    background-image:
+      /* the travelling pulse — a soft comet head running down the trace */
+      linear-gradient(to bottom, transparent 0, rgba(134, 239, 172, 0.95) 50%, transparent 100%),
+      /* the dashes it runs along */
+      repeating-linear-gradient(to bottom, rgba(50, 213, 131, 0.55) 0 5rem, transparent 5rem 12rem);
+    background-size:
+      100% 132rem,
+      100% 12rem;
+    background-repeat: repeat-y, repeat-y;
+    animation: mobitrace 2.4s linear infinite;
+  }
+
+  /* the last card ends the run — a line continuing past it points at nothing */
+  .stage > div:has(.glass):last-child::before {
+    bottom: 0;
+  }
+
+  /* ONE navbar row: Blogs, Request For Access and the welcome pill side by side,
+     with the masthead above them. The three are sized together rather than each
+     to its own content — same height, same type, same padding — so the row reads
+     as a bar and not as three unrelated chips.
+     The widths are chosen to fit 326rem of screen: ~40 + ~96 + ~123 plus two
+     7rem gaps and a 6rem gutter each side leaves room to spare at 360px, and the
+     row is checked for wrapping rather than assumed to fit. */
+  .topbar > nav {
+    gap: 7rem !important;
+    align-self: center;
+    align-items: stretch !important;
+  }
+
+  .intro {
+    align-self: center;
+  }
+
+  /* `.topbar .intro`, not a bare `.intro`: there are later `.intro` blocks in
+     this same media query, and at equal specificity the last one wins — the
+     pill kept an auto height and sat 6px off the buttons' centre line. */
+  .topbar a,
+  .topbar button,
+  .topbar .intro {
+    min-height: 30rem !important;
+    height: 30rem !important;
+    padding: 0 9rem !important;
+    font-size: 9rem !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  /* The exchange seal was DRAWN overlapping the hub card — that overlap is what
+     fills the card's empty upper band, which holds nothing of its own (the card
+     is a rule and a rotating sub-index, and that is all). Stacked as separate
+     rows the pair reads wrong both ways round: a half-empty box, then an orphan
+     emblem. The offset puts the seal back across the card's top edge, the same
+     relationship the desktop composition has.
+     position:relative is required, not cosmetic — the rule above makes every
+     wrapper child static, and z-index does nothing on a static element. */
+  .stage .drift.shine:not(.glass) {
+    /* ABSOLUTE, not a negative margin. A margin does move the seal up, but it
+       also shortens the wrapper by the same amount, so the next card rides up
+       and covers the hub card's bottom edge. Out of flow, the wrapper keeps the
+       card's own height and the column below it stays put.
+       `translate` rather than `transform` for the centring: `.drift` sets
+       transform:none just above, and the two are independent properties. */
+    position: absolute !important;
+    z-index: 2;
+    /* !important on all three: the reset above sets `inset: auto !important`,
+       and !important beats specificity, so plain top/left were discarded and
+       the seal sat wherever the reset left it. */
+    top: -15rem !important;
+    left: 50% !important;
+    translate: -50% 0 !important;
+  }
+
+  /* Drift is a slow float around a fixed point. In a column the reader is
+     already moving the page, and the two motions fight; the cards read as
+     unstable rather than alive. */
+  .drift {
+    animation: none !important;
+    transform: none !important;
+  }
+}
+
 /* ===================================================================== blog
    A dark dashboard: filter chips, a card grid, and long-form article pages.
    Scoped under .blogwrap so none of it can reach the artboard, which shares
@@ -1456,5 +1806,98 @@ body:has(.stage) {
 @media (prefers-reduced-motion: reduce) {
   .artscroll {
     animation: none;
+  }
+}
+
+/* --- blog on a phone ------------------------------------------------------
+   Both blog surfaces are built as ONE screen that never scrolls: the index is
+   a 4x2 grid sized to the leftover height, and an article is a fixed shell
+   whose body is the only scroller. Neither survives a 375px viewport — the
+   index crushed its eight cards to 60x58px, and the article's rails, which
+   stack below 900px, ended up outside a 100dvh box with overflow:hidden.
+
+   On a phone the page itself is the scroller. That is not a compromise: a
+   no-scroll screen is a desktop luxury that depends on having height to
+   divide, and a phone has none to spare. */
+@media (max-width: 767px) {
+  .blogwrap-fixed {
+    height: auto;
+    overflow: visible;
+  }
+
+  .blogwrap-fixed .page {
+    height: auto;
+    padding: 18px 16px 44px;
+  }
+
+  /* One column, and rows sized by their content rather than by an equal share
+     of a height that no longer exists. */
+  .blogwrap-fixed .grid {
+    flex: none;
+    grid-template-columns: 1fr;
+    grid-template-rows: none;
+  }
+
+  .blogwrap-fixed .card {
+    padding: 20px 18px;
+  }
+
+  /* The article body stops being a pane inside a frame and becomes the page.
+     The mask is dropped with it — a fade at a boundary that no longer exists
+     just dims the first and last lines. */
+  .artscroll {
+    flex: none;
+    overflow-y: visible;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+
+  .page {
+    padding: 18px 16px 44px;
+  }
+
+  /* The rails go away, and this rule has to be the LAST word on .withaside.
+     There are already two `max-width: 900px` blocks that set one column, but a
+     later `max-width: 1400px` block sets `300px minmax(0, 1fr)` — equal
+     specificity, later in the file, so it won. Every window under 900px was
+     therefore rendering a 300px contents rail beside a 21px column of article
+     text, 51,000px tall. It had simply never been looked at below 900. */
+  .withaside {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  /* Contents first, related last, article in between — reading order, not the
+     desktop's left/right arrangement. Neither may stick or scroll on its own:
+     a sticky rail on a phone is a block of the screen you cannot get past. */
+  .aside,
+  .aside-rel {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+
+  /* Dropped on a phone, by request.
+     The category chips are thirteen of them — a full screen of filter before
+     the reader reaches a single article — and the left rail is a contents list
+     plus a tag cloud stacked ABOVE the article it belongs to, which is the
+     wrong order to read in and pushes the first paragraph off the screen.
+
+     `.aside-rel` deliberately STAYS. It is the "More in <category>" list, and
+     it is the internal linking on these pages; a mobile-first crawler sees
+     whatever the phone layout renders, so removing every rail would cut the
+     blog's own link graph. Note that the tag links do go with `.aside` — the
+     tag pages are still in the sitemap, but they lose their in-article links. */
+  .blogwrap-fixed .chipwrap,
+  .withaside .aside-r {
+    display: none;
+  }
+
+  .asidebody {
+    order: 2;
+  }
+
+  .aside-rel {
+    order: 3;
   }
 }

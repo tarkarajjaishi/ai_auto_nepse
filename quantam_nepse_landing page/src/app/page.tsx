@@ -417,8 +417,14 @@ const SYMBOLS = [
 
 /* The intro line — the whole sentence in one pill. It opens once on load and
    then idles, with .shine sweeping through it. */
-const INTRO_TEXT =
-  "Welcome to NEPSE Quantum — a smarter way to experience NEPSE. Live prices, broker flow and AI-scored signals in one view.";
+/* Split in two so the phone can keep the greeting and drop the rest: the full
+   sentence needs three wrapped lines at 366px, which turns a one-line pill into
+   a paragraph sitting above the fold. `.intro-rest` is hidden by the mobile
+   stylesheet — the text stays in the HTML either way, so nothing is lost to a
+   crawler. */
+const INTRO_LEAD = "Welcome to NEPSE Quantum";
+const INTRO_REST =
+  " — a smarter way to experience NEPSE. Live prices, broker flow and AI-scored signals in one view.";
 
 /* A stream of symbols down the centre. PASS is both the travel time AND the
    ticker's step interval, so a label flips to its next symbol at the exact
@@ -526,12 +532,17 @@ export default function Home() {
       </svg>
 
       <Reveal delay={0}>
-      {/* nav */}
+      {/* nav — `topbar` is the handle the mobile stylesheet needs: reflowed into
+          a column it is the one child that must wrap rather than shrink, and
+          utility classes give it nothing to select on. */}
       <div
-        className="absolute flex items-center justify-between"
+        className="topbar absolute flex items-center justify-between"
         style={S({ left: 60, top: 25, width: 1160, height: 22 })}
       >
-        <span className="flex items-center" style={S({ gap: 6 })}>
+        {/* `brand` is the handle the mobile stylesheet scales up — the mark is
+            drawn at 16px + 13px type for a 1280px artboard, which on a phone is
+            a caption, not a masthead. */}
+        <span className="brand flex items-center" style={S({ gap: 6 })}>
           <svg
             aria-hidden="true"
             viewBox="0 0 20 20"
@@ -551,7 +562,9 @@ export default function Home() {
             </g>
             <circle cx="10" cy="10" r="3.4" stroke="#d1fadf" strokeWidth="1.2" />
           </svg>
-          <span style={S({ fontSize: 13, color: "#e1efe9", fontWeight: 400 })}>Nepse Quantam</span>
+          <span className="brand-t" style={S({ fontSize: 13, color: "#e1efe9", fontWeight: 400 })}>
+            Nepse Quantam
+          </span>
         </span>
         {/* Centred on the artboard axis (580 here, since the bar starts at x 60),
             and wide enough for the whole line so it never wraps. */}
@@ -585,7 +598,8 @@ export default function Home() {
             boxSizing: "border-box",
           }}
         >
-          {INTRO_TEXT}
+          <span>{INTRO_LEAD}</span>
+          <span className="intro-rest">{INTRO_REST}</span>
         </div>
 
         <nav className="flex items-center" style={S({ gap: 21, fontSize: 8.5 })}>
@@ -597,7 +611,13 @@ export default function Home() {
               background: "rgba(18,183,106,0.14)",
               borderStyle: "solid",
               borderColor: "rgba(108,233,166,0.34)",
-              color: "#d8f3e6",
+              /* NEUTRAL, not the palette's mint. The whole document is
+                 hue-rotated and saturate(1.9)'d for the sell phase, and that
+                 amplifies whatever tint a colour already has — a green-tinted
+                 label came out as red text on a red fill. A near-achromatic
+                 colour has no hue to amplify, so it reads the same in both
+                 phases. Same reason for the button below. */
+              color: "#eef2f0",
             }}
           >
             Blogs
@@ -608,7 +628,7 @@ export default function Home() {
             style={{
               ...S({ height: 22, paddingLeft: 12, paddingRight: 12, borderRadius: 4 }),
               background: "linear-gradient(180deg,#32d583,#12b76a)",
-              color: "#04150d",
+              color: "#0b0d0c",
               boxSizing: "border-box",
               boxShadow: "0 5rem 14rem rgba(18,183,106,0.45)",
             }}
