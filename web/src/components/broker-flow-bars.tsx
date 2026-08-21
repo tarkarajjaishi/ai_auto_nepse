@@ -112,24 +112,28 @@ export function BrokerFlowBars({
     };
   }, [sessions, broker, symbol, theme]);
 
+  // Init and the ResizeObserver run ONCE; setOption lives in its own effect below. Doing both in
+  // one effect keyed on `option` froze the browser: every option change built a NEW observer and
+  // called setOption inside it, so the relayout re-fired the observer, which resized, which
+  // relaid out. Chrome's renderer locked hard enough that screenshots and script injection both
+  // timed out on a freshly opened tab. sector-treemap.tsx already had the correct split; this now
+  // matches it exactly rather than inventing a second shape.
   useEffect(() => {
     if (!box.current) return;
-    chart.current ??= echarts.init(box.current, undefined, {
-      renderer: "canvas",
-    });
-    chart.current.setOption(option, true);
-    const ro = new ResizeObserver(() => chart.current?.resize());
+    const c = echarts.init(box.current, undefined, { renderer: "canvas" });
+    chart.current = c;
+    const ro = new ResizeObserver(() => c.resize());
     ro.observe(box.current);
-    return () => ro.disconnect();
+    return () => {
+      ro.disconnect();
+      c.dispose();
+      chart.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    chart.current?.setOption(option, true);
   }, [option]);
 
-  useEffect(
-    () => () => {
-      chart.current?.dispose();
-      chart.current = null;
-    },
-    [],
-  );
-
-  return <div ref={box} style={{ height }} className="w-full" />;
+  return <div ref={box} style={{ height, width: "100%" }} />;
 }
