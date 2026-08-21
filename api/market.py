@@ -95,6 +95,55 @@ def _last_bar(path):
             "pct": pct, "volume": vol, "turnover": turnover}
 
 
+def live_overlay(bar, name):
+    """Lay the socket's current quote over a stored bar. Returns (bar, live?).
+
+    The stored bar is already today's — live_1d flushes it every 20s — so this only removes that
+    latency. Same numbers, sooner.
+
+    `turnover` is the exception and is left alone when the feed says 0. Indices publish TTV 0
+    intraday, and writing that through would replace a real turnover with a claim that nothing
+    traded. Unknown is reported as None; the screen prints a dash.
+    """
+    if not bar:
+        return bar, False
+    try:
+        import feed_snap
+        import live_1d
+    except Exception:
+        return bar, False
+    snap = feed_snap.read()
+    if not snap["fresh"]:
+        return bar, False
+    q = snap["quotes"].get(live_1d.feed_name(name.upper()))
+    if not q or q.get("ltp") is None:
+        return bar, False
+    # Only overlay TODAY. The snapshot outlives the session, and a quote from a finished day
+    # written over a stored bar is exactly the stale-as-current failure.
+    if q.get("stamp") and live_1d.today() and not str(q["stamp"]).startswith(
+            "%s/%s/%s" % (live_1d.today()[8:10], live_1d.today()[5:7], live_1d.today()[:4])):
+        return bar, False
+    out = dict(bar)
+    prev = q.get("close")
+    out["close"] = q["ltp"]
+    for src, dst in (("open", "open"), ("high", "high"), ("low", "low")):
+        if q.get(src) is not None:
+            out[dst] = q[src]
+    out["pct"] = round((q["ltp"] - prev) / prev * 100, 2) if prev else None
+    if q.get("volume"):
+        out["volume"] = q["volume"]
+    ttv = q.get("ttv")
+    if ttv:
+        out["turnover"] = ttv
+    elif q.get("volume") and q.get("avg_price"):
+        out["turnover"] = q["volume"] * q["avg_price"]
+    else:
+        # The feed reports nothing usable. Do not keep the stored figure -- it belongs to a
+        # different moment -- and do not write 0, which reads as "nothing traded".
+        out["turnover"] = None
+    return out, True
+
+
 # ── floorsheet ──────────────────────────────────────────────────────────────────────────────
 
 def _dir(symbol):
@@ -254,6 +303,28 @@ def index_bars(name, limit=500):
 
 
 def indices():
+    """Every index — live off the socket while the market is open.
+
+    Turnover is the one field NOT taken from the feed: indices publish TTV 0 intraday, and writing
+    that through would replace a real figure with "nothing traded", which is a claim rather than a
+    gap. live_overlay() reports it as None and the screen prints a dash.
+    """
+    base = _indices_stored()
+    rows, live, age = [], False, None
+    for r in base["rows"]:
+        bar, was = live_overlay(r, r["index"])
+        rows.append({**r, **bar} if was else r)
+        live = live or was
+    if live:
+        try:
+            import feed_snap
+            age = feed_snap.read()["age"]
+        except Exception:
+            age = None
+    return {**base, "rows": rows, "live": live, "age": age}
+
+
+def _indices_stored():
     """The last bar of every index in the archive."""
     d = MASTER / "indices"
     if not d.is_dir():
@@ -267,11 +338,70 @@ def indices():
 
 
 def heatmap():
-    """Every equity grouped under its sector, sized by turnover, coloured by the day's move.
+    """Every equity under its sector — live off the socket while the market is open.
 
-    Cached on the symbols directory's mtime — the live 1D writer touches it on every batched
-    flush, so this re-reads exactly when a bar actually changed and not once per request.
+    The stored layer below is cached; the live layer is applied on top of it every call. During a
+    session that is the difference between a tile showing the previous close and showing the
+    market, which CLAUDE.md's live-data rule requires of every screen.
     """
+    base = _heatmap_stored()
+    try:
+        import feed_snap
+        import live_1d
+    except Exception:
+        return base
+    snap = feed_snap.read()
+    if not snap["fresh"] or not snap["quotes"]:
+        return {**base, "live": False, "age": snap["age"]}
+
+    quotes, hit = snap["quotes"], 0
+    sectors = []
+    for sec in base["sectors"]:
+        members, changed = [], False
+        for m in sec["symbols"]:
+            q = quotes.get(live_1d.feed_name(m["symbol"]))
+            if q and q.get("ltp") is not None:
+                prev = q.get("close")
+                m = {**m, "close": q["ltp"],
+                     "pct": round((q["ltp"] - prev) / prev * 100, 2) if prev else m["pct"]}
+                if q.get("volume"):
+                    m["volume"] = q["volume"]
+                    if q.get("avg_price"):
+                        m["turnover"] = q["volume"] * q["avg_price"]
+                changed = True
+                hit += 1
+            members.append(m)
+        if not changed:
+            sectors.append(sec)
+            continue
+        turnover = sum(m["turnover"] or 0 for m in members)
+        # The sector's OWN index is the market's summary of it, so prefer the live index tick.
+        # Only when there is no index (or it has not printed) fall back to weighting the members —
+        # the same rule the stored layer uses, so the two cannot disagree about what a sector did.
+        iq = quotes.get(live_1d.feed_name(sec["index"])) if sec["index"] else None
+        if iq and iq.get("ltp") is not None and iq.get("close"):
+            pct = round((iq["ltp"] - iq["close"]) / iq["close"] * 100, 2)
+            official = True
+        else:
+            weight = turnover or len(members)
+            pct = (sum((m["pct"] or 0) * (m["turnover"] or 1) for m in members) / weight
+                   if weight else 0.0)
+            official = False
+        sectors.append({**sec, "pct": pct, "turnover": turnover, "official": official,
+                        "symbols": sorted(members, key=lambda m: -(m["turnover"] or 0))})
+
+    nepse = base["nepse"]
+    nq = quotes.get("NEPSE")
+    if nepse and nq and nq.get("ltp") is not None:
+        prev = nq.get("close")
+        nepse = {**nepse, "close": nq["ltp"],
+                 "pct": round((nq["ltp"] - prev) / prev * 100, 2) if prev else nepse.get("pct")}
+    return {**base, "nepse": nepse, "sectors": sorted(sectors, key=lambda s: -s["turnover"]),
+            "live": hit > 0, "age": snap["age"], "live_symbols": hit}
+
+
+def _heatmap_stored():
+    """The archive layer. Cached on the symbols directory's mtime."""
     d = MASTER / "symbols"
     stamp = d.stat().st_mtime if d.is_dir() else None
     if _hm_cache["stamp"] == stamp and stamp is not None:

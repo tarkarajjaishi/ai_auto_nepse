@@ -61,6 +61,35 @@ The frontend's own `package.json` / `tsconfig.json` / lockfile are config, not s
 Write with stdlib `open()`. If a task seems to need a real DB, do it with `.txt` or say it can't
 be done. **The API serves JSON over HTTP — that is a wire format, not storage, and is fine.**
 
+## Live data rule — during market hours the WHOLE system is live
+
+**While NEPSE is open, every screen shows the NAASA WebSocket feed, not the stored close.**
+Not just the chart, not just one panel — every price, every percentage, every sector tile, on
+both surfaces. A screen that shows yesterday's close during a live session is wrong even when the
+number itself is accurate, because the reader cannot tell which one they are looking at.
+
+How it works, and the one constraint that shapes all of it:
+
+- **NAASA allows ONE live session per account.** Exactly one process may hold the socket.
+  `feed_publisher.py` (systemd `chukul-feed`) is that process. Nothing else may open one —
+  whichever connects second evicts the first and the two fight for the rest of the session.
+- The publisher writes `Master_data/feed_snapshot.txt` every second. **Everything else reads that
+  file.** `ui.py` checks `feed_snap.publishing()` and yields; the API serves it through
+  `/api/bar/<symbol>`, `/api/quotes?symbols=`, and `/api/depth`.
+- The browser opens **no** socket. It polls those routes at 1s. True push would need a second
+  NAASA session, which does not exist.
+- Today's bar is built by `live_1d.row()` — the same function that writes it into `1D.txt` — so
+  the screen and the archive can never disagree about today.
+
+**Every live number carries its age, and every screen shows it.** `age` and `fresh` travel with
+the payload, and a stale snapshot renders as stale rather than as a price. A quote whose own
+timestamp is not today is refused outright: the socket keeps yesterday's quote alive past the
+close, and printing that as today is the failure this project keeps finding.
+
+When adding a screen: if it shows a price during a session, it polls `/api/quotes` (many
+instruments) or `/api/bar` (one), and it labels what it is showing. Never re-derive a live price
+in the frontend, and never poll `/api/bars` — that is the whole archive.
+
 ## What the numbers mean
 
 Every board reads a PRE-COMPUTED `.txt`, so its numbers are only as fresh as the last time its

@@ -138,7 +138,9 @@ function RailInner() {
 
   // Live prices for the rows on screen. `rows` is already the visible set — fourteen indices at
   // the top level, one sector's scrips when drilled in — so this stays small whatever is open.
-  const visible = useMemo(() => rows.slice(0, 60).map((r) => r.symbol), [rows]);
+  // A sector can hold 110 scrips — Hydro Power does — and the API takes up to 400, so the
+  // whole drilled-in list ticks rather than its first screenful.
+  const visible = useMemo(() => rows.slice(0, 300).map((r) => r.symbol), [rows]);
   const live = useQuery({
     queryKey: ["quotes", visible.join(",")],
     queryFn: ({ signal }) => api.quotes(visible, signal),

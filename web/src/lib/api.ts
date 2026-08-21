@@ -503,6 +503,11 @@ export type HeatSector = {
 export type Heatmap = {
   session: string | null;
   archive_session: string | null;
+  /** true = these numbers came off the socket, not the stored close. Always show it. */
+  live?: boolean;
+  /** seconds since the snapshot was written */
+  age?: number | null;
+  live_symbols?: number;
   nepse: (HeatSymbol & { index: string }) | null;
   sectors: HeatSector[];
   symbols: number;
@@ -511,6 +516,8 @@ export type Heatmap = {
 export type Indices = {
   session: string | null;
   rows: (HeatSymbol & { index: string })[];
+  live?: boolean;
+  age?: number | null;
 };
 
 export type Holding = {

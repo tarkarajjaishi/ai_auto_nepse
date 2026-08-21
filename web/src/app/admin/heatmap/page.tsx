@@ -13,8 +13,18 @@ import { cn } from "@/lib/utils";
 
 export default function HeatmapPage() {
   const [drill, setDrill] = useState<string | null>(null);
-  const hm = useQuery({ queryKey: qk.heatmap, queryFn: ({ signal }) => api.heatmap(signal) });
-  const idx = useQuery({ queryKey: qk.indices, queryFn: ({ signal }) => api.indices(signal) });
+  // Live during a session, per CLAUDE.md's live-data rule: the server overlays the socket
+  // snapshot onto both, so this only has to keep asking.
+  const hm = useQuery({
+    queryKey: qk.heatmap,
+    queryFn: ({ signal }) => api.heatmap(signal),
+    refetchInterval: 1000,
+  });
+  const idx = useQuery({
+    queryKey: qk.indices,
+    queryFn: ({ signal }) => api.indices(signal),
+    refetchInterval: 1000,
+  });
 
   const sectors = hm.data?.sectors ?? [];
   const open = useMemo(
