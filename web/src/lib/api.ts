@@ -53,7 +53,71 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   return body as T;
 }
 
+/**
+ * The one write call. There is exactly one write route on this API — `POST /api/rebuild/<board>` —
+ * so this helper is deliberately not general: no body, no method parameter, nothing that invites
+ * a second one to be added without thinking about it.
+ *
+ * 409 is an ANSWER, not a failure: it means a rebuild is already running, which the reader needs
+ * to see rather than a red error box.
+ */
+async function post<T>(path: string): Promise<T> {
+  const url = `${API_BASE}${path}`;
+  let res: Response;
+  try {
+    res = await fetch(url, { method: "POST", headers: { Accept: "application/json" } });
+  } catch {
+    throw new ApiError(
+      `Cannot reach the API at ${API_BASE || "this origin"}. Is it running?  python -m api`,
+      0,
+      url,
+    );
+  }
+  const body = await res.json().catch(() => null);
+  if (!res.ok && res.status !== 409) {
+    throw new ApiError(body?.error ?? `${res.status} ${res.statusText}`, res.status, url);
+  }
+  return body as T;
+}
+
 /* ── shapes ─────────────────────────────────────────────────────────────────────────────── */
+
+/** One raw archive store — the files underneath a board, not the board itself. */
+export type Store = { newest: string | null; behind: number; total: number };
+
+export type Stores = {
+  stores: Record<string, Store>;
+  archive_session: string | null;
+  missed_sessions: number | null;
+};
+
+/** What a rebuild is doing, and which boards refresh on their own. */
+export type RebuildStatus = {
+  /** the board this API process is rebuilding, if any */
+  running: string | null;
+  seconds: number | null;
+  /** whoever holds the cross-process lock — could be the timer or the Streamlit page */
+  busy: { pid: number; what: string; seconds: number; mine: boolean } | null;
+  last: {
+    board: string;
+    ok: boolean;
+    skipped: boolean;
+    seconds?: number;
+    steps?: { script: string; code: number; seconds: number; tail: string[] }[];
+  } | null;
+  boards: string[];
+  /** board -> does the nightly timer rebuild it? */
+  auto: Record<string, boolean>;
+  /** board -> why it does not, printed verbatim on screen */
+  manual: Record<string, string>;
+};
+
+export type RebuildStarted = {
+  started: boolean;
+  board?: string;
+  reason?: string;
+  busy?: RebuildStatus["busy"];
+};
 
 export type Health = { ok: boolean; archive_session: string | null;
   missed_sessions: number | null; symbols: number };
@@ -334,6 +398,11 @@ export type SwingQuantam = {
 export const api = {
   health: (signal?: AbortSignal) => get<Health>("/api/health", signal),
   boards: (signal?: AbortSignal) => get<BoardsIndex>("/api/boards", signal),
+  stores: (signal?: AbortSignal) => get<Stores>("/api/stores", signal),
+  rebuildStatus: (signal?: AbortSignal) => get<RebuildStatus>("/api/rebuild", signal),
+  /** Start a rebuild. Resolves with `started: false` and a reason when one is already running. */
+  rebuild: (board: string) =>
+    post<RebuildStarted>(`/api/rebuild/${encodeURIComponent(board)}`),
   /**
    * One board. `params` is only meaningful for boards whose numbers depend on something
    * the reader chooses — today that is swing_master, where position size is a function of
@@ -390,6 +459,8 @@ export const api = {
 export const qk = {
   health: ["health"] as const,
   boards: ["boards"] as const,
+  stores: ["stores"] as const,
+  rebuild: ["rebuild"] as const,
   board: (n: BoardName, params?: Record<string, string | number>) =>
     ["board", n, params ?? null] as const,
   symbols: ["symbols"] as const,

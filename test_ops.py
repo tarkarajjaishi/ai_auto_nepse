@@ -34,6 +34,7 @@ import indicators
 import jobs
 import live_1d
 import market_hours
+from api import stores
 import master_signal
 import naasa
 import prices
@@ -990,6 +991,7 @@ def main():
     live_1d.demo()          # today's bar maths + the archive-never-shrinks rule
     market_hours.demo()     # the one open/closed switch: defaults, toggles, bad file
     jobs.demo()             # the cross-process rebuild lock: exclusive, breakable, safe
+    stores.demo()           # per-store freshness: dates compared as dates, columns by name
     print("ok")
     return 0
 

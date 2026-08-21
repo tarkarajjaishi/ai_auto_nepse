@@ -17,6 +17,7 @@ Routes (all GET, all JSON):
     /api/brokerflow/<symbol>?n=20     who accumulated and who distributed over n sessions
     /api/swingquantam/<symbol>        the floorsheet engine's sections, zones and reasons
     /api/heatmap                      every equity under its sector, from the archive
+    /api/stores                       per-store archive freshness (bars, floorsheet, flow)
     /api/indices                      the last bar of every index
     /api/account/holdings|orderbook|collateral      NAASA, read-only
     /api/auth?probe=1                 whether the saved NAASA / SWP logins still work
@@ -273,6 +274,15 @@ def route(path, query):
         if arg.upper() not in _universe():
             return 404, {"error": f"no such symbol {arg.upper()!r}"}
         return 200, market.broker_flow(arg, max(1, min(500, n)))
+
+    if head == "stores":
+        from . import stores
+        newest = tables.newest_bar()
+        # The stores are the raw archive under the boards. Every board can agree with every other
+        # and still be built on a store that stopped updating a week ago, so this is the same
+        # question as missed_sessions asked one layer further down.
+        return 200, {"stores": stores.state(), "archive_session": newest,
+                     "missed_sessions": market_hours.missed_sessions(newest)}
 
     if head == "rebuild":
         # Read-only status. Starting a rebuild is a POST; a GET here can never begin one, which
