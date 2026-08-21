@@ -33,13 +33,27 @@ export default function AccessRequestsPage() {
   });
 
   const rows = useMemo(() => {
-    const all = query.data?.rows ?? [];
+    // `n` is the row's ordinal in the append-only file — read_all() reverses, so it counts down.
+    // It is the only identity that survives a PREPEND: a new lead shifts the array index of
+    // every existing row, and an index in the key unmounts the whole table instead of
+    // inserting one <tr>.
+    const all = (query.data?.rows ?? []).map((r, i, a) => ({ ...r, n: a.length - i }));
     const needle = q.trim().toLowerCase();
     if (!needle) return all;
-    // Every column, because you search a lead list by whatever you happen to remember —
-    // a half-recalled name, the tail of a number, the city.
+    // Every column, AND the numbers in the form the table actually shows. The filter used to
+    // join the raw `phone` only, so copying "+9779801234567" out of the row you are looking at
+    // and pasting it into the box returned nothing — the one search anybody would actually try.
     return all.filter((r) =>
-      [r.full_name, r.email, r.place, r.phone, r.whatsapp, r.received_at]
+      [
+        r.full_name,
+        r.email,
+        r.place,
+        r.received_at,
+        r.phone,
+        r.whatsapp,
+        e164(r.country_code, r.phone),
+        e164(r.whatsapp_code, r.whatsapp),
+      ]
         .join(" ")
         .toLowerCase()
         .includes(needle),
@@ -92,7 +106,7 @@ export default function AccessRequestsPage() {
           </thead>
           <tbody>
             {rows.map((r, i) => (
-              <Row key={`${r.received_at}-${r.email}-${i}`} r={r} i={i} />
+              <Row key={r.n} r={r} i={i} />
             ))}
           </tbody>
         </table>
@@ -102,7 +116,13 @@ export default function AccessRequestsPage() {
         )}
         {query.isError && (
           <p className="p-4 text-[13px] text-muted-foreground">
-            {(query.error as Error).message}
+            {/* A 401 here means the session lapsed, and nginx answers it with an HTML body — so
+                api.ts finds no JSON `error` and falls back to the status line. Printing that
+                raw gave "401 Unauthorized" in the same muted grey as "Loading…", which reads
+                as an empty table rather than as "sign in again". */}
+            {(query.error as { status?: number }).status === 401
+              ? "Your session has expired. Reload the page to sign in again."
+              : (query.error as Error).message}
           </p>
         )}
         {!query.isPending && !query.isError && rows.length === 0 && (

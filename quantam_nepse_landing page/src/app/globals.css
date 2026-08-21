@@ -421,8 +421,6 @@ body:has(.stage) {
   .node-dot,
   .drift,
   .shine::after,
-  .accessmodal:popover-open,
-  .ax-spin,
   .dome ellipse,
   .packet,
   .newsfeed > div,
@@ -779,8 +777,13 @@ body:has(.stage) {
   margin: auto;
   width: min(430rem, calc(100vw - 28px));
   max-height: min(640rem, calc(100dvh - 28px));
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  /* The PANEL does not scroll; .ax-body does. When the scroll lived here, .ax-close — absolute
+     inside it — scrolled away with the content, so on a landscape phone (which this stylesheet
+     treats as mobile via max-height:599px) the content is taller than the box and there was no
+     visible way to close the dialog. */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   padding: 26rem 26rem 20rem;
   border: 1rem solid rgba(50, 213, 131, 0.34);
   border-radius: 16rem;
@@ -808,6 +811,13 @@ body:has(.stage) {
     opacity: 0;
     transform: translateY(10rem) scale(0.97);
   }
+}
+
+.ax-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 
 .ax-h {
@@ -1005,6 +1015,18 @@ body:has(.stage) {
 
 .ax-done .ax-sub {
   margin-bottom: 20rem;
+}
+
+/* A SECOND reduced-motion block, and it has to be here rather than in the one at the top of
+   this file. Those rules and these have the same specificity, so the later wins — and the
+   panel's animations are declared 400 lines BELOW that block. Listing them up there looked
+   right, tested green as "the selector is in the list", and did nothing at all: a visitor with
+   Reduce Motion on still got the full entrance transform and a loader spinning forever. */
+@media (prefers-reduced-motion: reduce) {
+  .accessmodal:popover-open,
+  .ax-spin {
+    animation: none;
+  }
 }
 
 /* =================================================================== mobile

@@ -671,21 +671,16 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 return self._send(400, {"error": "expected a JSON body"})
 
-            # CF-Connecting-IP FIRST, and that is not a preference — it is the only header
-            # here that carries the visitor. This vhost sits behind Cloudflare with no
-            # ngx_http_realip configuration, so $remote_addr and X-Real-IP are both a
-            # Cloudflare edge (measured: every line in access.log is 104.22.x.x). Bucketing
-            # the rate limit on those would put every visitor in the world into one of a
-            # handful of buckets, and would write an edge address into the lead list.
+            # X-Real-IP, and ONLY that. nginx now runs set_real_ip_from over Cloudflare's
+            # ranges with real_ip_header CF-Connecting-IP for this vhost, so $remote_addr —
+            # which is what fills this header — is the true visitor when the request came
+            # through Cloudflare, and the actual peer when it did not.
             #
-            # Trusting a client-settable header is safe only because of where this runs: the
-            # server binds 127.0.0.1, so nginx is the only thing that can reach it, and
-            # Cloudflare overwrites CF-Connecting-IP on every request it proxies. Someone
-            # hitting the origin directly could forge it — which is what the nginx limit_req
-            # in front (keyed the same way, with a $remote_addr fallback) is for.
-            ip = (self.headers.get("CF-Connecting-IP")
-                  or self.headers.get("X-Real-IP")
-                  or self.client_address[0] or "").strip()
+            # Reading CF-Connecting-IP here directly, as this did, was a hole rather than a
+            # nicety: the origin answers on 443 without Cloudflare in front of it, so anyone
+            # could POST straight to the box with a DIFFERENT forged value on every request and
+            # land each one in a fresh rate-limit bucket. Measured bypassed; measured closed.
+            ip = (self.headers.get("X-Real-IP") or self.client_address[0] or "").strip()
             if not access.allowed(ip):
                 return self._send(429, {"error": "Too many requests. Please try again later."})
             clean, why = access.validate(payload)
@@ -693,9 +688,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(400, {"error": why})
             try:
                 access.record(clean, ip)
-            except Exception as e:
+            except Exception:
+                # The message stays GENERIC because this caller is the public. The other 500s
+                # in this file echo the exception, which is right for a walled route and wrong
+                # here: once the disk fills, the OSError text carries the absolute server path
+                # and an errno straight to a stranger. The detail goes to the log instead.
                 traceback.print_exc()
-                return self._send(500, {"error": "%s: %s" % (type(e).__name__, e)})
+                return self._send(500, {"error": "Could not save that just now. "
+                                                 "Please try again shortly."})
             return self._send(201, {"ok": True,
                                     "message": "Sent successfully. You will be contacted soon."})
 
