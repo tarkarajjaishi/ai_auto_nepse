@@ -32,6 +32,14 @@ already produced a wrong answer in this repo:
    rebuilds a symbol's whole panel with the archive truncated and demands the
    surviving rows are byte-identical.
 
+   That guard is itself MUTATION-TESTED, because it spent a long time being weaker
+   than its own docstring: of three deliberate leaks planted in ``_panel`` it caught
+   one. Truncating the floorsheet date list is not truncating the archive, and
+   comparing only the rows that have a forward window means comparing only rows a
+   full horizon INSIDE the archive -- where "tomorrow" is present on both sides and
+   a short peek cannot show up. :data:`_MUTATIONS` plants the two it missed on every
+   run and :func:`_demo` fails if either survives.
+
 3. **Walk-forward, chronological, no whole-history fit** (section 99). Weights
    are fitted on a train block, the feature subset is chosen on a validate block,
    and every number reported as an edge comes from a test block that is strictly
@@ -52,14 +60,25 @@ already produced a wrong answer in this repo:
    the finite-population correction. Drawing k times with replacement made the
    null up to 30% too wide and buried a real result. The number of draws is part
    of the same rule -- an empirical p quantised to 1/200 cannot resolve a
-   Bonferroni bar of 0.0033, so :data:`CONTROL_DRAWS` is sized against the bar and
-   :func:`_demo` asserts that it still is.
+   Bonferroni bar of 0.0017, so :data:`CONTROL_DRAWS` is sized against the bar and
+   :func:`_demo` asserts that it still is. The bar is over 2N and not N because
+   every family is judged in both directions (:func:`bonferroni`).
 
    And the benchmark must not contain the thing it benchmarks. A family that
    holds half the universe is half of its own comparison, so every excess is
    reported twice: against the whole universe, and against that day's
    NON-members (``Perf.excess_lfo``). The second is the larger number in both
    directions.
+
+   The control answers "could a random pick THAT DAY have done this", and that is
+   not the same question as "is there an effect here at all". It treats the rows as
+   exchangeable within a date, which they are, and as independent ACROSS dates,
+   which they are not: a handful of symbols supply most of the rows and most of the
+   effect. So a second null is compulsory for any strong verdict --
+   :func:`clustered` resamples SYMBOLS, and :func:`verdict` will not print EDGE or
+   NEGATIVE while its interval spans zero. On this archive that gate is what decides
+   the headline, and the symbol concentration behind it is printed for every family
+   whether or not it changes the answer.
 
 5. **Median as well as mean.** The median NEPSE 20-day return is negative and a
    thin tail carries the mean, so a mean-only result actively misleads.
@@ -89,6 +108,7 @@ carrying the answer forward in a file is.
 from __future__ import annotations
 
 import bisect
+import contextlib
 import math
 import os
 import random
@@ -173,13 +193,13 @@ PAIR_MIN_SHARE = 0.005
 #: How many date-matched random draws form the control distribution.
 #:
 #: This number has to be able to RESOLVE the bar it is compared against. Fifteen
-#: families make the Bonferroni threshold 0.05/15 = 0.0033, and with 200 draws an
-#: empirical p can only be 0.000 or >=0.005 -- so the corrected bar was reachable
-#: at exactly p = 0.000 and nowhere else, and 0/200 only bounds the true p at
-#: <1.5% by the rule of three, not at <0.33%. That coarseness misclassified a real
-#: family: ``large_trade``'s exact p is 0.046 and the 200-draw run reported 0.08.
+#: families tested in two directions make the Bonferroni threshold 0.05/30 = 0.00167,
+#: and with 200 draws an empirical p can only be 0.005 or 0.010 or ... -- so the
+#: corrected bar was not reachable AT ALL, and 0/200 only bounds the true p at
+#: <1.5% by the rule of three. That coarseness misclassified a real family:
+#: ``large_trade``'s exact p is 0.046 and the 200-draw run reported 0.08.
 #:
-#: 10,000 resolves p to 1e-4, which puts ~33 attainable values below the corrected
+#: 10,000 resolves p to 1e-4, which puts ~16 attainable values below the corrected
 #: bar and bounds a 0/N result at <0.03%. MEASURED cost on the 36-symbol universe:
 #: the study went from 323 s to 486 s, so the fifteen controls plus the phase splits
 #: are about 160 s of it. The work is O(sum of family sizes x draws), so 50,000 --
@@ -187,6 +207,23 @@ PAIR_MIN_SHARE = 0.005
 #: add ~800 s and roughly triple the study. Not worth it to decorate a p-value that
 #: has already cleared its bar; raise it by hand if a specific number needs it.
 CONTROL_DRAWS = 10_000
+
+#: Resamples in the SYMBOL-BLOCK bootstrap (:func:`clustered`), and the bar it is
+#: judged against.
+#:
+#: The date-matched control answers "could a random pick that day have done this",
+#: and it needs many draws because it is compared against a Bonferroni bar. This one
+#: answers a different question -- "is the effect in the RULE or in three stocks" --
+#: and is compared against a plain 0.05, so it needs far less resolution. 20,000 is
+#: chosen to make the 2.5% tail of the interval stable to the printed decimal, not to
+#: resolve a small p. Cost is ~36 lookups per resample, so all fifteen families
+#: together are seconds, not minutes.
+#:
+#: CLUSTER_P is 0.05 and is the SAME bar in both directions. That is the whole point:
+#: the upper and lower tails of the date-matched control were being judged against
+#: 0.0033 and 0.05 respectively, which is how a NEGATIVE verdict came to cost fifteen
+#: times less evidence than an EDGE one.
+CLUSTER_DRAWS, CLUSTER_P = 20_000, 0.05
 
 #: Round-trip cost of one NEPSE trade (broker commission + SEBON + DP, both legs),
 #: as a fraction. A range, not a point: it is size-dependent and the small-ticket
@@ -546,7 +583,7 @@ def _window_flow(books: Sequence[dict], w: int) -> dict[str, float]:
 
 def _panel(symbol: str, start: str = START, end: str = END,
            grid: frozenset[str] | None = None, zones_on: frozenset[str] | None = None,
-           sens: bool = False) -> tuple[list[Obs], list[tuple]]:
+           sens: bool = False, unlabelled: bool = False) -> tuple[list[Obs], list[tuple]]:
     """Build every observation for one symbol. The whole per-symbol pipeline.
 
     ``grid`` and ``zones_on`` are the SHARED decision dates -- see GRID_STRIDE
@@ -561,6 +598,25 @@ def _panel(symbol: str, start: str = START, end: str = END,
     rolling windows and the trailing percentiles need continuity; observations
     are emitted only on the grid.
 
+    ``end`` truncates the ARCHIVE, not just the floorsheet date list. It used to
+    do only the latter -- ``adjusted_bars`` was read in full -- and that hole is
+    what made :func:`leakage_check` blind to a feature that read tomorrow's bar:
+    the price series was identical in the truncated rebuild, so the mutated
+    feature came back identical too. See that function for the mutation results.
+
+    ``unlabelled`` is for :func:`leakage_check` alone and emits the rows in the last
+    :data:`PRIMARY` sessions before ``end`` -- the ones with no forward window --
+    carrying their FEATURE vector and percentiles and nothing else (``fwd`` empty,
+    ``zone`` None, so ``Obs.ret`` on one of them is meaningless and raises).
+
+    Those rows are the entire point of the guard and dropping them is what made it
+    weak. Every row that HAS a forward window inside a truncated archive is at least
+    PRIMARY sessions from the edge, so its "tomorrow" exists in the truncated build
+    and in the full one alike; comparing only those rows can therefore never detect a
+    peek shorter than PRIMARY sessions, which is every peek anyone would actually
+    write. The boundary rows are the only place where "tomorrow" is missing on one
+    side and present on the other.
+
     Everything in this function reads backwards. If a line in here ever reads
     forwards, :func:`leakage_check` fails, which is the entire point of it.
     """
@@ -568,7 +624,7 @@ def _panel(symbol: str, start: str = START, end: str = END,
     if len(dates) < 200:
         return [], []
 
-    abars = loader.adjusted_bars(symbol)
+    abars = loader.adjusted_bars(symbol, end)
     bdates = [b.date for b in abars]
     if len(abars) < 60:
         return [], []
@@ -699,6 +755,10 @@ def _panel(symbol: str, start: str = START, end: str = END,
             continue
         fwd = _forward(abars, bdates, d)
         if fwd is None:
+            # No forward window. Normally that is a half-trade and is dropped; for the
+            # leakage guard it is the ONLY row that can see the edge of the archive.
+            if unlabelled:
+                marks[i] = None
             continue
         entry, path = fwd
         zone = None
@@ -722,12 +782,18 @@ def _panel(symbol: str, start: str = START, end: str = END,
         pcts = tuple(cols[name][i] for name in FEATURES)
         if any(math.isnan(x) for x in pcts):
             continue
+        feats = tuple(_finite(rows[i].get(name, 0.0)) for name in FEATURES)
+        if marks[i] is None:
+            # Feature-only boundary row. Empty fwd is the marker leakage_check reads.
+            out.append(Obs(symbol, kept[i], feats, pcts, (), 0.0, 0.0, 0, 0,
+                           0, 0.0, 0, (0, 0), 0.0, None))
+            continue
         entry, path, bk, zone = marks[i]
         out.append(
             Obs(
                 symbol=symbol,
                 date=kept[i],
-                f=tuple(_finite(rows[i].get(name, 0.0)) for name in FEATURES),
+                f=feats,
                 p=pcts,
                 fwd=tuple(path[h - 1].close / entry - 1.0 for h in HORIZONS),
                 mfe=max(b.high for b in path) / entry - 1.0,
@@ -1191,7 +1257,9 @@ def control(sel: Sequence[Obs], pool_by_date: dict[str, list[Obs]],
     that factor and makes the null distribution too WIDE in proportion to the
     family's coverage: sd_correct/sd_as_coded measured 0.68 at 53% coverage, 0.72
     at 54%, 0.98 at 8%. A null that is 30% too wide swallows real effects, and it
-    swallowed one (``vwap_slope``, p 0.01 -> 0.0002). :func:`screening_test` in
+    swallowed one (``vwap_slope``, p 0.01 -> 0.0002 -- which, as it turned out, only
+   moved that family from unproven to over-stated; see the clustered null below).
+   :func:`screening_test` in
     this same file always did it correctly -- shuffle the pool, then slice -- and
     this function's own docstring described that scheme while the code did the
     other one.
@@ -1204,6 +1272,14 @@ def control(sel: Sequence[Obs], pool_by_date: dict[str, list[Obs]],
     WELL"; ``p_low`` answers "could they have done this BADLY", which is the only
     way a board signal that is actively worse than the coin flip can be called
     what it is instead of merely unproven.
+
+    Both are the UNBIASED empirical p, ``(beat + 1) / (draws + 1)``, not
+    ``beat / draws``. The observed statistic is itself one draw from the null, so
+    the naive form can return exactly 0.0000 -- a claim that the effect is
+    impossible under the null, which no finite resampling can support. At
+    :data:`CONTROL_DRAWS` the two forms differ by ~1e-4 and change no verdict here;
+    the point is that the floor is 1/(draws+1) rather than zero, so a p printed to
+    four places is always a number the sample could actually have produced.
     """
     if not sel:
         return Control(0, 0.0, 0.0, 0.0, 1.0, 1.0)
@@ -1239,7 +1315,90 @@ def control(sel: Sequence[Obs], pool_by_date: dict[str, list[Obs]],
     if not means:
         return Control(0, 0.0, 0.0, 0.0, 1.0, 1.0)
     return Control(len(means), _mean(means), _mean(meds), _mean(wins),
-                   beat / len(means), below / len(means))
+                   (beat + 1) / (len(means) + 1), (below + 1) / (len(means) + 1))
+
+
+class Cluster(NamedTuple):
+    """A SYMBOL-BLOCK bootstrap of the same excess, plus the concentration behind it."""
+
+    symbols: int       # distinct symbols the family fired on
+    agree: int         # how many of them carry the family's OWN sign in total excess
+    top3_share: float  # share of the family's whole excess carried by its three biggest
+    excess: float      # the date-demeaned excess being resampled, restated here
+    lo: float          # 2.5th percentile of the resampled excess
+    hi: float          # 97.5th
+    p_value: float     # share of resamples that reached or crossed zero from the observed side
+
+    @property
+    def spans_zero(self) -> bool:
+        """The 95% interval contains zero -- the effect is not separated from nothing."""
+        return self.lo <= 0.0 <= self.hi
+
+
+def clustered(sel: Sequence[Obs], demean: Demean, side: str = "long",
+              draws: int = CLUSTER_DRAWS, seed: int = 11) -> Cluster:
+    """Resample SYMBOLS, not rows. The control's independence assumption, tested.
+
+    :func:`control` treats the family's rows as exchangeable within a date, which
+    is the right null for "did this pick beat a random pick that day" and the WRONG
+    one for "is there an effect here at all". The rows are not independent across
+    dates: one symbol contributes dozens of them, its 20-day windows overlap, and
+    its idiosyncratic run shows up in every one. A p-value computed as if 1,472
+    rows were 1,472 pieces of evidence is over-confident by whatever factor the
+    symbol clustering implies, and on this archive that factor is large -- three of
+    thirty-six names carried most of the headline family's entire excess.
+
+    So: draw ``len(symbols)`` symbols WITH replacement, pool all of their rows, take
+    the mean. That is the standard cluster (block) bootstrap and it prices in the
+    fact that the sample really contains ~36 independent things, not ~1,500.
+
+    ``p_value`` is one-sided in the family's OWN direction -- the share of resamples
+    that reached or crossed zero from the observed side. It is deliberately the SAME
+    statistic for a positive family and a negative one, so the clustered bar is one
+    bar and not two (see :func:`verdict`, where the upper and lower tails of the
+    date-matched control used to be judged against different thresholds).
+
+    ``top3_share`` is the disclosure that goes with it and is the cheaper of the two
+    numbers to read: a family whose top three symbols carry 87% of its excess, or
+    168% of it with the remaining names net negative, is three stocks' history
+    wearing a rule's name. Reported for every family, not only the ones that clear.
+    """
+    if not sel:
+        return Cluster(0, 0, 0.0, 0.0, 0.0, 0.0, 1.0)
+    sgn = 1.0 if side == "long" else -1.0
+    tot: dict[str, float] = {}
+    cnt: dict[str, int] = {}
+    for o in sel:
+        tot[o.symbol] = tot.get(o.symbol, 0.0) + sgn * (o.ret - _dm(demean, o.date))
+        cnt[o.symbol] = cnt.get(o.symbol, 0) + 1
+    T = list(tot.values())
+    C = [cnt[s] for s in tot]
+    grand, n = sum(T), sum(C)
+    ex = grand / n if n else 0.0
+    # The three biggest contributors IN THE FAMILY'S OWN DIRECTION, so the number
+    # reads the same way for a long family and an avoidance one.
+    top3 = sorted(T, reverse=ex > 0)[:3]
+    share = (sum(top3) / grand) if grand else 0.0
+    agree = sum(1 for v in T if (v > 0) == (ex > 0))
+
+    k = len(T)
+    rng = random.Random(seed)
+    means = []
+    for _ in range(draws):
+        s_, c_ = 0.0, 0
+        for _ in range(k):
+            j = rng.randrange(k)
+            s_ += T[j]
+            c_ += C[j]
+        if c_:
+            means.append(s_ / c_)
+    if not means:
+        return Cluster(k, agree, share, ex, 0.0, 0.0, 1.0)
+    means.sort()
+    lo = means[int(0.025 * len(means))]
+    hi = means[min(len(means) - 1, int(0.975 * len(means)))]
+    crossed = sum(1 for m in means if (m <= 0.0 if ex > 0 else m >= 0.0))
+    return Cluster(k, agree, share, ex, lo, hi, (crossed + 1) / (len(means) + 1))
 
 
 class Phase(NamedTuple):
@@ -1562,10 +1721,12 @@ class Screen(NamedTuple):
     p_value: float   # share of random regroupings whose BEST matched or beat it
     groups: int      # how many groups cleared the sample floor
     candidates: int  # how many were screened to find them
+    draws: int = 0   # how finely p is resolved -- 1/draws is its quantum
+    p_matched: float = 1.0  # the same test with the reshuffle done WITHIN each date
 
 
 def screening_test(obs: Sequence[Obs], demean: Demean, kind: str, min_share: float,
-                   draws: int = 200, seed: int = 13) -> Screen:
+                   draws: int = CONTROL_DRAWS, seed: int = 13) -> Screen:
     """Is the best broker better than the best of N RANDOM brokers?
 
     Sections 94-96 screen dozens to hundreds of candidates and then report the
@@ -1576,29 +1737,90 @@ def screening_test(obs: Sequence[Obs], demean: Demean, kind: str, min_share: flo
     in which group, and ask how often the best of that random partition matches
     the best real one. A p-value near 1 means the table is a sorting artefact.
 
-    Date-demeaned excess is what gets shuffled, so a broker that only traded in
-    one good year cannot win on that alone. Residual date clustering inside a
-    group is not removed and is the known limitation of this control.
+    TWO nulls, because the difference between them is the known limitation of this
+    control and printing it is cheaper than arguing about it:
+
+    * ``p_value`` reshuffles the whole pool. Group sizes are kept, group membership
+      is not, and residual DATE clustering inside a group is not removed -- a broker
+      whose prints all land in one good fortnight keeps that advantage under this
+      null.
+    * ``p_matched`` reshuffles WITHIN each date, so every random group gets exactly
+      as many rows from each date as the real one had. That removes the date
+      clustering the first null leaves in. It is the same relationship
+      :func:`control` has to an unmatched random sample, applied here.
+
+    The report prints both and says whether they differ. If they do, the pooled
+    number was reading a calendar and not a broker.
+
+    ``draws`` defaults to :data:`CONTROL_DRAWS`, not to the 200 this ran at for most
+    of its life. At 200 the p is quantised to 0.005 and the section 94 table came
+    back as a flat ``0.0000`` -- the same false precision that had already been fixed
+    one function away in :func:`control` and left here. Both p's use the unbiased
+    ``(beat + 1) / (draws + 1)`` for the same reason.
+
+    Cost is O(draws x rows actually dealt), not O(draws x pool): only the rows the
+    live groups consume are shuffled, by partial Fisher-Yates, so a table whose
+    groups cover a tenth of the pool costs a tenth as much.
     """
-    groups = [[o.ret - _dm(demean, o.date) for o in v]
-              for v in _edge_groups(obs, kind, min_share).values()]
-    live = [g for g in groups if len(g) >= MIN_OBS]
+    grouped = [[(o.date, o.ret - _dm(demean, o.date)) for o in v]
+               for v in _edge_groups(obs, kind, min_share).values()]
+    live = [g for g in grouped if len(g) >= MIN_OBS]
     if not live:
-        return Screen(0.0, 1.0, 0, len(groups))
-    pool = [e for g in groups for e in g]
+        return Screen(0.0, 1.0, 0, len(grouped), draws, 1.0)
+    observed = max(_mean([e for _, e in g]) for g in live)
     sizes = [len(g) for g in live]
-    observed = max(_mean(g) for g in live)
     rng = random.Random(seed)
+
+    # --- null 1: one pool, sizes kept ---------------------------------------
+    pool = [e for g in grouped for _, e in g]
+    n_pool, need = len(pool), sum(sizes)
     beat = 0
     for _ in range(draws):
-        rng.shuffle(pool)
+        for i in range(min(need, n_pool)):
+            j = rng.randrange(i, n_pool)
+            pool[i], pool[j] = pool[j], pool[i]
         i, best = 0, -1e9
         for s in sizes:
             best = max(best, _mean(pool[i:i + s]))
             i += s
         if best >= observed:
             beat += 1
-    return Screen(observed, beat / draws, len(live), len(groups))
+
+    # --- null 2: the same, dealt date by date --------------------------------
+    dpool: dict[str, list[float]] = {}
+    for g in grouped:
+        for d, e in g:
+            dpool.setdefault(d, []).append(e)
+    counts = [Counter(d for d, _ in g) for g in live]
+    demand: Counter = Counter()
+    for cnt in counts:
+        demand.update(cnt)
+    beat_m = 0
+    for _ in range(draws):
+        cursor = {}
+        for d, k in demand.items():
+            pl = dpool[d]
+            n = len(pl)
+            for i in range(min(k, n)):
+                j = rng.randrange(i, n)
+                pl[i], pl[j] = pl[j], pl[i]
+            cursor[d] = 0
+        best = -1e9
+        for cnt in counts:
+            tot, num = 0.0, 0
+            for d, k in cnt.items():
+                pl, st = dpool[d], cursor[d]
+                take = pl[st:st + k]
+                cursor[d] = st + len(take)
+                tot += sum(take)
+                num += len(take)
+            if num:
+                best = max(best, tot / num)
+        if best >= observed:
+            beat_m += 1
+
+    return Screen(observed, (beat + 1) / (draws + 1), len(live), len(grouped),
+                  draws, (beat_m + 1) / (draws + 1))
 
 
 # ---------------------------------------------------------------------------
@@ -1895,19 +2117,94 @@ def probabilistic(name: str, p: Perf, cal: Calibration) -> str:
 # ---------------------------------------------------------------------------
 
 
+@contextlib.contextmanager
+def _archive_capped(cut: str):
+    """Every :mod:`loader` read inside this block sees an archive that ends at ``cut``.
+
+    The guard below used to rely on :func:`_panel` passing its own ``end`` down to
+    every read. That is a rule about lines of code, and it was broken by two of the
+    three mutations tested against it -- both of which went round ``end`` by reading
+    the archive directly. Capping the READER instead makes the truncation a property
+    of the environment, so a leak does not have to be anticipated to be caught: any
+    line that reaches past ``cut``, through any helper, at any depth, now sees a
+    different archive in the rebuild than it did in the reference and the ``repr``
+    comparison fires.
+
+    Monkeypatching a module is a blunt instrument and it is deliberate: it is scoped
+    to one function, restored in a ``finally``, and the alternative -- threading a cut
+    through every call site -- is the thing that already failed.
+    """
+    names = ("sessions", "load", "bars", "adjusted_bars", "load_last", "flow_rows")
+    o = {n: getattr(loader, n) for n in names}
+
+    def cap(u: str | None) -> str:
+        return min(u, cut) if u else cut
+
+    patched = {
+        "sessions": lambda s, _f=o["sessions"]: [d for d in _f(s) if d <= cut],
+        "load": lambda s, d, _f=o["load"]: None if d > cut else _f(s, d),
+        "bars": lambda s, u=None, _f=o["bars"]: _f(s, cap(u)),
+        "adjusted_bars": lambda s, u=None, _f=o["adjusted_bars"]: _f(s, cap(u)),
+        "load_last": lambda s, n, u=None, _f=o["load_last"]: _f(s, n, cap(u)),
+        "flow_rows": lambda s, u=None, _f=o["flow_rows"]: _f(s, cap(u)),
+    }
+    for k, v in patched.items():
+        setattr(loader, k, v)
+    try:
+        yield
+    finally:
+        for k, v in o.items():
+            setattr(loader, k, v)
+
+
 def leakage_check(symbol: str, cut: str, end: str = END) -> tuple[int, str]:
-    """Rebuild one symbol's panel with the archive truncated at ``cut``.
+    """Rebuild one symbol's panel against an archive that STOPS at ``cut``.
 
     Every observation on or before ``cut`` must be byte-identical in its features
     AND in its percentiles -- this is the assertion :mod:`history` makes for
     :func:`history.pit` extended to the whole sixty-column panel, the zone call
-    included. A single forward-looking line anywhere in :func:`_panel` fails it.
+    included.
+
+    What this covers, stated as MEASURED rather than as claimed. This docstring used
+    to say "a single forward-looking line anywhere in :func:`_panel` fails it", and
+    three mutations of :func:`_panel` said otherwise. As it stood:
+
+    * A -- a feature reading the FUTURE BAR (``abars`` at the index after ``d``):
+      **PASSED**. ``_panel`` filtered floorsheet dates by ``end`` but read
+      ``adjusted_bars`` in full, so the price series was the same in both rebuilds.
+    * B -- a feature reading TOMORROW'S FLOORSHEET via a fresh ``loader.sessions()``
+      / ``loader.load()``: **PASSED**, because the re-read went round ``end`` entirely.
+    * C -- a percentile ranked against the whole column, future included: **CAUGHT**.
+
+    One leak class of three. Three things had to change for A and B to fail, and the
+    third is the one that is easy to miss:
+
+    1. ``_panel`` passes ``end`` to ``adjusted_bars``, so the price series is cut too.
+    2. :func:`_archive_capped` caps the READER, so a re-read at any depth is cut as
+       well -- a leak no longer has to be anticipated to be caught.
+    3. ``unlabelled=True``, so the rows in the final :data:`PRIMARY` sessions before
+       the cut are COMPARED. Without this the first two changes buy nothing: every
+       row with a forward window sits at least PRIMARY sessions inside the archive,
+       its "tomorrow" is present on both sides, and a one-session peek is invisible.
+       The boundary rows are where the truncation actually bites, and they were being
+       dropped for lack of a label the guard never looks at.
+
+    :func:`_demo` re-runs A and B against this function on every study run rather
+    than trusting this paragraph -- see :data:`_MUTATIONS`.
 
     Returns (rows compared, "" | the first mismatch). Comparison is on ``repr``,
     so a difference in the last bit of a float is a failure, not a rounding note.
     """
-    full, _ = _panel(symbol, START, end, sens=False)
-    early, _ = _panel(symbol, START, cut, sens=False)
+    # EVERY session up to the cut, not the every-fifth decision grid. The stride is a
+    # cost control for the study and it silently gutted this check: the last row it
+    # emitted was 2025-06-29 for a cut of 2025-06-30, so the one row where "tomorrow"
+    # is missing on the truncated side -- the only row that can catch a one-session
+    # peek -- was never built. It is also CHEAPER, because the reference build now
+    # stops at the cut instead of running to the end of the archive.
+    dense = frozenset(d for d in loader.sessions(symbol) if d <= cut)
+    full, _ = _panel(symbol, START, end, grid=dense, sens=False)
+    with _archive_capped(cut):
+        early, _ = _panel(symbol, START, cut, grid=dense, sens=False, unlabelled=True)
     fmap = {o.date: o for o in full}
     n = 0
     for o in early:
@@ -1919,14 +2216,144 @@ def leakage_check(symbol: str, cut: str, end: str = END) -> tuple[int, str]:
             return n, f"{symbol} {o.date}: feature vector changed when later data was appended"
         if repr(o.p) != repr(ref.p):
             return n, f"{symbol} {o.date}: percentiles changed when later data was appended"
-        if repr(o.zone) != repr(ref.zone):
+        # A boundary row has no forward window on the truncated side, so it has no zone
+        # to compare -- its features and percentiles are the whole claim. The reference
+        # row DOES have one, and comparing them would fail on the label, not on a leak.
+        if o.fwd and repr(o.zone) != repr(ref.zone):
             return n, f"{symbol} {o.date}: zone output changed when later data was appended"
     return n, ""
+
+
+#: The two leaks :func:`leakage_check` was blind to, as source mutations of THIS file.
+#:
+#: A guard is only worth what a deliberate break proves. Each entry is a (find,
+#: replace) pair applied to this module's own source; :func:`_mutation_survives`
+#: re-executes the mutated copy and asks the guard about it. They live here, beside
+#: the guard, rather than in a test file, because the claim they check is made in the
+#: guard's docstring and the two have already drifted apart once.
+#:
+#: Mutation C -- a percentile ranked against the whole column -- is not in this table.
+#: It was CAUGHT before any of this work and is caught by the same assertion
+#: :func:`_demo` already makes against :func:`history.pit`; re-proving it would cost
+#: two more panel builds to learn nothing.
+_ANCHOR = "        rows.append(row)\n        kept.append(d)"
+_MUTATIONS: dict[str, tuple[str, str]] = {
+    "A: a feature reads TOMORROW'S BAR": (_ANCHOR, (
+        "        _j = bisect.bisect_right(bdates, d)\n"
+        "        if _j < len(abars):\n"
+        '            row["anomaly"] = float(abars[_j].close)\n' + _ANCHOR)),
+    "B: a feature re-reads TOMORROW'S FLOORSHEET": (_ANCHOR, (
+        "        _all = loader.sessions(symbol)\n"
+        "        _k = bisect.bisect_right(_all, d)\n"
+        "        if _k < len(_all):\n"
+        "            _nx = loader.load(symbol, _all[_k])\n"
+        "            if _nx is not None:\n"
+        '                row["anomaly"] = float(_nx.volume)\n' + _ANCHOR)),
+}
+
+
+def _mutation_survives(name: str, symbol: str, cut: str) -> str:
+    """Break :func:`_panel` on purpose and return "" if the guard CAUGHT it.
+
+    The mutated source is executed into a throwaway module inside this package, so
+    nothing on disk is touched and the mutation cannot escape the call.
+    """
+    import importlib.util
+
+    old, new = _MUTATIONS[name]
+    with open(__file__, "r", encoding="utf-8") as fh:
+        src = fh.read()
+    if src.count(old) != 1:
+        return f"the anchor for mutation {name} is no longer unique in this file"
+    spec = importlib.util.spec_from_file_location(f"{__name__}_mutant", __file__)
+    mod = importlib.util.module_from_spec(spec)
+    mod.__package__ = __package__
+    exec(compile(src.replace(old, new), __file__, "exec"), mod.__dict__)
+    n, bad = mod.leakage_check(symbol, cut)
+    if bad:
+        return ""
+    return (f"mutation {name} went UNDETECTED on {symbol} across {n} compared rows -- "
+            f"the leakage guard does not cover this leak class")
 
 
 # ---------------------------------------------------------------------------
 # the study
 # ---------------------------------------------------------------------------
+
+
+#: The universe filter's two date clauses, named once because :func:`survivorship`
+#: has to reproduce EXACTLY the split :func:`universe` makes. They were written out
+#: twice for a while and the report's prose quoted a third, stale copy.
+FIRST_BY, LAST_BY = "2022-02-15", "2026-08-01"
+
+
+class Surv(NamedTuple):
+    """One group of symbols, measured on the study's own grid and horizon.
+
+    ``label`` is compulsory and carries the group SIZE, because the defect this
+    record exists to fix was a comparison against an unlabelled "qualifying
+    universe" that meant the 170-symbol pool in one paragraph and the 36-symbol
+    study universe thirty lines later.
+    """
+
+    label: str
+    symbols: int
+    n: int
+    mean: float
+    median: float
+    win_rate: float
+
+
+def survivorship(grid: Sequence[str], study: Sequence[str],
+                 end: str = END, min_sessions: int = 700) -> tuple[Surv, ...]:
+    """What the universe filter's start-date clause excludes, MEASURED, not recalled.
+
+    The report used to carry these figures as prose and they had drifted: it claimed
+    the 69 late-listed exclusions returned a median of -0.03% and won 49.3%, against
+    a "qualifying universe" that was the 170-symbol pool in one sentence and the
+    36-symbol study universe in another. Neither number reproduced. Computing them
+    here costs one adjusted-bar read per symbol -- no floorsheet parse at all, since
+    a forward return needs only prices -- which is a few seconds inside a ~490 s
+    study, and a computed number cannot go stale the way a remembered one did.
+
+    All three groups are measured the SAME way: the study's own shared grid dates,
+    the study's horizon, entry at the next session's open on adjusted bars. That is
+    what makes them comparable; it is not the study's own baseline, which is
+    additionally filtered by the panel builder's data requirements.
+
+    The MEAN is reported beside the median deliberately. The median gap between the
+    excluded names and the pool is under a point, and quoting only that understates
+    the selection by about an order of magnitude -- the mean gap is far larger,
+    because late listings in this market carry the right tail.
+    """
+    qual, late = [], []
+    for s in loader.symbols():
+        d = loader.sessions(s)
+        if len(d) < min_sessions or d[-1] < LAST_BY:
+            continue
+        (qual if d[0] <= FIRST_BY else late).append(s)
+
+    def measure(label: str, names: Sequence[str]) -> Surv:
+        out: list[float] = []
+        used = 0
+        for s in names:
+            ab = loader.adjusted_bars(s, end)
+            if len(ab) < 60:
+                continue
+            used += 1
+            bd = [b.date for b in ab]
+            for d in grid:
+                f = _forward(ab, bd, d)
+                if f is not None:
+                    out.append(f[1][PRIMARY - 1].close / f[0] - 1.0)
+        return Surv(label, used, len(out), _mean(out), _median(out),
+                    (sum(1 for x in out if x > 0) / len(out)) if out else 0.0)
+
+    return (
+        measure(f"EXCLUDED by the start-date clause ({len(late)} late listings)", late),
+        measure(f"the qualifying pool it was drawn from ({len(qual)} symbols)", qual),
+        measure(f"the study universe actually sampled ({len(study)} symbols)", study),
+    )
 
 
 def universe(n: int = 36, min_sessions: int = 700) -> list[str]:
@@ -1940,29 +2367,31 @@ def universe(n: int = 36, min_sessions: int = 700) -> list[str]:
     in the direction it actually runs, which is not the direction this docstring
     used to claim. The filter has three clauses and they are not equally guilty:
 
-    * ``d[-1] >= 2026-08-01`` is the survivorship clause, and it is a NO-OP. It
+    * ``d[-1] >= LAST_BY`` is the survivorship clause, and it is a NO-OP. It
       removes exactly three symbols (CMF2, PFL, SFCL) and all three have zero
       price bars, so :func:`_panel` drops them anyway at ``len(abars) < 60``.
       Measured impact on every number in this file: 0.00%.
-    * ``d[0] <= 2022-02-15`` is the clause that actually selects. It removes 69
-      symbols listed after the window opened, and on the same grid and horizon
-      those 69 return a MEDIAN of -0.03% and win 49.3% of the time against the
-      qualifying universe's -0.91% and 44.6%. The excluded names did BETTER.
-    * ``len(d) >= 700`` removes 351 symbols with too little history to compute a
+    * ``d[0] <= FIRST_BY`` is the clause that actually selects. It removes the
+      symbols listed after the window opened, and the excluded names did BETTER --
+      by a little at the median and by a lot at the mean. The figures are NOT
+      quoted here any more: they are measured every run by :func:`survivorship`
+      and printed in the report, because the copy that used to live in this
+      docstring drifted from the code and was still being read as current.
+    * ``len(d) >= 700`` removes ~351 symbols with too little history to compute a
       trailing percentile against; that is a measurement floor, not a selection.
 
-    So the universe is selection-DEPRESSED at the median, not inflated: dropping
-    the recent listings drops the better half. The earlier claim that this "biases
-    the LEVEL of every return in this file upwards" was backwards. What has not
-    changed is the mitigation, and it is the one that matters: every comparison in
-    this file is WITHIN this universe, against a buy-and-hold baseline built from
-    the same symbols on the same dates, so a level bias in either direction
-    cancels out of every excess column.
+    So the universe is selection-DEPRESSED, not inflated: dropping the recent
+    listings drops the better half. The earlier claim that this "biases the LEVEL of
+    every return in this file upwards" was backwards. What has not changed is the
+    mitigation, and it is the one that matters: every comparison in this file is
+    WITHIN this universe, against a buy-and-hold baseline built from the same symbols
+    on the same dates, so a level bias in either direction cancels out of every
+    excess column.
     """
     rows = []
     for s in loader.symbols():
         d = loader.sessions(s)
-        if len(d) < min_sessions or d[0] > "2022-02-15" or d[-1] < "2026-08-01":
+        if len(d) < min_sessions or d[0] > FIRST_BY or d[-1] < LAST_BY:
             continue
         p = os.path.join(loader.FLOORSHEET, s)
         try:
@@ -1982,7 +2411,8 @@ class Result(NamedTuple):
     regime: dict[str, int]
     baseline: Perf
     baseline_years: dict[str, Perf]
-    fams: tuple[tuple[str, str, Perf, Control, dict[str, Perf]], ...]
+    surv: tuple[Surv, ...]
+    fams: tuple[tuple[str, str, Perf, Control, dict[str, Perf], Cluster], ...]
     folds: tuple[Fold, ...]
     imp: dict[str, tuple[float, float]]
     groups: dict[str, float]
@@ -2066,21 +2496,27 @@ def run(symbols: Sequence[str] | None = None, start: str = START, end: str = END
     for name, side, fn in families():
         sel = [o for o in obs if fn(o)]
         fams.append((name, side, perf(name, sel, demean, side, by_date),
-                     control(sel, by_date, side), per_year(sel, demean, side)))
+                     control(sel, by_date, side), per_year(sel, demean, side),
+                     clustered(sel, demean, side)))
 
     folds = walk_forward(obs, demean)
     imp = importance(obs, demean, folds) if folds else {}
     grp = group_importance(obs, demean, folds) if folds else {}
     cal = calibration(obs, folds)
 
-    # Anything that clears the corrected bar gets the overlap test before it is
-    # allowed to be called an edge in print. It is the cheapest way to stop this
-    # file publishing a p-value that is four times too confident.
-    bonf = 0.05 / max(1, sum(1 for f in fams if f[2].usable))
+    # Anything that clears the corrected bar IN EITHER DIRECTION gets the overlap
+    # test. It is the cheapest way to stop this file publishing a p-value that is
+    # four times too confident.
+    #
+    # Keyed on the control p and not on the verdict, deliberately. The clustered gate
+    # can now demote a family that clears this bar, and if the trigger were the
+    # verdict then a family losing EDGE would also silently lose its phase table --
+    # deleting the evidence for the demotion at the moment it becomes relevant.
+    bonf = 0.05 / max(1, 2 * sum(1 for f in fams if f[2].usable))
     phases = tuple((name, tuple(phase_split(
         [o for o in obs if fn(o)], obs, demean, by_date, side)))
-        for (name, side, fn), (_, _, p, c, ys) in zip(families(), fams)
-        if verdict(p, c, ys, bonf)[0] == "EDGE")
+        for (name, side, fn), (_, _, p, c, ys, cl) in zip(families(), fams)
+        if p.usable and min(c.p_value, c.p_low) < bonf)
 
     return Result(
         symbols=tuple(syms),
@@ -2089,6 +2525,7 @@ def run(symbols: Sequence[str] | None = None, start: str = START, end: str = END
         regime=regime,
         baseline=base,
         baseline_years=base_years,
+        surv=survivorship(sorted(d for d in grid_dates if d >= start), syms, end),
         fams=tuple(fams),
         folds=tuple(folds),
         imp=imp,
@@ -2123,29 +2560,64 @@ def _yeartable(title: str, years: dict[str, Perf]) -> list[str]:
 
 
 def bonferroni(r: Result) -> tuple[float, int]:
-    """(corrected threshold, families tested). Screening N rules costs N times the alpha."""
-    tested = sum(1 for _, _, p, _, _ in r.fams if p.usable)
-    return 0.05 / max(1, tested), tested
+    """(corrected threshold, families tested). N rules in TWO directions is 2N tests.
+
+    This function used to divide by N. But every family is judged twice -- once on
+    ``p_value`` for an EDGE and once on ``p_low`` for a NEGATIVE -- and a test you
+    are willing to declare on is a test you paid alpha for, whether or not it fired.
+    Screening fifteen families two-sidedly is thirty opportunities to find something,
+    so the bar is 0.05/30 = 0.00167, not 0.05/15 = 0.00333.
+
+    The measured consequence on this archive is not cosmetic: at 0.0033 three
+    families cleared a corrected bar in one direction or the other; at 0.00167 only
+    ``vwap_slope`` (p 0.0002) still does, and ``zone_buy`` (p.low 0.0072) and
+    ``net_churn`` (p.low 0.0164) drop to the naive tier.
+
+    Returns the corrected threshold and the FAMILY count. The test count is twice
+    the second element, and every line that prints one prints the other beside it --
+    "1 of 15 clears" and "2 are significantly negative" were previously two counts
+    quoted to two different standards inside a single sentence.
+    """
+    tested = sum(1 for f in r.fams if f[2].usable)
+    return 0.05 / max(1, 2 * tested), tested
 
 
 def verdict(p: Perf, c: Control, years: dict[str, Perf],
-            bonf: float) -> tuple[str, int, int]:
-    """EDGE / weak / NEGATIVE / no edge / SUPPRESSED, plus the per-year count behind it.
+            bonf: float, cl: Cluster) -> tuple[str, int, int]:
+    """EDGE / weak / NEGATIVE / weak NEGATIVE / no edge / SUPPRESSED, and the year count.
 
     Lifted out of :func:`report` so that the text report and the board's section 98
-    cannot drift into disagreeing about what a family was judged to be. Screening
-    fifteen families and announcing whichever ones clear p<0.05 finds two of them on
-    data with nothing in it, so only the Bonferroni-corrected threshold earns the word
-    EDGE and the naive one earns the word "weak". Neither threshold is chosen after
-    looking at the answer.
+    cannot drift into disagreeing about what a family was judged to be.
 
-    NEGATIVE is the state this function used to be missing, and its absence was not
-    neutral. A rule whose excess is reliably BELOW the same-day universe was reported
-    as "no edge" -- the same words as a rule that simply could not be distinguished
-    from chance. They are not the same finding, and the one the board itself trades
-    (``zone_buy``) is in the first category: -0.86% mean excess, negative in all five
-    years, and a lower-tail control p of 0.006. Calling that "unproven" flatters it.
-    The lower tail is tested with the same two thresholds as the upper one.
+    THREE gates, and the SAME three in both directions. That symmetry is the fix, not
+    a tidy-up: this function used to require ``p_value < bonf`` (0.0033) to say EDGE
+    while accepting ``p_low < 0.05`` to say NEGATIVE, with no corrected branch on the
+    lower tail at all -- a fifteen-fold cheaper bar for a negative claim than a
+    positive one -- and its own docstring asserted that "the lower tail is tested with
+    the same two thresholds as the upper one", which was simply not true of the code
+    beneath it. The gates:
+
+    1. **Direction and persistence.** Excess of the claimed sign, and >=60% of years
+       with n>=10 agreeing with it. Unchanged.
+    2. **The date-matched control**, at the Bonferroni bar for the strong tier and at
+       the naive 0.05 for the weak one -- now applied to ``p_low`` exactly as to
+       ``p_value``, and now against a bar corrected for 2N tests (:func:`bonferroni`).
+    3. **The symbol-block bootstrap** (:func:`clustered`), REQUIRED for either strong
+       tier. Gate 2 assumes the rows are exchangeable within a date, which prices the
+       cross-section and not the fact that a handful of symbols supply most of the
+       rows AND most of the effect. A family whose clustered 95% interval spans zero
+       has not been separated from three stocks having a good run, and does not print
+       EDGE or NEGATIVE no matter what gate 2 says.
+
+    On this archive gate 3 is what decides the headline. ``vwap_slope`` clears gate 2
+    at p 0.0002 and fails gate 3 -- its excess is +0.69% with a clustered interval of
+    roughly [-0.25%, +1.67%], because three of thirty-six names carry 87% of it.
+
+    ``zone_buy`` is the mirror case and the one the board itself trades: a negative
+    excess, negative in 4 of its 5 years, whose lower-tail control p (0.0072) clears
+    the naive bar but not the corrected one, while its clustered interval DOES
+    separate from zero. It lands in "weak NEGATIVE", and the report spells out that
+    the clustering supports the sign and the corrected bar does not.
 
     Returns ``(verdict, years with positive excess, years with n>=10)``.
     """
@@ -2153,14 +2625,18 @@ def verdict(p: Perf, c: Control, years: dict[str, Perf],
         return "SUPPRESSED", 0, 0
     yrs = [q for q in years.values() if q.n >= 10]
     pos = sum(1 for q in yrs if q.excess_mean > 0)
-    ok = p.excess_mean > 0 and bool(yrs) and pos / len(yrs) >= 0.6
-    if ok and c.p_value < bonf:
+    up = p.excess_mean > 0 and bool(yrs) and pos / len(yrs) >= 0.6
+    dn = p.excess_mean < 0 and bool(yrs) and (len(yrs) - pos) / len(yrs) >= 0.6
+    # Gate 3, stated once and identically for both tiers.
+    tight = cl.p_value < CLUSTER_P and not cl.spans_zero
+    if up and c.p_value < bonf and tight:
         return "EDGE", pos, len(yrs)
-    if ok and c.p_value < 0.05:
-        return "weak", pos, len(yrs)
-    bad = p.excess_mean < 0 and bool(yrs) and (len(yrs) - pos) / len(yrs) >= 0.6
-    if bad and c.p_low < 0.05:
+    if dn and c.p_low < bonf and tight:
         return "NEGATIVE", pos, len(yrs)
+    if up and c.p_value < 0.05:
+        return "weak", pos, len(yrs)
+    if dn and c.p_low < 0.05:
+        return "weak NEGATIVE", pos, len(yrs)
     return "no edge", pos, len(yrs)
 
 
@@ -2183,18 +2659,38 @@ def report(r: Result) -> str:
         add(f"  ! {e}")
     add("")
     add("SELECTION -- what the universe filter does, in the direction it actually does it.")
-    add("  A symbol qualifies on three clauses: >=700 sessions, first session <= 2022-02-15, last")
-    add("  session >= 2026-08-01. Only the middle one selects anything that matters.")
+    add(f"  A symbol qualifies on three clauses: >=700 sessions, first session <= {FIRST_BY}, last")
+    add(f"  session >= {LAST_BY}. Only the middle one selects anything that matters.")
     add("    survivorship (last session): removes 3 symbols, ALL of which have zero price bars and")
     add("      are dropped by the panel builder regardless. Measured impact on this file: 0.00%.")
-    add("    start date: removes 69 symbols listed after the window opened. On the same grid and")
-    add("      horizon those 69 return a MEDIAN of -0.03% and win 49.3%, against the qualifying")
-    add("      universe's -0.91% and 44.6% -- the EXCLUDED names did better.")
     add("    >=700 sessions: a measurement floor (a trailing percentile needs history), not a bet.")
-    add("  So this universe is selection-DEPRESSED at the median, not inflated. An earlier version")
-    add("  of this file claimed the opposite. Either way it does not touch the comparisons: every")
-    add("  excess column below is taken WITHIN this universe against the same-day mean of the same")
-    add("  symbols, which is why the buy-and-hold baseline on identical dates is compulsory.")
+    add("    start date: removes the symbols listed after the window opened. Measured below.")
+    add("")
+    add("  MEASURED THIS RUN, all three groups on the SAME grid dates, the same horizon and the")
+    add("  same next-open entry on adjusted bars. Every figure names the universe it belongs to,")
+    add("  because the version of this block that quoted numbers from memory compared the excluded")
+    add("  names against a 'qualifying universe' that meant two different things thirty lines apart.")
+    add(f"    {'group':<52}{'syms':>6}{'n':>9}{'mean':>10}{'median':>10}{'win':>8}")
+    for sv in r.surv:
+        add(f"    {sv.label:<52}{sv.symbols:>6}{sv.n:>9,}{sv.mean:>10.2%}"
+            f"{sv.median:>10.2%}{sv.win_rate:>8.1%}")
+    add("    (the count in the label is how many symbols pass the session filter; the syms column")
+    add("     is how many of those have price bars to measure a forward return on.)")
+    if len(r.surv) >= 2:
+        ex_, po = r.surv[0], r.surv[1]
+        add(f"  -> the EXCLUDED names did better: {ex_.median - po.median:+.2%} at the median and")
+        add(f"     {ex_.mean - po.mean:+.2%} at the MEAN, against the pool they were dropped from.")
+        add("     The mean gap is the one that matters and the one previously left out: quoting")
+        add("     the median alone understates this selection by an order of magnitude, because")
+        add("     late listings in this market carry the right tail.")
+    add(f"  The study's own baseline ({r.baseline.n:,} rows) is a FOURTH number and not comparable")
+    add("  to the three above -- it is the same 36 symbols after the panel builder's data")
+    add(f"  requirements, and it reads mean {r.baseline.mean:+.2%} / median {r.baseline.median:+.2%} "
+        f"/ win {r.baseline.win_rate:.1%}.")
+    add("  So this universe is selection-DEPRESSED, not inflated. An earlier version of this file")
+    add("  claimed the opposite. Either way it does not touch the comparisons: every excess column")
+    add("  below is taken WITHIN this universe against the same-day mean of the same symbols,")
+    add("  which is why the buy-and-hold baseline on identical dates is compulsory.")
 
     add("")
     add("-" * 100)
@@ -2217,7 +2713,7 @@ def report(r: Result) -> str:
     add(f"  {'family':<26}{'side':>6}{'n':>7}{'win':>8}{'mean':>9}{'median':>9}"
         f"{'EXCESS':>9}{'vs REST':>9}{'rand':>9}{'p':>9}{'p.low':>9}{'PF':>7}"
         f"{'MFE':>8}{'MAE':>8}{'cov':>7}")
-    for name, side, p, c, _ in r.fams:
+    for name, side, p, c, _, _cl in r.fams:
         if p.n == 0:
             add(f"  {name:<26}{side:>6}{0:>7}   (never fired -- the rule is unreachable on this archive)")
             continue
@@ -2250,8 +2746,38 @@ def report(r: Result) -> str:
     add("  50%: forward returns are right-skewed, so most stocks lose to the same-day mean.")
 
     add("")
+    add("  SYMBOL CONCENTRATION AND THE CLUSTERED TEST -- the p column above assumes the rows")
+    add("  are exchangeable within a date. They are not. One symbol contributes dozens of rows,")
+    add("  its 20-day windows overlap, and its idiosyncratic run appears in every one of them.")
+    add(f"  {'family':<26}{'side':>6}{'n':>7}{'syms':>6}{'agree':>8}{'top3':>8}"
+        f"{'excess':>9}{'clustered 95% CI':>22}{'clus p':>8}  note")
+    for name, side, p, _, _, cl in r.fams:
+        if not p.usable:
+            continue
+        note = "SPANS ZERO" if cl.spans_zero else "separates from zero"
+        if cl.top3_share > 1.0:
+            note += f"; the other {cl.symbols - 3} symbols are net NEGATIVE"
+        elif abs(cl.top3_share) >= 0.5:
+            note += f"; {cl.top3_share:.0%} of it is 3 names"
+        add(f"  {name:<26}{side:>6}{p.n:>7}{cl.symbols:>6}"
+            f"{f'{cl.agree}/{cl.symbols}':>8}{cl.top3_share:>8.0%}{cl.excess:>9.2%}"
+            f"{f'[{cl.lo:+.2%}, {cl.hi:+.2%}]':>22}{cl.p_value:>8.3f}  {note}")
+    add("")
+    add("  syms is how many distinct symbols the family fired on; agree is how many of them")
+    add("  carry the family's OWN sign in total excess; top3 is the share of the family's whole")
+    add("  excess carried by its three biggest contributors. Above 100% the remaining names are")
+    add("  net NEGATIVE and the family IS those three stocks; a very large percentage means the")
+    add("  family's total is near zero and the ratio has little to say -- read `agree` instead.")
+    add("  The CI is a symbol-block bootstrap")
+    add(f"  ({CLUSTER_DRAWS:,} resamples of the symbols, with replacement) and clus p is one-sided")
+    add("  in the family's own direction -- the SAME statistic for a positive family and a")
+    add(f"  negative one, judged against the same {CLUSTER_P:.2f}. A CI that spans zero means the")
+    add("  effect has not been separated from a few stocks having a run, and it blocks both")
+    add("  strong verdicts below no matter how small the date-matched p is.")
+
+    add("")
     add("  section 93 EXPECTED VALUE and section 97 LABELS, per family:")
-    for name, side, p, _, _ in r.fams:
+    for name, side, p, _, _, _cl in r.fams:
         if not p.usable:
             continue
         add(f"    {name} ({side}, n={p.n})")
@@ -2268,7 +2794,7 @@ def report(r: Result) -> str:
     add("-" * 100)
     add("PER-YEAR TABLES (mandatory) -- a single aggregate hides a regime failure")
     add("-" * 100)
-    for name, side, p, _, ys in r.fams:
+    for name, side, p, _, ys, _cl in r.fams:
         if not p.usable:
             continue
         L += _yeartable(f"{name} ({side}):", ys)
@@ -2374,7 +2900,14 @@ def report(r: Result) -> str:
         add(f"    BEST-OF-N CONTROL: {sc.candidates} candidates screened, {sc.groups} above the "
             f"floor. Shuffling which observation lands in which group, keeping the group sizes,")
         add(f"    produces a best group at least as good as {best.key}'s {sc.best:+.2%} in "
-            f"{sc.p_value:.0%} of 200 random partitions.")
+            f"p = {sc.p_value:.4f} of {sc.draws:,} random partitions.")
+        add(f"    DATE-MATCHED, dealing each random group the same number of rows PER DATE as the "
+            f"real one: p = {sc.p_matched:.4f}.")
+        gap = abs(sc.p_matched - sc.p_value)
+        add(f"    -> date-matching {'MATTERS here' if gap > 0.02 else 'changes little here'} "
+            f"({sc.p_value:.4f} -> {sc.p_matched:.4f}, {gap:+.4f}): the pooled null leaves the")
+        add("       date clustering inside a group in place, so any gap is the part of this table")
+        add("       that was reading a calendar rather than a broker.")
         conc = best.top_symbol_share >= 0.5 or best.symbols <= 2
         add(f"    -> {'this table is a sorting artefact' if sc.p_value > 0.10 else 'the top of this table survives the shuffle control'}"
             f"; {best.key} is positive in {best.consistency:.0%} of years, spread over "
@@ -2428,18 +2961,29 @@ def report(r: Result) -> str:
     # the corrected threshold is what earns the word EDGE and the naive one only
     # earns "weak". Both are shown; neither is chosen after looking.
     bonf, tested = bonferroni(r)
-    strong, weak, bad = [], [], []
-    add(f"  criterion: positive date-demeaned excess, positive in >=60% of years with n>=10, and")
-    add(f"  a control p below {bonf:.4f} (0.05 Bonferroni-corrected for {tested} screened families).")
-    add(f"  'weak' clears the uncorrected 0.05 only -- which is what screening {tested} rules")
-    add("  produces on data with no signal in it. 'NEGATIVE' is the mirror image and is NOT the")
-    add("  same finding as 'no edge': the excess is BELOW the same-day universe, in >=60% of years,")
-    add("  with a lower-tail control p under 0.05. 'no edge' means indistinguishable from chance.")
+    strong, weak, bad, weak_bad = [], [], [], []
+    add(f"  THE BARS, stated once, because two counts quoted to two different standards inside one")
+    add("  sentence is how this section previously read. Three gates, the SAME three in each")
+    add("  direction:")
+    add("    1. direction: excess of the claimed sign, agreeing in >=60% of years with n>=10")
+    add(f"    2. the date-matched control, at {bonf:.5f} for a strong verdict and at 0.0500 for a")
+    add(f"       weak one. {bonf:.5f} is 0.05 Bonferroni-corrected for {tested} families tested in")
+    add(f"       TWO directions = {2 * tested} tests. It used to be 0.05/{tested} = "
+        f"{0.05 / max(1, tested):.5f}, which paid for")
+    add("       the upper tail only; and the lower tail had no corrected branch at all, so a")
+    add("       NEGATIVE cost fifteen times less evidence than an EDGE.")
+    add(f"    3. the symbol-block bootstrap, one-sided p below {CLUSTER_P:.2f} AND a 95% interval")
+    add("       that does not span zero. REQUIRED for EDGE and for NEGATIVE, identically.")
+    add("  'weak' / 'weak NEGATIVE' clear gate 2's uncorrected 0.05 only, or clear the corrected")
+    add(f"  bar but fail gate 3 -- and screening {2 * tested} tests at 0.05 produces about "
+        f"{2 * tested * 0.05:.1f} of them on")
+    add("  data with nothing in it. 'no edge' means indistinguishable from chance, which is NOT")
+    add("  what a NEGATIVE is: a NEGATIVE is measurably worse than the same-day universe.")
     add("")
-    for n, s, p, c, ys in r.fams:
-        v, pos, ny = verdict(p, c, ys, bonf)
+    for n, s, p, c, ys, cl in r.fams:
+        v, pos, ny = verdict(p, c, ys, bonf, cl)
         if v == "SUPPRESSED":
-            add(f"  {n:<26}{'SUPPRESSED':<10} n={p.n}, below the {MIN_OBS}-observation floor")
+            add(f"  {n:<26}{'SUPPRESSED':<14} n={p.n}, below the {MIN_OBS}-observation floor")
             continue
         if v == "EDGE":
             strong.append(n)
@@ -2447,19 +2991,39 @@ def report(r: Result) -> str:
             weak.append(n)
         elif v == "NEGATIVE":
             bad.append(n)
-        tail = f"p.low {c.p_low:.4f}" if v == "NEGATIVE" else f"p {c.p_value:.4f}"
-        add(f"  {n:<26}{v:<10} excess {p.excess_mean:+.2%} (vs rest {p.excess_lfo:+.2%}), "
-            f"control {tail}, positive in {pos}/{ny} years")
+        elif v == "weak NEGATIVE":
+            weak_bad.append(n)
+        tail = f"p.low {c.p_low:.4f}" if "NEGATIVE" in v else f"p {c.p_value:.4f}"
+        add(f"  {n:<26}{v:<14} excess {p.excess_mean:+.2%} (vs rest {p.excess_lfo:+.2%}), "
+            f"control {tail}, clustered p {cl.p_value:.3f}"
+            f"{' (CI spans zero)' if cl.spans_zero else ''}, positive in {pos}/{ny} years")
     add("")
-    add(f"  {len(strong)} of {tested} testable families survive the corrected threshold"
+    add(f"  {len(strong)} of {tested} testable families reach EDGE -- all three gates, control p "
+        f"below {bonf:.5f}"
         f"{': ' + ', '.join(strong) if strong else '.'}")
-    add(f"  {len(weak)} clear the uncorrected 0.05 only"
-        f"{': ' + ', '.join(weak) if weak else '.'}")
-    add(f"  {len(bad)} are significantly NEGATIVE"
+    add(f"  {len(bad)} reach NEGATIVE -- all three gates, lower-tail control p below the SAME "
+        f"{bonf:.5f}"
         f"{': ' + ', '.join(bad) if bad else '.'}")
+    add(f"  {len(weak)} are 'weak' and {len(weak_bad)} 'weak NEGATIVE' -- the uncorrected 0.05 only, "
+        f"or the corrected bar without gate 3"
+        f"{': ' + ', '.join(weak + weak_bad) if weak + weak_bad else '.'}")
+    live_f = [f for f in r.fams if f[2].usable]
+    old_bar = 0.05 / max(1, tested)
+    add("  CONTROL-P COUNTS ONLY (no direction test, no clustered gate), so that anything")
+    add("  quoting an older number can be reconciled against this run:")
+    add(f"    at the corrected {bonf:.5f}: "
+        f"{sum(1 for f in live_f if f[3].p_value < bonf)} upper tail, "
+        f"{sum(1 for f in live_f if f[3].p_low < bonf)} lower tail")
+    add(f"    at the OLD one-direction {old_bar:.5f}: "
+        f"{sum(1 for f in live_f if f[3].p_value < old_bar)} upper tail, "
+        f"{sum(1 for f in live_f if f[3].p_low < old_bar)} lower tail")
+    add(f"    at the naive 0.05000: "
+        f"{sum(1 for f in live_f if f[3].p_value < 0.05)} upper tail, "
+        f"{sum(1 for f in live_f if f[3].p_low < 0.05)} lower tail")
 
-    for n, s, p, c, ys in r.fams:
-        if verdict(p, c, ys, bonf)[0] != "NEGATIVE":
+    for n, s, p, c, ys, cl in r.fams:
+        v = verdict(p, c, ys, bonf, cl)[0]
+        if "NEGATIVE" not in v:
             continue
         yrs = [(y, q) for y, q in sorted(ys.items()) if q.n >= 10]
         add("")
@@ -2470,8 +3034,18 @@ def report(r: Result) -> str:
             f"(baseline {b.excess_win_rate:.1%})")
         add(f"    negative in {sum(1 for _, q in yrs if q.excess_mean <= 0)}/{len(yrs)} years: "
             + ", ".join(f"{y} {q.excess_mean:+.2%}" for y, q in yrs))
-        add(f"    under the corrected null the chance of an excess this negative is "
-            f"{c.p_low:.4f}, on {CONTROL_DRAWS:,} draws")
+        add(f"    the date-matched control puts the chance of an excess this negative at "
+            f"{c.p_low:.4f} on {CONTROL_DRAWS:,} draws --")
+        add(f"      {'BELOW' if c.p_low < bonf else 'above'} the corrected {bonf:.5f} and "
+            f"{'below' if c.p_low < 0.05 else 'above'} the naive 0.05, so it is "
+            f"{'NEGATIVE' if c.p_low < bonf else 'weak NEGATIVE'} on gate 2")
+        add(f"    the symbol-block bootstrap puts it at {cl.p_value:.3f} with a 95% interval of "
+            f"[{cl.lo:+.2%}, {cl.hi:+.2%}] over {cl.symbols} symbols,")
+        add(f"      {cl.symbols - cl.agree} of which are net POSITIVE -- so clustering "
+            f"{'SUPPORTS' if cl.p_value < CLUSTER_P and not cl.spans_zero else 'does NOT support'} "
+            f"the sign. The two gates")
+        add("      can disagree and here they are reported separately rather than averaged into a")
+        add("      single word: which one you weight is a judgement, hiding one of them is not.")
         if n.startswith("zone"):
             add(f"    and this is the LEAST forgiving sample in the file to fail on: zones are "
                 f"emitted every {ZONE_STRIDE} sessions and the horizon is {PRIMARY}, so these")
@@ -2479,9 +3053,26 @@ def report(r: Result) -> str:
 
     for name, phs in r.phases:
         fam = next(f for f in r.fams if f[0] == name)
-        p = fam[2]
+        p, c_, ys_, cl = fam[2], fam[3], fam[4], fam[5]
+        v = verdict(p, c_, ys_, bonf, cl)[0]
         add("")
-        add(f"  {name.upper()} CLEARED THE BAR. Before trading it, the two things that shrink it:")
+        add(f"  {name.upper()} CLEARED THE DATE-MATCHED CONTROL at the corrected {bonf:.5f} "
+            f"(p {min(c_.p_value, c_.p_low):.4f}).")
+        add(f"  Its verdict is {v}. Three things shrink it, and on this archive the first one is")
+        add("  decisive:")
+        add(f"    SYMBOL CONCENTRATION -- it fired on {cl.symbols} symbols, {cl.agree} of which "
+            f"carry its own sign, and its")
+        add(f"      top three carry {cl.top3_share:.0%} of the entire excess. Resampling SYMBOLS "
+            f"rather than rows gives")
+        add(f"      {cl.excess:+.2%} with a 95% interval of [{cl.lo:+.2%}, {cl.hi:+.2%}] and a "
+            f"one-sided p of {cl.p_value:.3f}.")
+        add(f"      The interval {'SPANS ZERO' if cl.spans_zero else 'excludes zero'}, so gate 3 "
+            f"{'blocks' if cl.spans_zero or cl.p_value >= CLUSTER_P else 'passes'} the strong "
+            f"verdict. The date-matched p of")
+        add(f"      {min(c_.p_value, c_.p_low):.4f} is the p of 'could a random pick that day have "
+            f"done this', and it is not")
+        add("      the p of 'is there an effect here'. Those are different questions and this file")
+        add("      now prints both.")
         add(f"    OVERLAP -- the grid fires every {GRID_STRIDE} sessions and the horizon is "
             f"{PRIMARY}, so the {p.n:,} rows above carry about {p.n // max(1, PRIMARY // GRID_STRIDE):,}")
         add("    rows' worth of independent information. Re-measured on each non-overlapping phase:")
@@ -2560,11 +3151,30 @@ class FamilyRow(NamedTuple):
     verdict: str
     excess_lfo: float = 0.0   # against the same-day non-members
     control_p_low: float = 0.0  # the lower tail -- how a NEGATIVE verdict is earned
+    # The symbol-block bootstrap. Defaults keep a digest written before the clustering
+    # audit parseable; `cluster_symbols == 0` is how a renderer tells "not measured"
+    # from "measured and wide", which are very different things to print.
+    cluster_symbols: int = 0
+    cluster_top3: float = 0.0
+    cluster_lo: float = 0.0
+    cluster_hi: float = 0.0
+    cluster_p: float = 1.0
 
     @property
     def usable(self) -> bool:
         """False when the family was below the sample floor -- then no rate is real."""
         return self.verdict != "SUPPRESSED"
+
+    @property
+    def clustered(self) -> bool:
+        """True when the clustered interval spans zero -- a few symbols carry it.
+
+        Named for what a reader should conclude, not for the arithmetic: the row is
+        not separated from a handful of stocks having a run. False when the bootstrap
+        was never run (an old digest), which is why callers must check
+        ``cluster_symbols`` before quoting this.
+        """
+        return self.cluster_lo <= 0.0 <= self.cluster_hi
 
 
 class EdgeRow(NamedTuple):
@@ -2603,6 +3213,8 @@ class EdgeTable(NamedTuple):
     best: float
     p_value: float
     groups: int
+    draws: int = 0          # 1/draws is the quantum of p_value; 0 means an old digest
+    p_matched: float = 1.0  # the same control with the reshuffle done WITHIN each date
 
     @property
     def artefact(self) -> bool:
@@ -2629,6 +3241,8 @@ class Summary(NamedTuple):
     labels: tuple[tuple[str, str, int], ...]  # (family, label, count)
     #: (family, phase, n, excess, p) for families that cleared the corrected bar
     phases: tuple[tuple[str, int, int, float, float], ...] = ()
+    #: (label, symbols, n, mean, median, win) -- the universe filter, measured
+    surv: tuple[tuple[str, int, int, float, float, float], ...] = ()
 
     def num(self, key: str) -> float | None:
         try:
@@ -2731,19 +3345,41 @@ def write_summary(r: Result, leakage: tuple[str, str, int] | None = None,
     ]
     lines += _perf_lines("baseline", r.baseline)
 
+    # The universe filter, MEASURED. Carried as three labelled rows rather than as a
+    # sentence, because the sentence this replaces compared the excluded names against
+    # an unnamed "qualifying universe" that meant two different populations.
+    for i, sv in enumerate(r.surv):
+        lines.append("\t".join(("survivorship", _cell(sv.label), str(sv.symbols), str(sv.n),
+                                f"{sv.mean:.6g}", f"{sv.median:.6g}", f"{sv.win_rate:.6g}")))
+        if i == 0:
+            lines += [f"survivorship.excluded_symbols\t{sv.symbols}",
+                      f"survivorship.excluded_mean\t{sv.mean:.6g}",
+                      f"survivorship.excluded_median\t{sv.median:.6g}",
+                      f"survivorship.excluded_win\t{sv.win_rate:.6g}"]
+        elif i == 1:
+            lines += [f"survivorship.pool_symbols\t{sv.symbols}",
+                      f"survivorship.pool_mean\t{sv.mean:.6g}",
+                      f"survivorship.pool_median\t{sv.median:.6g}",
+                      f"survivorship.pool_win\t{sv.win_rate:.6g}"]
+    if len(r.surv) >= 2:
+        lines += [f"survivorship.median_gap\t{r.surv[0].median - r.surv[1].median:.6g}",
+                  f"survivorship.mean_gap\t{r.surv[0].mean - r.surv[1].mean:.6g}"]
+
     # The board prints an entry zone, so the family the board itself would trade gets
     # its whole Perf written out -- section 93 is about THAT rule, not about an average
     # of fifteen. The rest travel as the compact section 98 table below.
-    strong, weak, bad = [], [], []
+    strong, weak, bad, weak_bad = [], [], [], []
     fam_lines: list[str] = []
-    for name, side, p, c, ys in r.fams:
-        v, pos, ny = verdict(p, c, ys, bonf)
+    for name, side, p, c, ys, cl in r.fams:
+        v, pos, ny = verdict(p, c, ys, bonf, cl)
         if v == "EDGE":
             strong.append(name)
         elif v == "weak":
             weak.append(name)
         elif v == "NEGATIVE":
             bad.append(name)
+        elif v == "weak NEGATIVE":
+            weak_bad.append(name)
         # A suppressed family gets blanks, not zeros. MIN_OBS exists because a rate off
         # nine events is a number-shaped opinion, and a 0.0000 in a data file is quoted
         # as a measurement by whoever reads it next.
@@ -2752,8 +3388,15 @@ def write_summary(r: Result, leakage: tuple[str, str, int] | None = None,
             f"{p.excess_mean:.4f}", f"{c.p_value:.4f}",
         ]
         extra = ["", ""] if v == "SUPPRESSED" else [f"{p.excess_lfo:.4f}", f"{c.p_low:.4f}"]
+        # Six significant digits, not four decimals. An interval bound of -0.00003 is
+        # a SEPARATED interval; rounded to -0.0000 it parses back as -0.0 and reads as
+        # spanning zero, which would silently invert a NEGATIVE verdict on the board.
+        clus = ["", "", "", "", ""] if v == "SUPPRESSED" else [
+            str(cl.symbols), f"{cl.top3_share:.6g}", f"{cl.lo:.6g}", f"{cl.hi:.6g}",
+            f"{cl.p_value:.6g}",
+        ]
         fam_lines.append("\t".join(["family", _cell(name), side, str(p.n)] + cells
-                                   + [str(pos), str(ny), v] + extra))
+                                   + [str(pos), str(ny), v] + extra + clus))
         if name == "zone_buy":
             lines += _perf_lines("zone_buy", p)
             lines += [f"zone_buy.side\t{side}", f"zone_buy.control_p\t{c.p_value:.4f}",
@@ -2761,6 +3404,12 @@ def write_summary(r: Result, leakage: tuple[str, str, int] | None = None,
                       f"zone_buy.verdict\t{v}", f"zone_buy.years_positive\t{pos}",
                       f"zone_buy.years\t{ny}",
                       f"zone_buy.years_negative\t{ny - pos}",
+                      f"zone_buy.cluster_symbols\t{cl.symbols}",
+                      f"zone_buy.cluster_excess\t{cl.excess:.4f}",
+                      f"zone_buy.cluster_lo\t{cl.lo:.4f}",
+                      f"zone_buy.cluster_hi\t{cl.hi:.4f}",
+                      f"zone_buy.cluster_p\t{cl.p_value:.4f}",
+                      f"zone_buy.cluster_top3\t{cl.top3_share:.4f}",
                       # The per-year excesses in full, because "negative in 5 of 5 years" is
                       # the sentence the board has to be able to write without re-running.
                       "zone_buy.year_excess\t" + _cell(", ".join(
@@ -2773,6 +3422,14 @@ def write_summary(r: Result, leakage: tuple[str, str, int] | None = None,
         f"families_weak_names\t{_cell(', '.join(weak))}",
         f"families_negative\t{len(bad)}",
         f"families_negative_names\t{_cell(', '.join(bad))}",
+        f"families_weak_negative\t{len(weak_bad)}",
+        f"families_weak_negative_names\t{_cell(', '.join(weak_bad))}",
+        # Both counts come from the SAME bar now, and the bar travels with them so no
+        # renderer can put "1 of 15 clears the corrected threshold" and "2 are
+        # significantly negative" in one sentence again without saying which is which.
+        f"tests\t{2 * tested}",
+        f"cluster_draws\t{CLUSTER_DRAWS}",
+        f"cluster_p_bar\t{CLUSTER_P}",
     ]
     lines += fam_lines
 
@@ -2826,7 +3483,8 @@ def write_summary(r: Result, leakage: tuple[str, str, int] | None = None,
     for title, table, sc in r.edge_tables:
         live = [e for e in table if not e.suppressed]
         lines.append("\t".join(("edge_table", _cell(title), str(len(table)), str(len(live)),
-                                f"{sc.best:.4f}", f"{sc.p_value:.4f}", str(sc.groups))))
+                                f"{sc.best:.4f}", f"{sc.p_value:.4f}", str(sc.groups),
+                                str(sc.draws), f"{sc.p_matched:.4f}")))
         for e in live[:8]:
             d = tuple(e.decay) + (0.0,) * 3
             lines.append("\t".join(("edge", _cell(title), _cell(e.key), str(e.n),
@@ -2907,6 +3565,7 @@ def read_summary(path: str | None = None) -> Summary | None:
     erows: list[EdgeRow] = []
     labs: list[tuple] = []
     phs: list[tuple] = []
+    surv: list[tuple] = []
     with open(p, "r", encoding="utf-8", errors="replace") as fh:
         for ln in fh:
             ln = ln.rstrip("\r\n")
@@ -2915,12 +3574,17 @@ def read_summary(path: str | None = None) -> Summary | None:
             c = ln.split("\t")
             k = c[0]
             if k == "family" and len(c) >= 12:
-                # The last two cells were added after the significance audit; a digest
-                # written before it parses back with them at 0.0 rather than not at all.
+                # Trailing cells were added by later audits; a digest written before one
+                # parses back with its defaults rather than not at all.
                 fams.append(FamilyRow(c[1], c[2], _i(c[3]), _f(c[4]), _f(c[5]), _f(c[6]),
                                       _f(c[7]), _f(c[8]), _i(c[9]), _i(c[10]), c[11],
                                       _f(c[12]) if len(c) > 12 else 0.0,
-                                      _f(c[13]) if len(c) > 13 else 0.0))
+                                      _f(c[13]) if len(c) > 13 else 0.0,
+                                      _i(c[14]) if len(c) > 14 else 0,
+                                      _f(c[15]) if len(c) > 15 else 0.0,
+                                      _f(c[16]) if len(c) > 16 else 0.0,
+                                      _f(c[17]) if len(c) > 17 else 0.0,
+                                      _f(c[18]) if len(c) > 18 else 1.0))
             elif k == "fold" and len(c) >= 9:
                 folds.append((c[1], c[2], c[3], _i(c[4]), _i(c[5]), _f(c[6]), _f(c[7]), _f(c[8])))
             elif k == "stability" and len(c) >= 7:
@@ -2930,7 +3594,9 @@ def read_summary(path: str | None = None) -> Summary | None:
             elif k == "group_importance" and len(c) >= 3:
                 grp.append((c[1], _f(c[2])))
             elif k == "edge_table" and len(c) >= 7:
-                etabs.append(EdgeTable(c[1], _i(c[2]), _i(c[3]), _f(c[4]), _f(c[5]), _i(c[6])))
+                etabs.append(EdgeTable(c[1], _i(c[2]), _i(c[3]), _f(c[4]), _f(c[5]), _i(c[6]),
+                                       _i(c[7]) if len(c) > 7 else 0,
+                                       _f(c[8]) if len(c) > 8 else 1.0))
             elif k == "edge" and len(c) >= 14:
                 erows.append(EdgeRow(c[1], c[2], _i(c[3]), _f(c[4]), _f(c[5]), _f(c[6]),
                                      _f(c[7]), _f(c[8]), _i(c[9]), _f(c[10]),
@@ -2939,10 +3605,12 @@ def read_summary(path: str | None = None) -> Summary | None:
                 labs.append((c[1], c[2], _i(c[3])))
             elif k == "phase" and len(c) >= 6:
                 phs.append((c[1], _i(c[2]), _i(c[3]), _f(c[4]), _f(c[5])))
+            elif k == "survivorship" and len(c) >= 7:
+                surv.append((c[1], _i(c[2]), _i(c[3]), _f(c[4]), _f(c[5]), _f(c[6])))
             else:
                 meta[k] = c[1] if len(c) > 1 else ""
     return Summary(meta, tuple(fams), tuple(folds), tuple(stab), tuple(imp), tuple(grp),
-                   tuple(etabs), tuple(erows), tuple(labs), tuple(phs))
+                   tuple(etabs), tuple(erows), tuple(labs), tuple(phs), tuple(surv))
 
 
 # ---------------------------------------------------------------------------
@@ -2976,9 +3644,10 @@ def _demo() -> None:
     assert 0.60 < c_one.p_value < 0.74, f"a 1-of-3 draw is not uniform, got p={c_one.p_value}"
     # A p-value quantised to 1/draws must be finer than the bar it is compared against,
     # or the corrected threshold is reachable only at exactly zero.
-    assert 1.0 / CONTROL_DRAWS <= 0.05 / len(families()) / 3, (
+    # The bar is over 2N: every family is judged on both tails, so N rules is 2N tests.
+    assert 1.0 / CONTROL_DRAWS <= 0.05 / (2 * len(families())) / 3, (
         f"CONTROL_DRAWS={CONTROL_DRAWS} cannot resolve the Bonferroni bar "
-        f"{0.05 / len(families()):.5f} -- raise it")
+        f"{0.05 / (2 * len(families())):.5f} -- raise it")
 
     # -- the leave-family-out excess is the identity excess/(1 - coverage), per date --
     # Checked here rather than on the study because the aggregate mixes dates with
@@ -3026,6 +3695,17 @@ def _demo() -> None:
     print(f"leakage guard: {n_cmp} observations of {probe_sym} are byte-identical when the archive "
           f"is truncated at 2025-06-30 and re-run ({time.time() - t:.0f}s).")
 
+    # ...and the guard is MUTATION-TESTED, because a guard that passes on correct code
+    # is indistinguishable from a guard that passes on everything -- which is what this
+    # one did for two of the three leak classes it was believed to cover. The smallest
+    # symbol in the universe keeps the two extra rebuilds cheap.
+    small = syms[-1]
+    for nm in _MUTATIONS:
+        t = time.time()
+        miss = _mutation_survives(nm, small, "2025-06-30")
+        assert not miss, miss
+        print(f"  mutation {nm} -> CAUGHT on {small} ({time.time() - t:.0f}s)")
+
     # -- the study ------------------------------------------------------------
     print(f"running the study over {len(syms)} symbols, {START} -> {END} ...")
     r = run(syms)
@@ -3052,11 +3732,25 @@ def _demo() -> None:
     years = {o.year for o in r.obs}
     assert set(r.baseline_years) == years, (
         f"the per-year table misses {years - set(r.baseline_years)}")
-    for name, side, p, c, ys in r.fams:
+    for name, side, p, c, ys, cl in r.fams:
         assert 0.0 <= p.win_rate <= 1.0, f"{name}: win rate {p.win_rate}"
         if p.usable:
             assert c.draws > 0, f"{name}: the random control is empty"
             assert set(ys) <= years and ys, f"{name}: per-year table broken"
+            # The clustered test must actually have run, and it must be measuring the
+            # same excess the control is -- if these two ever disagree, one of them is
+            # demeaning against a different universe.
+            assert cl.symbols >= 2, f"{name}: the symbol bootstrap saw {cl.symbols} symbols"
+            assert abs(cl.excess - p.excess_mean) < 1e-9, (
+                f"{name}: clustered excess {cl.excess} != reported excess {p.excess_mean}")
+            assert cl.lo <= cl.excess <= cl.hi or cl.symbols < 5, (
+                f"{name}: the bootstrap interval [{cl.lo}, {cl.hi}] excludes its own estimate")
+
+    # The universe filter, measured. All three groups must be non-empty or the
+    # SELECTION block prints a comparison against nothing.
+    assert len(r.surv) == 3, f"survivorship returned {len(r.surv)} groups"
+    for sv in r.surv:
+        assert sv.symbols > 0 and sv.n > 0, f"survivorship group {sv.label!r} is empty"
     for _, table, sc in r.edge_tables:
         for e in table:
             if e.n < MIN_OBS:
@@ -3071,7 +3765,7 @@ def _demo() -> None:
     text = report(r)
 
     # Nothing under the floor may print a percentage anywhere in the report.
-    for name, side, p, _, _ in r.fams:
+    for name, side, p, _, _, _cl in r.fams:
         if 0 < p.n < MIN_OBS:
             line = next(ln for ln in text.split("\n")
                         if ln.strip().startswith(name) and "SUPPRESSED" in ln)
@@ -3095,12 +3789,22 @@ def _demo() -> None:
     assert s is not None, "the summary was written and then could not be read back"
     assert len(s.families) == len(r.fams), f"{len(s.families)} families read back of {len(r.fams)}"
     bonf, tested = bonferroni(r)
-    for (name, side, p, c, ys), got in zip(r.fams, s.families):
-        want, pos, ny = verdict(p, c, ys, bonf)
+    assert abs(bonf - 0.05 / (2 * tested)) < 1e-12, (
+        f"the corrected bar {bonf} is not 0.05 over {2 * tested} two-sided tests")
+    for (name, side, p, c, ys, cl), got in zip(r.fams, s.families):
+        want, pos, ny = verdict(p, c, ys, bonf, cl)
         assert got.name == name and got.verdict == want, f"{name}: {got.verdict!r} != {want!r}"
         assert (got.years_positive, got.years) == (pos, ny), name
+        # Every strong verdict must carry the clustered gate that earned it, in the
+        # digest as well as in the report -- a board that prints EDGE without it is
+        # back to quoting a p-value that assumed 1,472 independent rows.
+        if want in ("EDGE", "NEGATIVE"):
+            assert got.cluster_symbols and not got.clustered and got.cluster_p < CLUSTER_P, (
+                f"{name}: {want} written without a separating clustered interval")
         if got.usable:
             assert abs(got.excess - p.excess_mean) < 5e-5, name
+            assert got.cluster_symbols == cl.symbols, name
+            assert abs(got.cluster_p - cl.p_value) < 5e-5, name
         else:
             # A rate off fewer than MIN_OBS occurrences must not survive as a number.
             assert got.win == 0.0 and got.excess == 0.0, f"{name}: a suppressed rate was written"
@@ -3134,6 +3838,7 @@ def _demo() -> None:
     # Section 97: labels must sum back to each family's own n, or the breakdown on the board
     # is of a different sample than the row above it.
     assert s.labels, "no outcome labels were written"
+    assert len(s.surv) == 3, f"the survivorship table did not round-trip ({len(s.surv)} rows)"
     for nm, pf in [("baseline (buy-and-hold)", r.baseline)] + [(f[0], f[2]) for f in r.fams]:
         if not pf.usable:
             continue

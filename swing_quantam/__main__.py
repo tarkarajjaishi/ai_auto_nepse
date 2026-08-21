@@ -471,10 +471,14 @@ def _edge_rows(s, section: int, gone: str, why: str) -> list[Row]:
             note += (" — CLUSTERED: one stock's run wearing a broker's number, NOT evidence "
                      "the broker knew anything")
         rows.append(Row(e.key, f"{e.mean:+.2%}", note))
-    rows.append(Row("best-of-N control", f"p {t.p_value:.2f}",
+    rows.append(Row("best-of-N control", f"p {t.p_value:.4f}",
                     f"keeping the group sizes and shuffling which observation lands in which "
                     f"group produces a best group at least as good as {t.best:+.2%} in "
-                    f"{t.p_value:.0%} of random partitions -> "
+                    f"{t.p_value:.4f} of "
+                    + (f"{t.draws:,} random partitions" if t.draws else "random partitions")
+                    + (f"; DATE-MATCHED (each random group dealt the same rows per date as the "
+                       f"real one) p {t.p_matched:.4f}" if t.draws else "")
+                    + " -> "
                     + ("this table is a SORTING ARTEFACT" if t.artefact
                        else "the top of this table survives the shuffle control, but the "
                             "control does NOT remove symbol clustering — read the stock "
@@ -632,10 +636,21 @@ def _evidence_sections(s, upto: str | None = None) -> list[Section]:
             Row("universe", s.get("universe", "?"),
                 "symbols, liquidity-stratified. The universe filter's survivorship clause is a "
                 "no-op — it drops 3 symbols that have no price bars at all. What it really "
-                "excludes is 69 symbols listed after the window opened, and those returned MORE "
-                "than the ones kept, so this universe is selection-DEPRESSED at the median, not "
-                "flattered. Every comparison below is within it, against the same symbols on the "
-                "same dates, so the level cancels either way"),
+                "excludes is the symbols listed after the window opened"
+                + (f": {s.get('survivorship.excluded_symbols')} of them, which returned "
+                   f"{_num(s, 'survivorship.excluded_mean')} mean / "
+                   f"{_num(s, 'survivorship.excluded_median')} median against the "
+                   f"{s.get('survivorship.pool_symbols', '?')}-symbol pool they were dropped "
+                   f"from at {_num(s, 'survivorship.pool_mean')} / "
+                   f"{_num(s, 'survivorship.pool_median')} — a gap of "
+                   f"{_num(s, 'survivorship.median_gap')} at the median but "
+                   f"{_num(s, 'survivorship.mean_gap')} at the MEAN, so quoting the median "
+                   f"alone understates the selection by an order of magnitude"
+                   if s.num("survivorship.excluded_mean") is not None else
+                   ", and those returned MORE than the ones kept")
+                + ". So this universe is selection-DEPRESSED, not flattered. Every comparison "
+                  "below is within it, against the same symbols on the same dates, so the level "
+                  "cancels either way"),
             Row("observations", s.get("observations", "?"),
                 f"stock-days over {s.get('decision_dates', '?')} decision dates"),
             Row("window", f"{s.get('start', '?')} -> {s.get('end', '?')}",
@@ -661,27 +676,47 @@ def _evidence_sections(s, upto: str | None = None) -> list[Section]:
                                f"n {f.n}, below the {s.get('min_obs', '30')}-observation floor "
                                f"— no rate is reported off a sample that small"))
                 continue
-            tail = (f"lower-tail p {f.control_p_low:.4f}" if f.verdict == "NEGATIVE"
+            tail = (f"lower-tail p {f.control_p_low:.4f}" if "NEGATIVE" in f.verdict
                     else f"control p {f.control_p:.4f}")
+            # The clustered interval travels with every row, not only the ones it
+            # demoted. A row that shows EXCESS and a control p and hides the fact that
+            # three symbols carry the excess is the over-confident presentation this
+            # column exists to prevent.
+            clus = ""
+            if f.cluster_symbols:
+                clus = (f", symbol-clustered {f.cluster_lo:+.2%} to {f.cluster_hi:+.2%} "
+                        f"(p {f.cluster_p:.3f} over {f.cluster_symbols} symbols"
+                        + (", SPANS ZERO" if f.clustered else "")
+                        + (f", top 3 carry {f.cluster_top3:.0%}"
+                           if abs(f.cluster_top3) >= 0.5 else "") + ")")
             s98.append(Row(f.name, f.verdict,
                            f"n {f.n:,}, win {f.win:.1%}, mean {f.mean:+.2%}, "
                            f"median {f.median:+.2%}, EXCESS {f.excess:+.2%} "
-                           f"(vs same-day non-members {f.excess_lfo:+.2%}), {tail}, "
+                           f"(vs same-day non-members {f.excess_lfo:+.2%}), {tail}{clus}, "
                            f"positive in {f.years_positive}/{f.years} years"))
+        bar = s.get("bonferroni_p", "?")
+        tests = s.get("tests") or "?"
         s98 += [
             Row("families with a demonstrated edge",
                 f"{s.get('families_edge', '0')} of {s.get('families_tested', '0')}",
-                f"the corrected bar: control p below {s.get('bonferroni_p', '?')} "
-                f"(0.05 Bonferroni-corrected for the number screened)"
+                f"the corrected bar: control p below {bar} — 0.05 Bonferroni-corrected for "
+                f"{s.get('families_tested', '?')} families screened in TWO directions = {tests} "
+                f"tests — AND a symbol-clustered interval that excludes zero"
                 + (f" — {s.get('families_edge_names')}" if s.get("families_edge_names") else "")),
+            Row("families that are significantly NEGATIVE", s.get("families_negative", "0"),
+                (s.get("families_negative_names") or "none")
+                + f" — measurably WORSE than a date-matched random pick, at the SAME bar as the "
+                  f"row above ({bar}) and the same clustered gate. Both counts are now quoted to "
+                  f"one standard; they used to be printed side by side at {bar} and 0.05, which "
+                  f"made the negative count look like the stronger finding of the two"),
             Row("families clearing the uncorrected 0.05 only", s.get("families_weak", "0"),
                 (s.get("families_weak_names") or "none")
                 + " — which is about what screening this many rules produces on data with no "
                   "signal in it"),
-            Row("families that are significantly NEGATIVE", s.get("families_negative", "0"),
-                (s.get("families_negative_names") or "none")
-                + " — measurably WORSE than a date-matched random pick, which is a different "
-                  "finding from 'no edge' and must not be read as 'unproven'"),
+            Row("families that are weakly NEGATIVE", s.get("families_weak_negative", "0"),
+                (s.get("families_weak_negative_names") or "none")
+                + " — below the same-day universe at the uncorrected 0.05 only, or at the "
+                  "corrected bar without clustered support. Not 'no edge', not proven either"),
         ]
         for name, ph, n, exc, pv in s.phases:
             s98.append(Row(f"{name}: non-overlapping phase {ph}", f"{exc:+.2%}",
@@ -761,8 +796,17 @@ def _evidence_sections(s, upto: str | None = None) -> list[Section]:
                             f"{s.get('leakage.symbol')} rebuilt with the archive truncated at "
                             f"{s.get('leakage.cut')}",
                             f"{s.get('leakage.rows_identical')} observations came back "
-                            f"byte-identical in features, percentiles AND zone output — a single "
-                            f"forward-looking line anywhere in the panel fails this"))
+                            f"byte-identical in features, percentiles AND zone output. The "
+                            f"truncation caps the loader itself, so a re-read at any depth is "
+                            f"cut too, and it compares the rows at the EDGE of the cut — the "
+                            f"only ones where tomorrow is missing on one side"))
+            s100.append(Row("is the guard itself tested", "yes — mutation-tested every run",
+                            "two deliberate leaks are planted in the panel builder on each run "
+                            "(a feature reading tomorrow's bar, and one re-reading tomorrow's "
+                            "floorsheet) and the study fails if either goes undetected. Both "
+                            "went UNDETECTED by the previous version of this guard, which "
+                            "nonetheless claimed that a single forward-looking line anywhere in "
+                            "the panel would fail it"))
         else:
             s100.append(Row("how it is tested", "not re-proved by the last run",
                             "backtest.leakage_check() exists but this run recorded no result "

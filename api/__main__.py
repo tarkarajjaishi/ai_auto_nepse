@@ -204,11 +204,23 @@ def route(path, query):
         # current, and the symbol is what ended.
         sessions = loader_sessions(arg.upper())
         symbol_last = sessions[-1] if sessions else None
+
+        # The broker the 30D window is actually about, lifted out of section 11 so the page can
+        # chart it without opening a panel. Named explicitly rather than left for the frontend to
+        # scrape out of a row label -- a label is prose and changes; this is a field.
+        top_broker = None
+        for _s in d.sections:
+            if _s.n == 11:
+                for _r in _s.rows:
+                    if _r.metric == "30D top NET buyer":
+                        top_broker = str(_r.value).strip() or None
+                break
         return 200, {
             "symbol": d.symbol,
             "session": d.session,
             "archive_session": newest,
             "symbol_last_session": symbol_last,
+            "top_broker": top_broker,
             "symbol_ended": bool(symbol_last and d.session and d.session >= symbol_last
                                  and benchmark and symbol_last < benchmark),
             "stale": bool(d.session and benchmark and d.session < benchmark),

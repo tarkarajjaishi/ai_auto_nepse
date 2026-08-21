@@ -6,10 +6,11 @@ import { AlertTriangle, ChevronRight, CircleAlert, Inbox } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
 
+import { BrokerFlowBars } from "@/components/broker-flow-bars";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError, api, qk, type SqSection } from "@/lib/api";
-import { TONE_CLASS, type Tone } from "@/lib/format";
+import { TONE_CLASS, compact, type Tone } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 /** The one command that rebuilds this board. Printed in every state that needs it — stale,
@@ -285,6 +286,13 @@ function SwingQuantamInner() {
             </div>
           </div>
 
+          {/* The one thing that should not need a click. Everything else on this board is a
+              number in a panel; this is the shape of the window the whole analysis is about, so
+              it renders open, above the evidence, always. */}
+          {d.top_broker && (
+            <BrokerChart symbol={d.symbol} broker={d.top_broker} />
+          )}
+
           {/* ── why, and what argues against it ──────────────────────────────────────────── */}
           <section className="rounded-lg border border-border bg-card">
             <h3 className="border-b border-border px-4 py-2.5 text-[13px] font-semibold tracking-tight">
@@ -353,6 +361,65 @@ function Stat({
       </div>
       <div className="mt-1">{children}</div>
     </div>
+  );
+}
+
+/**
+ * The dominant broker's daily net, drawn open.
+ *
+ * Its own query rather than part of the detail payload: the ledger is a different shape and a
+ * different cost, and a chart that fails to load must not take the 103 sections down with it.
+ * A dead ledger renders as one line of text, not an error box — the board is still fully usable
+ * without it.
+ */
+function BrokerChart({ symbol, broker }: { symbol: string; broker: string }) {
+  const q = useQuery({
+    queryKey: qk.ledger(symbol, broker, 30),
+    queryFn: ({ signal }) => api.ledger(symbol, broker, 30, signal),
+    retry: false,
+  });
+
+  const rows = q.data?.sessions ?? [];
+  const t = q.data?.totals;
+
+  return (
+    <section className="rounded-lg border border-border bg-card">
+      <div className="flex flex-wrap items-baseline gap-x-3 border-b border-border px-4 py-2.5">
+        <h3 className="text-[13px] font-semibold tracking-tight">
+          Broker {broker} — daily net in {symbol}
+        </h3>
+        <span className="text-[12px] text-muted-foreground">
+          the 30D top net buyer; one bar per session, green bought more than it
+          sold, red the reverse
+        </span>
+        {t && (
+          <span className="ml-auto font-mono text-[11px] text-muted-foreground">
+            bought {compact(t.bought)} · sold {compact(t.sold)} · net{" "}
+            <span className={t.net >= 0 ? "text-up" : "text-down"}>
+              {t.net >= 0 ? "+" : ""}
+              {compact(t.net)}
+            </span>
+          </span>
+        )}
+      </div>
+      <div className="p-3">
+        {q.isPending && <Skeleton className="h-[200px] w-full" />}
+        {q.isError && (
+          <p className="px-1 py-6 text-[13px] text-muted-foreground">
+            No ledger for broker {broker} in {symbol} —{" "}
+            {(q.error as Error).message}
+          </p>
+        )}
+        {!q.isPending && !q.isError && !rows.length && (
+          <p className="px-1 py-6 text-[13px] text-muted-foreground">
+            Broker {broker} has no sessions on file for {symbol} in this window.
+          </p>
+        )}
+        {!!rows.length && (
+          <BrokerFlowBars sessions={rows} broker={broker} symbol={symbol} />
+        )}
+      </div>
+    </section>
   );
 }
 

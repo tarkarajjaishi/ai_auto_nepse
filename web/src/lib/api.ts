@@ -613,6 +613,8 @@ export type SwingQuantam = {
   session_unknown: boolean;
   /** the newest session this SYMBOL has on disk — not the archive's newest */
   symbol_last_session: string | null;
+  /** the 30D top NET buyer — the broker the window is about, named as a field not a row label */
+  top_broker: string | null;
   /**
    * the board is level with everything this symbol has, and the symbol itself stopped trading.
    * `stale` is true in this case too, but telling the reader to rebuild is advice that cannot
@@ -771,6 +773,8 @@ export const qk = {
   scorecard: (s: string) => ["scorecard", s] as const,
   questions: (s: string) => ["questions", s] as const,
   swingQuantam: (s: string) => ["swing-quantam", s] as const,
+  ledger: (s: string, broker: string, days: number) =>
+    ["ledger", s, broker, days] as const,
   floorsheetDates: (s: string) => ["floorsheet-dates", s] as const,
   floorsheet: (s: string, d: string) => ["floorsheet", s, d] as const,
   brokerFlow: (s: string, n: number) => ["brokerflow", s, n] as const,
