@@ -91,6 +91,54 @@ export type Stores = {
   missed_sessions: number | null;
 };
 
+/** One supply/demand zone: a band of price, live from `from` until price closes through it. */
+export type Zone = {
+  /** the date of the candle that formed it — the band starts here and runs to the right edge */
+  from: string;
+  lo: number;
+  hi: number;
+  kind: "supply" | "demand";
+  state: "strong" | "untested" | "weak" | "turncoat";
+};
+
+export type ZoneChart = {
+  symbol: string;
+  bars: { date: string; open: number; high: number; low: number; close: number }[];
+  zones: Zone[];
+  /** the current trade levels, or null when no zone is in play */
+  levels: {
+    entry: number;
+    sl: number;
+    tp: number;
+    signal: string;
+    kind: string;
+    in_zone: boolean;
+  } | null;
+};
+
+/** One timeframe's supply/demand read for a scrip. */
+export type TimeframeRow = {
+  timeframe: string;
+  direction: string;
+  state: string;
+  age: number;
+  signal: string;
+  close: number;
+  entry: number;
+  sl: number;
+  tp: number;
+  risk_pct: number;
+  dist_pct: number;
+  in_zone: boolean;
+};
+
+export type Timeframes = {
+  symbol: string;
+  timeframes: TimeframeRow[];
+  /** decided on the server, so both surfaces call the same set of rows "agreeing" */
+  agree: boolean;
+};
+
 /** What a rebuild is doing, and which boards refresh on their own. */
 export type RebuildStatus = {
   /** the board this API process is rebuilding, if any */
@@ -399,6 +447,12 @@ export const api = {
   health: (signal?: AbortSignal) => get<Health>("/api/health", signal),
   boards: (signal?: AbortSignal) => get<BoardsIndex>("/api/boards", signal),
   stores: (signal?: AbortSignal) => get<Stores>("/api/stores", signal),
+  /** One scrip across every timeframe. ~1s per symbol, so call it on demand, never on a poll. */
+  timeframes: (symbol: string, signal?: AbortSignal) =>
+    get<Timeframes>(`/api/timeframes/${encodeURIComponent(symbol)}`, signal),
+  /** Zones + the bars they sit on, so the chart cannot disagree with itself about a date. */
+  zones: (symbol: string, bars = 180, signal?: AbortSignal) =>
+    get<ZoneChart>(`/api/zones/${encodeURIComponent(symbol)}?bars=${bars}`, signal),
   rebuildStatus: (signal?: AbortSignal) => get<RebuildStatus>("/api/rebuild", signal),
   /** Start a rebuild. Resolves with `started: false` and a reason when one is already running. */
   rebuild: (board: string) =>

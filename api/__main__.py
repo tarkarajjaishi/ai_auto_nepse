@@ -18,6 +18,8 @@ Routes (all GET, all JSON):
     /api/swingquantam/<symbol>        the floorsheet engine's sections, zones and reasons
     /api/heatmap                      every equity under its sector, from the archive
     /api/stores                       per-store archive freshness (bars, floorsheet, flow)
+    /api/timeframes/<symbol>          supply/demand across 5m..1M for one scrip
+    /api/zones/<symbol>?bars=180      every supply/demand zone, classified, with its bars
     /api/indices                      the last bar of every index
     /api/account/holdings|orderbook|collateral      NAASA, read-only
     /api/auth?probe=1                 whether the saved NAASA / SWP logins still work
@@ -274,6 +276,64 @@ def route(path, query):
         if arg.upper() not in _universe():
             return 404, {"error": f"no such symbol {arg.upper()!r}"}
         return 200, market.broker_flow(arg, max(1, min(500, n)))
+
+    if head == "zones" and arg:
+        import supply_demand
+        from prices import bars as adjusted
+        b = adjusted(arg.upper())
+        if not b or len(b[4]) < 60:
+            return 404, {"error": f"{arg.upper()}: needs at least 60 daily bars for zones"}
+        n = _int(query, "bars", 180)
+        if n is None or n < 20:
+            return 400, {"error": "bars must be a whole number of at least 20"}
+        d, o, h, l, c = (x[-supply_demand.MAX_BARS:] for x in (b[0], b[1], b[2], b[3], b[4]))
+        start = max(0, len(c) - n)
+        row = supply_demand.dashboard(o, h, l, c)
+        out = []
+        for z in supply_demand.zones(o, h, l, c):
+            # Only zones BORN inside the window. One that formed earlier is still live, but its
+            # box would start off the left edge and read as covering the whole chart.
+            if z["i"] < start:
+                continue
+            state = supply_demand.classify(z, h, l, c)[0]
+            out.append({"from": d[z["i"]], "lo": round(z["lo"], 4), "hi": round(z["hi"], 4),
+                        "kind": z["kind"], "state": state})
+        return 200, {
+            "symbol": arg.upper(),
+            "bars": [{"date": d[i], "open": o[i], "high": h[i], "low": l[i], "close": c[i]}
+                     for i in range(start, len(c))],
+            "zones": out,
+            "levels": None if not row else {
+                "entry": round(row["entry"], 2), "sl": round(row["sl"], 2),
+                "tp": round(row["tp"], 2), "signal": row["signal"],
+                "kind": row["kind"], "in_zone": bool(row["in_zone"]),
+            },
+        }
+
+    if head == "timeframes" and arg:
+        # One symbol across 5m/15m/30m/1h/1D/1W/1M. Computed on demand rather than stored: it is
+        # ~1s for one scrip and would be ~6 minutes for the whole market, which is why the board
+        # holds the daily row only and this answers the "and the other frames?" question.
+        import supply_demand
+        if arg.upper() not in _universe():
+            return 404, {"error": f"no such symbol {arg.upper()!r}"}
+        rows = supply_demand.scan_timeframes(arg.upper())
+        if not rows:
+            return 404, {"error": f"not enough history for {arg.upper()} on any timeframe"}
+        return 200, {
+            "symbol": arg.upper(),
+            "timeframes": [
+                {"timeframe": r["symbol"], "direction": r["direction"], "state": r["state"],
+                 "age": r["age"], "signal": r["signal"], "close": round(r["close"], 2),
+                 "entry": round(r["entry"], 2), "sl": round(r["sl"], 2), "tp": round(r["tp"], 2),
+                 "risk_pct": round(r["risk_pct"], 2), "dist_pct": round(r["dist_pct"], 2),
+                 "in_zone": bool(r["in_zone"])}
+                for r in rows
+            ],
+            # The agreement verdict is computed HERE so both surfaces say the same thing about
+            # the same rows, rather than each deciding what "agree" means.
+            "agree": len({r["direction"] for r in rows}) == 1,
+        }
 
     if head == "stores":
         from . import stores

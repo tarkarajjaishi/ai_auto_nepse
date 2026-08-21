@@ -1,7 +1,7 @@
 "use client";
 
-import ReactECharts from "echarts-for-react";
-import { useMemo } from "react";
+import * as echarts from "echarts";
+import { useEffect, useMemo, useRef } from "react";
 
 import { compact, heatColour, pct } from "@/lib/format";
 import { useTheme } from "@/store/theme";
@@ -125,15 +125,40 @@ export function SectorTreemap({
     [items, sat, theme],
   );
 
-  return (
-    <ReactECharts
-      option={option}
-      style={{ height, width: "100%" }}
-      opts={{ renderer: "canvas" }}
-      notMerge
-      onEvents={
-        onSelect ? { click: (e: { name: string }) => onSelect(e.name) } : undefined
-      }
-    />
-  );
+  // echarts is driven directly rather than through echarts-for-react, which initialises the
+  // container and then never creates a canvas layer — the chart came out as an empty rectangle
+  // while the Sectors table beside it listed 27 sectors, so nothing looked broken.
+  const box = useRef<HTMLDivElement>(null);
+  const chart = useRef<echarts.ECharts | null>(null);
+  // The click handler is read from a ref so a new closure does not force a re-init of the chart.
+  // Written in an effect, not during render: React forbids touching a ref while rendering, and
+  // eslint's react-hooks rule fails the build on it.
+  const pick = useRef(onSelect);
+  useEffect(() => {
+    pick.current = onSelect;
+  }, [onSelect]);
+
+  useEffect(() => {
+    if (!box.current) return;
+    const c = echarts.init(box.current, undefined, { renderer: "canvas" });
+    chart.current = c;
+    c.on("click", (e: { name?: string }) => {
+      if (e?.name) pick.current?.(e.name);
+    });
+    // ResizeObserver, not a window listener: this renders in a drawer and in a page column, and
+    // both change width without the window ever resizing.
+    const ro = new ResizeObserver(() => c.resize());
+    ro.observe(box.current);
+    return () => {
+      ro.disconnect();
+      c.dispose();
+      chart.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    chart.current?.setOption(option, true);
+  }, [option]);
+
+  return <div ref={box} style={{ height, width: "100%" }} />;
 }
