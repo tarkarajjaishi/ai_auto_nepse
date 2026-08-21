@@ -892,7 +892,11 @@ body:has(.stage) {
    `auto` rather than a fixed column so a long dial code cannot clip. */
 .ax-tel {
   display: grid;
-  grid-template-columns: minmax(78rem, auto) minmax(0, 1fr);
+  /* A FIXED first column, not `auto`. `auto` resolves to max-content, so the select sized
+     itself to its widest option — "+7 Russia / Kazakhstan" — and on a 375px phone that left
+     63px for the number, which is not enough to type one into. The dial code is written first
+     in every option, so the ellipsis eats the country name and never the code. */
+  grid-template-columns: 104rem minmax(0, 1fr);
   gap: 8rem;
 }
 

@@ -89,12 +89,16 @@ def test_deploy_health():
 
 
 def test_deploy_ships_all_three_services():
-    """Three units serve one site, and shipping a subset is a silent half-deploy.
+    """Both units this deploy ships must restart, or it is a silent half-deploy.
 
-    nginx routes / to Streamlit, /api to the Python API and /admin to the Next server. The API
-    imports the SAME modules Streamlit does, so a deploy that restarts only `chukul` leaves the
-    terminal answering from a process that loaded yesterday's swing_pro.py — the pages render,
-    every number is real, and every number is stale. Nothing goes red.
+    nginx routes / and /blogs to the landing page, /admin to the Next terminal and /api to the
+    Python API. deploy.py ships the last two; the landing page is a separate bundle (see
+    DEPLOYMENT.md) and `chukul` — Streamlit — was removed with ui.py.
+
+    The API imports the SAME modules the terminal's numbers come from, so shipping Python
+    without restarting it leaves the terminal answering from a process that loaded yesterday's
+    swing_pro.py — the pages render, every number is real, and every number is stale. Nothing
+    goes red.
     """
     src = (Path(__file__).parent / "deploy.py").read_text(encoding="utf-8")
     restart = src.split("systemctl restart")[1:]
