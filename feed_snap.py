@@ -26,8 +26,14 @@ PATH = MASTER / "feed_snapshot.txt"
 
 # The fields the depth panel needs. Written in this order, and read back by NAME, so adding one
 # later cannot shift the meaning of the others.
-FIELDS = ("ltp", "close", "open", "high", "low", "volume", "turnover",
-          "bid", "bid_qty", "ask", "ask_qty", "stamp")
+_TOP = ("ltp", "close", "open", "high", "low", "volume", "avg_price",
+        "bid", "bid_qty", "ask", "ask_qty", "stamp")
+# Five levels a side, flat. The panel shows orders/qty/price per level and a total per side, so
+# best-bid-only cannot render it -- that is the top of the book, not the book.
+_LEVELS = tuple("%s%d_%s" % (side, i, what)
+                for side in ("b", "s") for i in range(1, 6)
+                for what in ("price", "qty", "orders"))
+FIELDS = _TOP + _LEVELS
 
 # A quote older than this is not a live quote. Two minutes is generous for a socket that ticks
 # sub-second, and short enough that a closed market is never dressed up as a running one.
@@ -49,20 +55,29 @@ def _pick(quote):
     one is written empty rather than zero. Zero is a price.
     """
     g = quote.get
-    return [
+    depth = quote.get("depth") or []
+    out = [
         _num(g("LTP")),
         _num(g("Close") or g("PreviousClose")),
         _num(g("Open")),
         _num(g("High")),
         _num(g("Low")),
-        _num(g("Volume") or g("TotalQty")),
-        _num(g("Turnover") or g("Amount")),
+        # TTQ is the feed's total traded quantity; WeightedAverage is its VWAP. Turnover is not
+        # stored -- it is volume x avg_price and deriving it once on read beats keeping a third
+        # number that can disagree with the two it comes from.
+        _num(g("TTQ") or g("Volume") or g("TotalQty")),
+        _num(g("WeightedAverage")),
         _num(g("BidPrice") or g("Buy1")),
         _num(g("BidQty") or g("BuyQty1")),
         _num(g("OfferPrice") or g("Sell1")),
         _num(g("OfferQty") or g("SellQty1")),
         str(g("_t") or ""),
     ]
+    for keys in (("BuyRate", "BuyQty", "BuyOrders"), ("SellRate", "SellQty", "SellOrders")):
+        for i in range(5):
+            level = depth[i] if i < len(depth) else {}
+            out.extend(_num(level.get(k)) for k in keys)
+    return out
 
 
 def write(snapshot, path=None):
@@ -121,6 +136,22 @@ def read(path=None):
                 except ValueError:
                     row[key] = None
         quotes[f[0]] = row
+    for row in quotes.values():
+        # Rebuild the two ladders and drop the flat level columns: every caller wants the book,
+        # and none of them should have to know that it is stored as thirty columns.
+        for side, key in (("b", "bids"), ("s", "asks")):
+            row[key] = [
+                {"price": row.pop("%s%d_price" % (side, i)),
+                 "qty": row.pop("%s%d_qty" % (side, i)),
+                 "orders": row.pop("%s%d_orders" % (side, i))}
+                for i in range(1, 6)
+            ]
+            # Trailing empty levels are not levels. A book two deep must not render as five with
+            # three blank rows that look like a market nobody is quoting.
+            while row[key] and row[key][-1]["price"] is None:
+                row[key].pop()
+        vol, avg = row.get("volume"), row.get("avg_price")
+        row["turnover"] = None if vol is None or avg is None else round(vol * avg, 2)
     age = max(0.0, time.time() - written_at)
     return {"written_at": written_at, "age": round(age, 1), "fresh": age <= FRESH_FOR,
             "quotes": quotes}
@@ -138,8 +169,14 @@ def demo():
 
         snap = {
             "NABIL": {"LTP": "548.5", "Close": "550", "Open": "550", "High": "552",
-                      "Low": "547", "Volume": "27241", "BidPrice": "548", "BidQty": "10",
-                      "OfferPrice": "549", "OfferQty": "5", "_t": "21/08/2026 13:02:11"},
+                      "Low": "547", "TTQ": "27241", "WeightedAverage": "548.9",
+                      "BidPrice": "548", "BidQty": "10",
+                      "OfferPrice": "549", "OfferQty": "5", "_t": "21/08/2026 13:02:11",
+                      "depth": [
+                          {"BuyRate": "548", "BuyQty": "10", "BuyOrders": "2",
+                           "SellRate": "549", "SellQty": "5", "SellOrders": "1"},
+                          {"BuyRate": "547.5", "BuyQty": "40", "BuyOrders": "3"},
+                      ]},
             "SAHAS": {"LTP": "701.8"},               # almost everything missing
             "EMPTY": {},                             # skipped entirely
         }
@@ -151,11 +188,18 @@ def demo():
         assert n["ltp"] == 548.5 and n["close"] == 550.0 and n["bid"] == 548.0, n
         assert n["ask_qty"] == 5.0 and n["stamp"] == "21/08/2026 13:02:11", n
 
+        assert len(n["bids"]) == 2 and len(n["asks"]) == 1, (n["bids"], n["asks"])
+        assert n["bids"][0] == {"price": 548.0, "qty": 10.0, "orders": 2.0}, n["bids"][0]
+        assert n["asks"][0]["price"] == 549.0, n["asks"][0]
+        assert n["turnover"] == round(27241.0 * 548.9, 2), n["turnover"]
+
         s = out["quotes"]["SAHAS"]
         assert s["ltp"] == 701.8, s
         # A missing field must stay missing. Zero is a price, and "" -> 0.0 would print a bid of
         # zero as though the book were empty at any price.
         assert s["bid"] is None and s["volume"] is None, s
+        assert s["bids"] == [] and s["asks"] == [], "no depth means no ladder, not five blanks"
+        assert s["turnover"] is None, "turnover cannot be derived without volume and avg price"
 
         # a snapshot from before the market closed must not read as live
         body = p.read_text(encoding="utf-8").splitlines()

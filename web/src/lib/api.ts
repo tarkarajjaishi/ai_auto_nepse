@@ -99,11 +99,17 @@ export type Stores = {
  * over from a finished session renders exactly like a live one. Never show `quote` without
  * showing `age`.
  */
+export type BookLevel = { price: number | null; qty: number | null; orders: number | null };
+
 export type Depth = {
   age: number | null;
   fresh: boolean;
   written_at: number | null;
   instruments: number;
+  /** NEPSE right now: PRE-OPEN, PRE-OPEN CLOSE, LIVE or CLOSED. "No ticks" means a different
+   *  thing in each, so the panel must not report the absence without it. */
+  session: string;
+  minutes_to_next: number | null;
   symbol?: string;
   quote?: {
     ltp: number | null;
@@ -112,12 +118,17 @@ export type Depth = {
     high: number | null;
     low: number | null;
     volume: number | null;
+    avg_price: number | null;
+    /** volume x avg_price, derived on the server so it cannot disagree with its two inputs */
     turnover: number | null;
     bid: number | null;
     bid_qty: number | null;
     ask: number | null;
     ask_qty: number | null;
     stamp: string | null;
+    /** up to five levels a side; trailing empty levels are dropped, never padded */
+    bids: BookLevel[];
+    asks: BookLevel[];
   } | null;
 };
 

@@ -81,6 +81,36 @@ def is_trading_day(when):
     return when.weekday() in open_days()
 
 
+# NEPSE's day, in NPT minutes past midnight. Pre-open is a real state, not a nicety: orders can
+# be entered 10:30-10:45 but nothing matches until 11:00, so a screen that calls it "closed" is
+# telling a trader they cannot do the one thing they can.
+PRE_OPEN = (10 * 60 + 30, 10 * 60 + 46)     # 10:30-10:45, entry allowed
+PRE_CLOSE = (10 * 60 + 46, 11 * 60)         # 10:46-10:59, matching, no new entry
+LIVE = (11 * 60, 15 * 60)                   # 11:00-15:00, continuous trading
+
+
+def session_now(when=None):
+    """(state, minutes_to_next) for NEPSE right now: PRE-OPEN, PRE-OPEN CLOSE, LIVE or CLOSED.
+
+    Reads the same open/closed switch as everything else, so a day toggled shut here is shut
+    everywhere. `minutes_to_next` counts to the next state change on a trading day, and is None
+    once the session is over or the market is shut.
+    """
+    now = when or datetime.now(NPT)
+    if not is_trading_day(now):
+        return "CLOSED", None
+    mins = now.hour * 60 + now.minute
+    if PRE_OPEN[0] <= mins < PRE_OPEN[1]:
+        return "PRE-OPEN", PRE_OPEN[1] - mins
+    if PRE_CLOSE[0] <= mins < PRE_CLOSE[1]:
+        return "PRE-OPEN CLOSE", PRE_CLOSE[1] - mins
+    if LIVE[0] <= mins < LIVE[1]:
+        return "LIVE", LIVE[1] - mins
+    if mins < PRE_OPEN[0]:
+        return "CLOSED", PRE_OPEN[0] - mins
+    return "CLOSED", None
+
+
 def missed_sessions(newest, today=None):
     """How many trading sessions have passed since `newest` (an ISO date string).
 
@@ -176,6 +206,25 @@ def demo():
             # a market that never opens can never miss a session
             set_open_days([])
             assert missed_sessions("2026-08-18", today=fri) == 0
+            set_open_days(DEFAULT_OPEN)
+
+            # the session clock: every state, and the switch still governs it
+            from datetime import datetime as _dt
+            def at(h, m, day=21):
+                return _dt(2026, 8, day, h, m, tzinfo=NPT)
+            set_open_days(DEFAULT_OPEN)
+            assert session_now(at(9, 0))[0] == "CLOSED", "before pre-open"
+            assert session_now(at(10, 30))[0] == "PRE-OPEN", "entry opens at 10:30"
+            assert session_now(at(10, 45))[0] == "PRE-OPEN", "10:45 is still entry"
+            assert session_now(at(10, 46))[0] == "PRE-OPEN CLOSE", "matching, no new entry"
+            assert session_now(at(11, 0))[0] == "LIVE"
+            assert session_now(at(14, 59))[0] == "LIVE"
+            assert session_now(at(15, 0))[0] == "CLOSED", "15:00 is the close, not still live"
+            assert session_now(at(12, 0))[1] == 180, session_now(at(12, 0))
+            # a day the switch has closed is CLOSED whatever the clock says
+            assert session_now(at(12, 0, day=22))[0] == "CLOSED", "Saturday"
+            set_open_days([])
+            assert session_now(at(12, 0))[0] == "CLOSED", "no open days means never open"
             set_open_days(DEFAULT_OPEN)
 
             # garbage in the file falls back rather than raising into the page

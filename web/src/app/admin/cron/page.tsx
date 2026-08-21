@@ -29,6 +29,7 @@ const REBUILD: Record<string, string> = {
 };
 
 export default function PipelinePage() {
+  const qc = useQueryClient();
   const q = useQuery({ queryKey: qk.boards, queryFn: ({ signal }) => api.boards(signal) });
   const entries = Object.entries(q.data?.boards ?? {});
 
@@ -37,8 +38,10 @@ export default function PipelinePage() {
   const rb = useQuery({
     queryKey: qk.rebuild,
     queryFn: ({ signal }) => api.rebuildStatus(signal),
+    // Poll only while something is running. A freshness page that hammers the API every second
+    // is its own kind of dishonest — it looks busy and tells you nothing new.
     refetchInterval: (query) =>
-      query.state.data?.running || query.state.data?.busy ? 2000 : false,
+      query.state.data?.running || query.state.data?.busy ? 1500 : false,
   });
 
   return (
@@ -231,9 +234,28 @@ function RebuildButton({ board, status }: { board: string; status?: RebuildStatu
   const [note, setNote] = useState<string | null>(null);
   const m = useMutation({
     mutationFn: () => api.rebuild(board),
-    onSuccess: (r) => {
+    onSuccess: async (r) => {
       setNote(r.started ? null : (r.reason ?? "already running"));
       qc.invalidateQueries({ queryKey: qk.rebuild });
+      if (!r.started) return;
+
+      // Wait for THIS job here rather than watching for a running -> idle edge elsewhere. That
+      // edge is never seen for a fast script: master_signal takes about two seconds, the status
+      // query is idle when the button is pressed, and the job is over before the first poll.
+      for (let i = 0; i < 240; i++) {
+        await new Promise((res) => setTimeout(res, 1500));
+        const st = await api.rebuildStatus().catch(() => null);
+        if (!st) continue;
+        qc.setQueryData(qk.rebuild, st);
+        if (!st.running && !st.busy) break;
+      }
+
+      // The script has just rewritten the .txt, so every board number on screen is one version
+      // out of date. The Streamlit button called st.cache_data.clear() for exactly this reason;
+      // without it the page reports "rebuilt ok" above the table it replaced.
+      qc.invalidateQueries({ queryKey: qk.boards });
+      qc.invalidateQueries({ queryKey: ["board"] });
+      qc.invalidateQueries({ queryKey: qk.stores });
     },
     onError: (e: Error) => setNote(e.message),
   });

@@ -287,8 +287,13 @@ def route(path, query):
         import feed_snap
         import live_1d
         snap = feed_snap.read()
+        # The session state travels with the quote. "No ticks" means something different at 09:00
+        # than it does at 12:00: the first is a closed market, the second is a broken feed, and a
+        # panel that cannot tell them apart sends the reader hunting a problem they do not have.
+        state, mins = market_hours.session_now()
         out = {"age": snap["age"], "fresh": snap["fresh"], "written_at": snap["written_at"],
-               "instruments": len(snap["quotes"])}
+               "instruments": len(snap["quotes"]),
+               "session": state, "minutes_to_next": mins}
         if arg:
             # The snapshot is keyed the way the FEED names things, and eight sector indices are
             # abbreviated differently there.
