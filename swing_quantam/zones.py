@@ -938,7 +938,7 @@ def zones(
                       f"activity-weighted broker consensus {cons.weighted_consensus:+.2f} "
                       f"(headcount vote {cons.consensus:+.2f}), {cons.accumulation} accumulation"),
         "participation": (part.breadth, f"{part.active} brokers active, {part.per_session_mean:.0f} per session ({part.breadth:.0%} roster stability)"),
-        "persistence": (pers.positive_persistence, f"positive tilt on {pers.positive} of {pers.days} sessions"),
+        "persistence": (pers.positive_pct, f"positive tilt on {pers.positive} of {pers.days} sessions"),
         "flow_stability": (pers.stability, f"flow stability {pers.stability:.2f} (1.0 = identical every session)"),
         "large_conviction": (lv30.net_share, f"{lv30.net_share:.1%} of large-trade volume changed hands net between brokers"),
         "price_zone": (price_zone_v,

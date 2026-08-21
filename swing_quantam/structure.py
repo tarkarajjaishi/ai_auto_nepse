@@ -41,7 +41,9 @@ Degenerate metrics the spec implies and this module deliberately does NOT emit:
   ``sum(net) / sum(gross)``, and ``sum(net)`` is exactly zero over all brokers —
   another guaranteed 0.000 column. :attr:`Consensus.weighted_consensus` therefore
   weights the *sign* of each broker's net by its share of activity, which is not
-  degenerate, and :attr:`Consensus.strength` carries the magnitude separately.
+  degenerate. The magnitude is ``BrokerFlow.flow_quality`` (spec section 16) and it
+  is reported there and nowhere else — a ``Consensus.strength`` field carried it
+  under a second name until it was measured equal on 1,924 of 1,924 board rows.
 * **Self-thresholded large-trade percentage across windows.** If each window takes
   its own P90 as the large threshold then ~10% of trades are "large" in every
   window by construction. Thresholds are computed ONCE from a baseline and reused,
@@ -194,7 +196,15 @@ class Consensus(NamedTuple):
     net_seller_pct: float
     consensus: float  # headcount vote, -1 (all sellers) .. +1 (all buyers)
     weighted_consensus: float  # activity-weighted sign vote, same scale
-    strength: float  # sum|net| / sum gross: how directional the average broker was
+    # There was a ``strength`` here, sum|net_b| / sum gross_b, and it was section 16's
+    # flow quality under a second name — not approximately, identically. Every share is
+    # bought once and sold once, so sum(net_b) == 0, which makes sum|net_b| exactly twice
+    # the positive side and sum(gross_b) exactly twice the volume; the 2s cancel and what
+    # is left is net_qty / volume, which IS ``BrokerFlow.flow_quality``. Measured on the
+    # shipped board: identical to "16 {W} flow quality" on 1,924 of 1,924 window-rows,
+    # all four windows. Section 16 claims in its own note to be the only place this
+    # quantity is reported, and that claim was false while this field existed. Section 16
+    # keeps the quantity; there is no second name for it.
     dispersion: float  # stdev of per-broker imbalance: agreement vs disagreement
     entropy: float  # nats over the buyer/seller/neutral split, 0 .. ln 3
     top_buyer_dependence: float  # top buyer's share of ALL net buying
@@ -217,7 +227,7 @@ def _breadth_label(n_side: int, dependence: float) -> str:
 def consensus(agg: dict[int, BrokerDay]) -> Consensus:
     """Section 22, from a session or window aggregate (``brokers.window(...)``)."""
     if not agg:
-        return Consensus(0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, "none", "none")
+        return Consensus(0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, "none", "none")
 
     vals = list(agg.values())
     buyers = [b for b in vals if b.net_qty > 0]
@@ -247,7 +257,6 @@ def consensus(agg: dict[int, BrokerDay]) -> Consensus:
         net_seller_pct=len(sellers) / len(vals),
         consensus=((len(buyers) - len(sellers)) / sided) if sided else 0.0,
         weighted_consensus=weighted,
-        strength=(sum(abs(b.net_qty) for b in vals) / gross) if gross else 0.0,
         dispersion=statistics.pstdev([b.imbalance for b in vals]) if len(vals) > 1 else 0.0,
         entropy=_entropy([len(buyers), len(sellers), neutral]),
         top_buyer_dependence=dep_b,
@@ -465,7 +474,19 @@ def dynamics(by_window: dict[int, Concentration]) -> ConcDynamics:
 
 
 class ParetoShares(NamedTuple):
-    top1pct: float
+    """Top-k shares of one ranked quantity. k is ``ceil(n * pct)``, minimum 1.
+
+    There was a ``top1pct`` here and it could never be a percentile bucket. The
+    largest broker count in the whole universe is 91, and ``ceil(n * 0.01) == 1``
+    for every n up to 100, so "the top 1%" was ALWAYS exactly one broker — the
+    single largest participant's share, which section 24 already reports as
+    ``top1``. Measured on the shipped board: ``26 {W} volume top1pct`` equalled
+    ``24 {W} buy top1`` on 1,924 of 1,924 window-rows. Removed rather than kept as
+    a percentile that can never round to more than one broker (see the repo's note
+    on rules that read correctly, test green and can never fire). The remaining
+    buckets are real at this universe size: at 84 brokers they are 5, 9 and 17.
+    """
+
     top5pct: float
     top10pct: float
     top20pct: float
@@ -474,14 +495,23 @@ class ParetoShares(NamedTuple):
 class Pareto(NamedTuple):
     """Section 26 — how much of the window the busiest slice of brokers controls.
 
-    With ~50 active brokers "top 1%" rounds up to a single broker, so ``top1pct``
-    and :attr:`Shares.top1` agree by construction on most NEPSE stocks. That is a
-    property of the market's broker count, not a bug.
+    ``buy_volume`` and ``buy_turnover`` are the BUY side, gross: every broker's
+    ``buy_qty`` / ``buy_amt`` ranked against a total that is the window's volume
+    and turnover. They used to be called ``volume`` and ``turnover``, which read as
+    the two-sided quantity they are not. That mislabel put ``top1pct`` BELOW the
+    same window's ``24 broker top1`` on 485 board rows — worst MAKAR 30D, 0.0674
+    against 0.3723 — because a broker can be huge on gross activity and small on
+    the buy side alone, and printed exactly 1.0 ("100% of volume") on 9 rows where
+    only one broker bought at all, e.g. LSLPO 3D and PROFLP 3D.
+
+    :attr:`brokers` is every broker in the window. The percentile buckets rank only
+    the brokers with a POSITIVE weight on that side, so a "top 20%" is 20% of the
+    brokers who bought (or who were net buyers), not 20% of ``brokers``.
     """
 
     brokers: int
-    volume: ParetoShares
-    turnover: ParetoShares
+    buy_volume: ParetoShares
+    buy_turnover: ParetoShares
     net_buy: ParetoShares
     net_sell: ParetoShares
 
@@ -491,10 +521,9 @@ def _pareto(weights: Iterable[float]) -> ParetoShares:
     total = sum(vals)
     n = len(vals)
     if not n or total <= 0:
-        return ParetoShares(0.0, 0.0, 0.0, 0.0)
-    k = lambda p: max(1, math.ceil(n * p))  # noqa: E731 - one-liner, used four times
+        return ParetoShares(0.0, 0.0, 0.0)
+    k = lambda p: max(1, math.ceil(n * p))  # noqa: E731 - one-liner, used three times
     return ParetoShares(
-        _top_share(vals, k(0.01), total),
         _top_share(vals, k(0.05), total),
         _top_share(vals, k(0.10), total),
         _top_share(vals, k(0.20), total),
@@ -502,12 +531,12 @@ def _pareto(weights: Iterable[float]) -> ParetoShares:
 
 
 def pareto(agg: dict[int, BrokerDay]) -> Pareto:
-    """Section 26. Net buying/selling are ranked over the brokers on that side only."""
+    """Section 26. Every bucket is ranked over the brokers on that side only."""
     vals = list(agg.values())
     return Pareto(
         brokers=len(vals),
-        volume=_pareto(b.buy_qty for b in vals),
-        turnover=_pareto(b.buy_amt for b in vals),
+        buy_volume=_pareto(b.buy_qty for b in vals),
+        buy_turnover=_pareto(b.buy_amt for b in vals),
         net_buy=_pareto(b.net_qty for b in vals if b.net_qty > 0),
         net_sell=_pareto(-b.net_qty for b in vals if b.net_qty < 0),
     )
@@ -1038,7 +1067,7 @@ def _demo() -> None:
         c, b = st.consensus[w], st.breadth[w]
         assert c.brokers == b.brokers == c.net_buyers + c.net_sellers + c.neutral
         assert -1.0 <= c.consensus <= 1.0 and -1.0 <= c.weighted_consensus <= 1.0
-        assert 0.0 <= c.strength <= 1.0 and 0.0 <= c.dispersion <= 1.0
+        assert 0.0 <= c.dispersion <= 1.0
         assert 0.0 <= c.entropy <= math.log(3) + 1e-9
         assert 0.0 <= c.top_buyer_dependence <= 1.0 + 1e-9
         assert c.accumulation in ("broad", "mixed", "concentrated", "none")
@@ -1051,12 +1080,17 @@ def _demo() -> None:
 
     # -- 26: Pareto shares are monotone and complete -------------------------
     for w, p in st.pareto.items():
-        for name in ("volume", "turnover", "net_buy", "net_sell"):
+        for name in ("buy_volume", "buy_turnover", "net_buy", "net_sell"):
             ps = getattr(p, name)
-            assert ps.top1pct <= ps.top5pct + 1e-12 <= ps.top10pct + 1e-12 <= ps.top20pct + 1e-12 <= 1.0 + 1e-9, \
+            assert ps.top5pct <= ps.top10pct + 1e-12 <= ps.top20pct + 1e-12 <= 1.0 + 1e-9, \
                 f"{w}D pareto {name} not monotone"
             assert ps.top20pct > 0.0
-        assert p.volume.top20pct >= 0.20, "the top 20% of brokers hold less than 20% of volume?"
+        assert p.buy_volume.top20pct >= 0.20, "the top 20% of buyers hold less than 20% of buying?"
+        # The bucket that was removed: at this universe size ceil(n * 0.01) is 1 for
+        # every symbol, so a "top 1%" could only ever be the single largest broker.
+        assert math.ceil(p.brokers * 0.01) <= 1, \
+            f"{p.brokers} brokers — a top-1% bucket is now more than one broker, so the " \
+            "column removed from ParetoShares would carry information again"
 
     # -- 27/28: large trades, both bases --------------------------------------
     all_trades = sum(len(s.trades) for s in ses)
@@ -1172,7 +1206,7 @@ def _demo() -> None:
           f"HHI {c30.broker.hhi:.3f} on Rs {c30.turnover/1e6:.0f}m")
     print(f"  HHI 30D {c30.broker.hhi:.3f} -> 3D {c3.broker.hhi:.3f} "
           f"({st.conc_dynamics.broker_trend}), breadth {st.breadth_trend.trend}, "
-          f"top20% of brokers hold {st.pareto[30].volume.top20pct:.0%} of volume")
+          f"top20% of buyers hold {st.pareto[30].buy_volume.top20pct:.0%} of buying")
     print(f"  3D large trades: {lg.trades} of {st.sizes[3].n} ({lg.trade_pct:.1%}) carry "
           f"{lg.volume_pct:.1%} of volume, vwap {lg.vwap_premium:+.2%}, persistence "
           f"{lg.persistence:.0%}; frag {st.frag_change.trend} ({st.frag_change.structural}), "

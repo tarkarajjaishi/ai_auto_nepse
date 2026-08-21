@@ -945,9 +945,30 @@ def _reasons(rs) -> list[Row]:
     """``timeframes.Reason`` records — the weighted components behind a score.
 
     Spec section 105: a score is never shown without the parts that made it.
+
+    The number on the row is the CONTRIBUTION — that is the part that sums to the
+    score, which is the whole point of printing it — and the row is NAMED as a
+    contribution. It used to be named after the bare quantity instead, so a
+    weighted component sat on the board under the name of the raw measurement it
+    was derived from, in different units. Measured on the shipped board:
+
+    * section 80 printed "confirming families 0.05" for a count of 1. Weight 0.35
+      spread over 7 families makes every count land on a multiple of 1/20, and
+      contribution == "independent count" / 20 EXACTLY on all 472 symbols carrying
+      both (ratio 20.0, zero variance). A count cannot be 0.05.
+    * section 80's "contradiction severity" was -0.282374 where section 81's was
+      +28.2374 — one quantity, opposite sign, 100x apart, on all 462 symbols
+      carrying both, and neither carried a unit.
+    * section 80 printed "confirmation strength" twice, 0.651278 as the raw field
+      and 0.227947 as this row.
+    * section 77 printed "gap" 0.100204 and "short-vs-long score gap" 0.025051.
+
+    Section 76 was never wrong here only because its reason names ("3D bearish")
+    happen not to collide with any field name — the same latent bug, unfired.
     """
-    return [Row(r.name, r.contribution, f"value {r.value:.4g}, normalised {r.normalised:.4g}, "
-                                        f"weight {r.weight:g}") for r in rs]
+    return [Row(f"{r.name} contribution", r.contribution,
+                f"value {r.value:.4g} x weight {r.weight:g}, normalised {r.normalised:.4g}")
+            for r in rs]
 
 
 def _optional(mod, sessions, days):
@@ -1037,7 +1058,13 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
             out.append(Section(n, title, rows, note))
 
     # ── 4: data quality ────────────────────────────────────────────────────────────────
-    counts = {loader.VALID: 0, loader.WARNING: 0, loader.INVALID: 0}
+    # loader.load_last drops any session that kept no trades, so it silently narrows the
+    # range it was asked for. Re-derive what it was asked for — sessions() is the same
+    # directory listing it already used — to say how many were dropped.
+    dates = [d for d in loader.sessions(symbol) if not upto or d <= upto]
+    skipped = len(dates[-history:] if history > 0 else dates) - len(ses)
+
+    counts = {loader.VALID: 0, loader.WARNING: 0}
     for s in ses:
         counts[s.quality.status] = counts.get(s.quality.status, 0) + 1
     seen: dict[str, int] = {}
@@ -1051,7 +1078,23 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
         Row("last session", last.date),
         Row("status VALID", counts.get(loader.VALID, 0)),
         Row("status WARNING", counts.get(loader.WARNING, 0)),
-        Row("status INVALID", counts.get(loader.INVALID, 0)),
+        # There was a "status INVALID" row here and it could never be anything but 0 —
+        # not rarely, never. A session is INVALID exactly when it kept no trades, and
+        # loader.load_last drops every session with no trades before returning, so no
+        # INVALID session can reach this count. Measured on the shipped board: 0 on 481
+        # of 481 symbols, sd exactly 0, one distinct value ever written, while a gate
+        # that reads as if it is watching for unusable sessions. The count it was
+        # standing in front of is the one below: sessions that ARE in the archive for
+        # this symbol and were skipped, which is the fact a reader needs and which
+        # nothing on the board said. The other three constant-looking columns in this
+        # section are kept because they CAN fire and are simply not firing here:
+        # "status WARNING" is non-zero on this board, and "mean quality score" is below
+        # 100 on one symbol, which proves a session can score under 100 and therefore
+        # that "last session score" is not pinned either.
+        Row("sessions skipped", skipped,
+            "dates in this symbol's floorsheet archive, inside the loaded range, that "
+            "parsed to no usable trade at all and were dropped before any figure on this "
+            "board was computed" if skipped else "every date in the loaded range yielded trades"),
         Row("last session status", last.quality.status),
         Row("last session score", last.quality.score),
         Row("last session rows total", last.quality.rows_total),
@@ -1072,11 +1115,17 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
                           f"figure below by one wherever it traded"))
     add(4, "Data quality layer", q_rows,
         "Quality is per session; WARNING sessions were still used, with the defect named above. "
-        "A dealer row is not a defect — see the note on that row.")
+        "A dealer row is not a defect — see the note on that row. There is no INVALID count: an "
+        "INVALID session is one that kept no trades and the loader drops those before this "
+        "section sees them, so it could only ever have read 0. \"sessions skipped\" is how many "
+        "went that way.")
     if last.quality.status != loader.VALID:
         warnings.append(f"the {last.date} session is quality {last.quality.status} "
                         f"(score {last.quality.score:.1f}) — every headline number is built on it")
-    dented = counts.get(loader.WARNING, 0) + counts.get(loader.INVALID, 0)
+    if skipped:
+        warnings.append(f"{skipped} session(s) in the loaded range parsed to no usable trade and "
+                        f"were dropped — the {len(ses)} sessions below are not a contiguous range")
+    dented = counts.get(loader.WARNING, 0)
     if dented > len(ses) // 2:
         warnings.append(f"{dented} of {len(ses)} loaded sessions are WARNING/INVALID quality")
 
@@ -1118,9 +1167,17 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
         b_rows += [Row(f"{w}D top NET buyer", sf[w].top_buyer, "the broker with the largest net position"),
                    Row(f"{w}D top NET buyer, share of volume", sf[w].top_buyer_share,
                        "that broker's NET buying / window volume — not its gross buying")]
+        # SIGN CONVENTION: a net share is signed, and the sign is the side. Section 11's
+        # buyer share is positive and section 17's "accumulator #1 net share" is the same
+        # positive number (measured: same broker on 481 of 481 symbols, identical value on
+        # 481 of 481). This row was the one place that broke it — it emitted the magnitude,
+        # so section 12's "top NET seller, share of volume" was positive on 481 of 481
+        # (0.0101 to 0.9819) while section 18's "distributor #1 net share" was its exact
+        # negation on 481 of 481, same broker, neither row saying so. Negated here to match.
         s_rows += [Row(f"{w}D top NET seller", sf[w].top_seller, "the broker with the largest net position"),
-                   Row(f"{w}D top NET seller, share of volume", sf[w].top_seller_share,
-                       "that broker's NET selling / window volume — not its gross selling")]
+                   Row(f"{w}D top NET seller, share of volume", -sf[w].top_seller_share,
+                       "SIGNED: that broker's NET selling / window volume, negative because it "
+                       "is selling — not its gross selling")]
     b_rows += _top_rows(buyers, ("broker", "buy_qty", "buy_amt", "buy_trades", "buy_max"), prefix="30D buyer #")
     s_rows += _top_rows(sellers, ("broker", "sell_qty", "sell_amt", "sell_trades", "sell_max"), prefix="30D seller #")
     add(11, "Buyer analysis", b_rows,
@@ -1129,7 +1186,10 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
         "name a different broker.")
     add(12, "Seller analysis", s_rows,
         "Broker IDs, not client IDs — a broker is not an investor. Ranked by NET quantity; section "
-        "24's \"sell top1\" ranks by GROSS selling and routinely names a different broker.")
+        "24's \"sell top1\" ranks by GROSS selling and routinely names a different broker. Net "
+        "shares on this board are SIGNED and the sign is the side, so this section's share is "
+        "negative; it is the same broker and the same figure as section 18's \"distributor #1 net "
+        "share\", which is where the full ranking lives.")
 
     add(13, "Net broker flow",
         _by_window(lambda w: sf[w], only=("volume", "turnover", "trades", "brokers", "dealers",
@@ -1204,8 +1264,17 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
                                              "accel", "decel", "reversal", "breadth", "quality"))
         + _top_rows(rank_dist,
                     ("broker", "net_share", "net_qty", "days", "positive_days", "streak", "phase", "persistence"),
-                    prefix="30D distributor #"))
-    add(19, "Persistence score", _by_window(lambda w: flow.persistence(sd[-w:], window=w)))
+                    prefix="30D distributor #"),
+        "\"net share\" is SIGNED and negative here because these brokers are net sellers — the "
+        "same convention as section 17's accumulators, where it is positive. \"distributor #1\" is "
+        "the same broker and the same figure as section 12's \"top NET seller\" (measured: same "
+        "broker on 481 of 481 symbols); this section carries the ranking, section 12 the headline.")
+    add(19, "Persistence score", _by_window(lambda w: flow.persistence(sd[-w:], window=w)),
+        "\"positive pct\" / \"negative pct\" / \"neutral pct\" are day counts over \"days\" and "
+        "sum to 1. They were each printed a second time in this same section as \"positive "
+        "persistence\" / \"negative persistence\" — identical on 1,924 of 1,924 window-rows, both "
+        "pairs — and those duplicate rows are gone. \"persistence\" is the DOMINANT side's share "
+        "and is a different number from either.")
 
     acc = flow.acceleration(sd)
     add(20, "Flow acceleration", _rows(acc))
@@ -1223,7 +1292,17 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
     add(25, "Concentration dynamics",
         _rows(st.conc_dynamics) + [_seq("hhi series", st.conc_dynamics.hhi_series)],
         "Read 30D -> 15D -> 7D -> 3D: the series runs from the longest window to the newest.")
-    add(26, "Pareto analysis", _by_window(lambda w: st.pareto[w]))
+    add(26, "Pareto analysis", _by_window(lambda w: st.pareto[w]),
+        "\"buy volume\" and \"buy turnover\" are the GROSS BUY side — every broker's buy quantity "
+        "and buy amount ranked against the window's volume and turnover. They were called "
+        "\"volume\" and \"turnover\", which read as the two-sided figures they are not: the top "
+        "bucket printed BELOW the same window's section 24 \"broker top1\" on 485 board rows "
+        "(worst MAKAR 30D, 0.0674 against 0.3723) because a broker can be large on gross activity "
+        "and small on buying alone. The buckets rank only the brokers with a positive weight on "
+        "that side, so \"top 20%\" is 20% of the brokers who bought, not 20% of \"brokers\". "
+        "There is no top-1% bucket: the largest broker count in the universe is 91 and "
+        "ceil(n x 0.01) is 1 for every n up to 100, so it could only ever be the single largest "
+        "broker — section 24's \"buy top1\", which it equalled on 1,924 of 1,924 rows.")
 
     add(27, "Large-trade analysis",
         _rows(st.thresholds, prefix="threshold ")
@@ -1315,7 +1394,17 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
                                 "qty_share", "reciprocal_qty"), prefix="pair #"),
         "A recurring pair is a trade-count artefact as often as a relationship — reciprocity was "
         "tested in this repo and died.")
-    add(41, "Broker network analysis", _rows(network.network(win[w30], pm)))
+    add(41, "Broker network analysis",
+        _rows(network.network(win[w30], pm),
+              only=("nodes", "edges", "undirected_edges", "density", "mean_degree", "max_degree",
+                    "concentration", "clustering")),
+        "No centrality row. The \"central\" broker here was the largest WEIGHTED degree, and an "
+        "edge's quantity is added to both of its endpoints, so that is just the largest gross "
+        "trader: it equalled section 9's \"broker #1\" on 481 of 481 symbols and its share "
+        "equalled section 24's \"30D broker top1\" on 481 of 481. Read those. It was not replaced "
+        "with betweenness or eigenvector centrality — on a graph this dense (median density "
+        "0.133, mean degree 17 over a median 75 brokers) eigenvector centrality tracks weighted "
+        "degree back to the same column, and neither has a hypothesis behind it here.")
     drift = network.centrality_drift(win[w30])
     add(42, "Network centrality over time", _rows(drift))
     if prev:
@@ -1353,9 +1442,17 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
     an = network.anomaly(last, ses[:-1])
     add(49, "Anomaly detection",
         _rows(an, only=("date", "score", "baseline_sessions"))
-        + [Row(c.name, c.z, c.reason) for c in an.components]
+        # The " z" suffix is section 51's convention and these are the same kind of
+        # number, so they carry the same name shape. Without it this section printed
+        # "volume", "turnover", "net_flow", "trade_frequency" and "top_pair_share" over
+        # Z-SCORES, colliding with the raw quantities those names hold everywhere else
+        # on the board: "49 volume" == "51 volume z" exactly on all 481 symbols, ranged
+        # [-1.368, 17.283] with 368 of 481 negative, and "top_pair_share" — a share —
+        # left [-1, 1] on 84 symbols. A reader scanning for a volume saw a z-score.
+        + [Row(f"{c.name} z", c.z, c.reason) for c in an.components]
         + [_seq("flagged", an.flagged)],
-        "z-scores are against this symbol's own prior sessions, point-in-time.")
+        "Every row here is a Z-SCORE against this symbol's own prior sessions, "
+        "point-in-time — never the raw quantity the name would otherwise mean.")
 
     # ── 50-73: baselines, z-scores, price-flow relationships, regimes ──────────────────
     series = {name: [pick(d) for d in days] for name, pick in _HIST_METRICS}
@@ -1524,7 +1621,10 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
             _rows(tf.alignment, only=("bullish", "bearish", "neutral", "windows", "weighted",
                                       "weighted_score", "score", "strength", "direction",
                                       "persistence", "persistence_days"))
-            + _reasons(tf.alignment.reasons))
+            + _reasons(tf.alignment.reasons),
+            "\"persistence days\" is the LOOKBACK — how many prior decision dates \"persistence\" "
+            "was measured over, from --history — not a count of days this alignment held. It is "
+            "the same lookback section 81's contradiction persistence uses, disclosed once here.")
         add(77, "Timeframe conflict score",
             _rows(tf.conflict, only=("score", "conflicted", "label", "short_direction",
                                      "long_direction", "short_score", "long_score", "gap"))
@@ -1550,13 +1650,21 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
                for d in tf.evidence.confirmations]
             + _reasons(tf.evidence.reasons),
             "Confirmations are counted by INDEPENDENT family — six correlated flow metrics are "
-            "one piece of evidence, not six.")
+            "one piece of evidence, not six. There are 7 families in all, so \"confirming families "
+            "contribution\" is 0.35 x count / 7 and the count itself is \"independent count\" "
+            "above. The \"... contribution\" rows are the parts of \"confidence\": each is the raw "
+            "value in its own note times its weight, and they sum to confidence / 100.")
         add(81, "Signal contradiction",
             _rows(tf.evidence, only=("contradiction_count", "contradiction_severity",
-                                     "contradiction_persistence", "contradiction_days"))
+                                     "contradiction_persistence"))
             + [Row(d.name, d.signed, f"{d.family}/{d.kind}, value {d.value:.4g}")
                for d in tf.evidence.contradictions],
-            "Contradictions are reported, never netted away against the confirmations above.")
+            "Contradictions are reported, never netted away against the confirmations above. "
+            "\"contradiction severity\" is on a 0-100 scale; section 80 carries the same quantity "
+            "as a signed contribution to confidence, in that row's own units. \"contradiction "
+            "persistence\" is measured over the same prior decision dates as section 76's "
+            "persistence — see \"persistence days\" there for how many; it is one lookback, not "
+            "two, and this section no longer restates it.")
         # Spec rule: a contradiction is surfaced next to the verdict, not buried in a panel.
         warnings += [f"{d.name} contradicts the {tf.evidence.thesis} thesis "
                      f"({d.family}/{d.kind}, {d.signed:+.3f})" for d in tf.evidence.contradictions]
@@ -1663,6 +1771,13 @@ def board_row(d: store.Detail) -> dict:
         "hhi": get.get((24, "30D broker hhi")),
         "large_pct": get.get((27, "30D turnover pct")),
         "brokers": get.get((33, "active")),
+        # "brokers" counts NEPSE's dealer account as one more broker, and so do "breadth",
+        # "hhi" and "top_broker_share" beside it. Section 13 discloses that per window in
+        # the detail file; the board carried the inflated count with no companion column,
+        # so the disclosure never reached the one file most readers open. Measured: 5 of
+        # 481 rows affected — CBL, LGIL, PIC, SIC and SIL, each brokers=51 of which one is
+        # D01. Blank/0 everywhere else, which is the honest answer there.
+        "dealers": get.get((13, "30D dealers")),
         "top_broker": get.get((11, "30D top NET buyer")),
         "top_broker_share": get.get((11, "30D top NET buyer, share of volume")),
         "anomaly": get.get((49, "score")),
@@ -1690,10 +1805,13 @@ def board_row(d: store.Detail) -> dict:
 BOARD_COLUMNS = [
     "symbol", "signal", "score", "confidence", "volume", "turnover", "vwap", "net_qty",
     "flow_quality", "persistence", "direction", "phase", "reversal", "consensus",
-    "breadth", "hhi", "large_pct", "brokers", "top_broker", "top_broker_share", "anomaly",
-    "regime", "quality", "alignment", "conflict", "age", "entry_low", "entry_high", "target",
-    "stop", "warnings", "date",
+    "breadth", "hhi", "large_pct", "brokers", "dealers", "top_broker", "top_broker_share",
+    "anomaly", "regime", "quality", "alignment", "conflict", "age", "entry_low", "entry_high",
+    "target", "stop", "warnings", "date",
 ]
+# `dealers` sits next to `brokers` because it qualifies it: it is how many of that count are
+# NEPSE's dealer account rather than a member broker. `date` stays last — store.write_board
+# forces it there and a column inserted after it would be moved anyway.
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────────────────

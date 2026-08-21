@@ -942,7 +942,15 @@ class Evidence(NamedTuple):
     contradiction_count: int
     contradiction_severity: float  # 0..100
     contradiction_persistence: float  # 0..1, share of recent dates that also contradicted
-    contradiction_days: int
+    # There was a ``contradiction_days`` field here and it was NOT a measurement of
+    # this symbol: it was ``len(prior)``, the size of the lookback the caller asked
+    # for. Section 76's ``persistence_days`` is the same ``len(prior)`` from the same
+    # ``analyse(history=...)`` argument, so the two sections printed one number under
+    # two names that each implied a different thing ("the alignment persisted N days"
+    # / "the contradiction persisted N days"). Measured on the shipped board:
+    # identical on 481 of 481 symbols, joint histogram {5: 475, 4: 3, 3: 2, 2: 1} —
+    # 98.8% pinned at the default, varying only where the archive runs out. The
+    # lookback is disclosed once, in section 76, and section 81 points at it.
 
     net: float  # -1..+1, confirmation weight minus contradiction weight
     confidence: float  # 0..100
@@ -1080,7 +1088,7 @@ def evidence(dims: Sequence[Dimension], thesis: str,
         confirmation_count=len(confirms), confirmation_strength=strength,
         independent_count=independent, families=families,
         contradiction_count=len(contras), contradiction_severity=severity,
-        contradiction_persistence=persistence, contradiction_days=len(prior),
+        contradiction_persistence=persistence,
         net=net, confidence=confidence, label=label, reasons=reasons,
     )
 

@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import math
 import os
+import statistics
 import time
 from collections import Counter
 from typing import Callable, NamedTuple, Sequence
@@ -572,19 +573,45 @@ def broker_flow_series(sessions: Sequence[Session], broker: int) -> list[float]:
 # ---------------------------------------------------------------------------
 
 
-def _trend(values: Sequence[float], flat: float = 0.05) -> int:
-    """+1 rising, -1 falling, 0 flat. Slope normalised by the series' own scale.
+def _trend(values: Sequence[float], flat: float = 1.0) -> int:
+    """+1 rising, -1 falling, 0 flat, over the whole window.
 
-    ``flat`` is the dead band, as a fraction of mean |value| per day. Without it
-    every series "trends" and every divergence pattern fires every day.
+    The fitted line's total rise across the window, measured in standard
+    deviations of the series itself: a trend counts when the line moves at least
+    ``flat`` sd from first point to last. Round and unfitted, in the same spirit
+    as flow.py's phase boundaries.
+
+    Normalising by the SPREAD rather than by the level is the whole point, and it
+    is what was wrong before. This used to divide the per-day slope by mean |value|
+    and compare against 0.05. For a zero-centred series like the broker tilt, mean
+    |value| IS the spread and 0.05 is a sane dead band. For a series with a large
+    positive offset — price, at ~900 rupees — mean |value| is the offset, so the
+    test silently became "the VWAP must move 5% of its own level every day for a
+    week", i.e. about +40% across the window. NEPSE's daily circuit is 15%, so it
+    could clear that only in a sustained limit run.
+
+    Measured on a 60-symbol sample of the real archive, |slope / mean|value|| for
+    price: median 0.00275, p90 0.01311, max 0.05715 — the dead band sat above the
+    90th percentile by a factor of four. On the shipped board section 56's
+    ``price trend`` was consequently pinned at 0 on 478 of 481 symbols (sd 0.0789,
+    the only other values 1.0 twice and -1.0 once) while its siblings ``flow
+    trend`` (sd 0.9143) and ``volume trend`` (sd 0.8538) spread normally on the
+    same rows. Six of section 56's eight patterns test ``price_trend == 0``, so a
+    price trend that never fired made those six fire on almost every symbol.
+
+    A rule that reads correctly, tests green and can never fire — see the repo's
+    note on exactly this. Dividing by the standard deviation removes the offset,
+    so one dead band now means the same thing for price, tilt, volume and
+    concentration alike.
     """
     n = len(values)
     if n < 3:
         return 0
-    scale = sum(abs(v) for v in values) / n
-    if scale <= 0:
+    sd = statistics.pstdev(values)
+    if sd <= 0:
         return 0
-    s = slope(list(range(n)), list(values)) / scale
+    # slope is per step, so (n - 1) steps is the line's total rise across the window
+    s = slope(list(range(n)), list(values)) * (n - 1) / sd
     return 1 if s > flat else (-1 if s < -flat else 0)
 
 

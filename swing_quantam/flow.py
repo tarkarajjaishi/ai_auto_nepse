@@ -345,8 +345,14 @@ class Persistence(NamedTuple):
     flips: int  # sign changes between non-neutral days
     direction: str  # "positive" | "negative" | "flat" — sign of the window's mean
     persistence: float  # dominant-side days / days
-    positive_persistence: float  # the spec's 19/30
-    negative_persistence: float
+    # ``positive_persistence`` and ``negative_persistence`` lived here and were
+    # ``pos / n`` and ``neg / n`` — the same two expressions as ``positive_pct`` and
+    # ``negative_pct`` three fields up, so section 19 printed every one of them twice
+    # under two names inside ONE section. Measured on the shipped board: identical on
+    # 1,924 of 1,924 window-rows for the positive pair and 1,924 of 1,924 for the
+    # negative pair. The ``_pct`` trio is kept because it is the set that sums to 1
+    # with ``neutral_pct``, which is what makes the section readable; ``persistence``
+    # above is the dominant side and is a genuinely different number.
     consistency: float  # of non-neutral days, the share agreeing with direction
     stability: float  # 1/(1+cv) on (0,1]; 1 = identical every day, low = spiky
     mean_flow: float
@@ -359,7 +365,7 @@ def persistence(days: Sequence[FlowDay] | Sequence[float], window: int | None = 
 
     Persistence is a count, not a claim: 19 positive days in 30 says the flow kept
     coming back, not that it is informative. Note that most brokers print more
-    positive than negative days on most stocks, so a bare positive_persistence
+    positive than negative days on most stocks, so a bare positive_pct
     above 0.5 is the norm and only its size relative to this stock's own history
     is worth reading.
     """
@@ -369,7 +375,7 @@ def persistence(days: Sequence[FlowDay] | Sequence[float], window: int | None = 
     n = len(vals)
     if not n:
         return Persistence(window or 0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0, 0, 0, 0,
-                           "flat", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+                           "flat", 0.0, 0.0, 0.0, 0.0, 0.0)
 
     sides = [side_of(v, neutral) for v in vals]
     pos = sides.count("positive")
@@ -420,8 +426,6 @@ def persistence(days: Sequence[FlowDay] | Sequence[float], window: int | None = 
         flips=flips,
         direction=direction,
         persistence=max(pos, neg) / n,
-        positive_persistence=pos / n,
-        negative_persistence=neg / n,
         consistency=agree / len(directional) if directional else 0.0,
         # DEGENERATE FORM CUT: the textbook 1 - sd/|mean| clips to exactly 0.0 on
         # 100% of real 30-day windows here (816 broker/stock windows tested on
@@ -709,7 +713,7 @@ def ranking(sessions: Sequence[Session], side: str = "accumulation", limit: int 
             positive_days=p.positive if sign > 0 else p.negative,
             streak=abs(p.current_run) if (p.current_run > 0) == (sign > 0) else 0,
             phase=a.label,
-            persistence=p.positive_persistence if sign > 0 else p.negative_persistence,
+            persistence=p.positive_pct if sign > 0 else p.negative_pct,
         ))
 
     rows.sort(key=lambda r: sign * r.net_share, reverse=True)
@@ -736,7 +740,7 @@ def _demo() -> None:
     spec19 = [0.02] * 19 + [-0.02] * 7 + [0.0] * 4
     p19 = persistence(spec19, 30)
     assert (p19.positive, p19.negative, p19.neutral) == (19, 7, 4), p19
-    assert abs(p19.positive_persistence - 19 / 30) < 1e-12
+    assert abs(p19.positive_pct - 19 / 30) < 1e-12
     assert p19.positive + p19.negative + p19.neutral == p19.days == 30
 
     # -- section 21's example: totals as written, and as per-day means ------------
@@ -776,7 +780,6 @@ def _demo() -> None:
             assert p.days == min(w, len(days)), (w, p.days)
             assert p.positive + p.negative + p.neutral == p.days
             for frac in (p.positive_pct, p.negative_pct, p.neutral_pct, p.persistence,
-                         p.positive_persistence, p.negative_persistence,
                          p.consistency, p.stability):
                 assert 0.0 <= frac <= 1.0, (w, frac)
             assert p.max_positive_run <= p.days and p.max_negative_run <= p.days
@@ -813,7 +816,7 @@ def _demo() -> None:
     t = top[0]
     print(f"flow ok — {sym} 30D to {prof.date} ({len(dates)} sessions from {dates[0]})")
     print(f"  stock tilt: {p30.positive}+/{p30.negative}-/{p30.neutral}0 days, "
-          f"persistence {p30.positive_persistence:.2f}, stability {p30.stability:.2f}, "
+          f"persistence {p30.positive_pct:.2f}, stability {p30.stability:.2f}, "
           f"{prof.acceleration.label} (30D {prof.acceleration.m30:+.4f} -> 3D "
           f"{prof.acceleration.m3:+.4f}), reversal {prof.reversal.kind}/{prof.reversal.pattern}")
     print(f"  accumulation {prof.accumulation.pct:+.2%} of volume over "

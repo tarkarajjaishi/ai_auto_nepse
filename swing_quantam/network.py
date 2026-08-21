@@ -841,8 +841,25 @@ class Network(NamedTuple):
     max_degree: int
     concentration: float  # HHI of edge quantity
     clustering: float  # mean local clustering on the undirected projection
-    central: int | None  # largest weighted degree
-    central_share: float
+    # ``busiest``/``busiest_share`` were called ``central``/``central_share`` and were
+    # presented as the network's centrality. They are not a graph measure at all. The
+    # weighted degree adds every edge's quantity to BOTH endpoints, so a broker's
+    # weighted degree is exactly its gross traded quantity and ``busiest_share`` is
+    # exactly its share of twice the volume — which is what section 24 already reports
+    # as ``broker top1`` and section 9 already names as ``broker #1``. Measured on the
+    # shipped board: ``41 central`` == ``9 broker #1 broker`` on 481 of 481 symbols and
+    # ``41 central share`` == ``24 30D broker top1`` on 481 of 481. Renamed to say what
+    # it is, and section 41 no longer prints it — it points at 24 instead.
+    #
+    # NOT replaced with betweenness or eigenvector centrality, deliberately. Eigenvector
+    # centrality on a weighted graph this dense (measured density: median 0.133, max
+    # 0.840, mean degree 17 on a median 75 nodes) tracks weighted degree closely enough
+    # to land right back here, and Brandes betweenness is O(V*E) per symbol per build
+    # for a factor with no out-of-sample support — this repo has already retired six
+    # floorsheet operator families and the whole counterparty-breadth family on exactly
+    # that evidence. If a real centrality is ever wanted it needs a hypothesis first.
+    busiest: int | None  # broker with the largest weighted degree == largest gross quantity
+    busiest_share: float  # its share of total weighted degree == its gross share of 2x volume
     degree: dict[int, int]  # broker -> distinct counterparties
     weighted_degree: dict[int, int]  # broker -> gross quantity through it
     centrality: dict[int, float]  # degree / (n - 1)
@@ -907,8 +924,8 @@ def network(sessions: list[Session], pair_map: dict[tuple[int, int], Pair] | Non
         max_degree=max(deg.values()) if deg else 0,
         concentration=_hhi(edge_qty.values()),
         clustering=statistics.fmean(local) if local else 0.0,
-        central=top,
-        central_share=wdeg[top] / total_w if top is not None else 0.0,
+        busiest=top,
+        busiest_share=wdeg[top] / total_w if top is not None else 0.0,
         degree=deg,
         weighted_degree=dict(wdeg),
         centrality={v: (deg[v] / (n - 1) if n > 1 else 0.0) for v in nodes},
@@ -921,7 +938,7 @@ class NetworkDrift(NamedTuple):
 
     by_window: dict[int, Network]
     central_changed: bool
-    degree_centrality_change: float  # long-window central broker: short centrality - long
+    degree_centrality_change: float  # the long window's busiest broker: short degree centrality - long
     weighted_centrality_change: float
     # There is NO "counterparty expansion" twin to the row below, and there cannot be one.
     # The windows NEST: the short window is ``sessions[-3:]``, a subset of the long window's
@@ -947,7 +964,7 @@ def centrality_drift(sessions: list[Session], windows: tuple[int, ...] = WINDOWS
     short, long = min(nets), max(nets)
     ns, nl = nets[short], nets[long]
 
-    ref = nl.central
+    ref = nl.busiest
     dcc = (ns.centrality.get(ref, 0.0) - nl.centrality.get(ref, 0.0)) if ref is not None else 0.0
     ws = sum(ns.weighted_degree.values()) or 1
     wl = sum(nl.weighted_degree.values()) or 1
@@ -960,7 +977,7 @@ def centrality_drift(sessions: list[Session], windows: tuple[int, ...] = WINDOWS
 
     return NetworkDrift(
         by_window=nets,
-        central_changed=ns.central != nl.central,
+        central_changed=ns.busiest != nl.busiest,
         degree_centrality_change=dcc,
         weighted_centrality_change=wcc,
         counterparty_contraction=con,
@@ -1575,7 +1592,7 @@ def _demo() -> None:
     assert sum(1 for (a, b) in ln.edge_qty if a == b) == 2, "the self-loops must still be counted"
     assert 0.0 < net.concentration <= 1.0
     assert all(0.0 <= c <= 1.0 for c in net.centrality.values())
-    assert net.central is not None and 0.0 < net.central_share <= 1.0
+    assert net.busiest is not None and 0.0 < net.busiest_share <= 1.0
     assert net.undirected_edges <= net.edges
 
     drift = centrality_drift(ses, windows=WINDOWS)
@@ -1674,8 +1691,8 @@ def _demo() -> None:
           f"{top.qty_share:.1%} of volume on {top.trade_share:.1%} of trades "
           f"(reciprocal {top.reciprocal_qty:,} — trade-count confound, not a signal)")
     print(f"  41/42: {net.nodes} nodes, {net.edges} edges, density {net.density:.3f}, "
-          f"clustering {net.clustering:.3f}, central broker {net.central} "
-          f"({net.central_share:.1%}); 3D-vs-30D stability {drift.stability:.2f}")
+          f"clustering {net.clustering:.3f}, busiest broker {net.busiest} "
+          f"({net.busiest_share:.1%} of gross); 3D-vs-30D stability {drift.stability:.2f}")
     print(f"  45/46: {sq.trades} trades, {sq.reordered} needed reordering by contract, "
           f"buyer switch {sq.buyer_switch:.2f}, {sq.repeated_bigrams} repeated adjacent edges")
     print(f"  47: {st.count:,} self-trades, {st.pct_volume:.2%} of volume, on "

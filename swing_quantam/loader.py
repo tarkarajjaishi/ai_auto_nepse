@@ -86,8 +86,18 @@ class _Code(int):
     ``Counter`` in the package keeps working untouched. It only differs in how it
     prints — ``str()``, ``repr()`` and every f-string render ``D01``, which means
     ``store._fmt`` and all board output get the real code for free rather than a
-    bare sentinel number. (An explicit numeric format spec such as ``{:,}`` still
-    shows the sentinel; no broker id on this board is formatted that way.)
+    bare sentinel number.
+
+    LOAD-BEARING, and the load rests on one line: ``store._fmt`` ends in ``str(v)``
+    for anything that is not None/bool/float, and ``_Code`` is an ``int``, so it
+    goes down that branch and renders its label. ``__format__`` is NOT overridden —
+    it is inherited from ``int`` — so an explicit numeric format spec prints the
+    sentinel instead: ``f"{code}"`` gives ``D01`` but ``f"{code:,}"`` gives
+    ``900,001`` and ``f"{code:d}"`` gives ``900001``. Verified clean as shipped:
+    ``900001`` appears 0 times across all 483 output files. Anyone who changes
+    ``store._fmt``'s int branch, or writes a numeric format spec against a broker
+    id anywhere in this package, leaks the sentinel onto the board — override
+    ``__format__`` here at that point rather than chasing the call sites.
     """
 
     def __new__(cls, value: int, label: str) -> "_Code":

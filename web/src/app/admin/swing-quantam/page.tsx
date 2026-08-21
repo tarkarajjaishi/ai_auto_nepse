@@ -189,7 +189,30 @@ function SwingQuantamInner() {
             </div>
           )}
 
-          {!d.session_unknown && d.stale && (
+          {/* Checked before `stale`: a board level with everything the symbol has is not behind
+              anything, and prescribing a rebuild there is advice that cannot work. */}
+          {!d.session_unknown && d.symbol_ended && (
+            <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/40 p-3.5 text-[13px]">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              <div className="text-muted-foreground">
+                <span className="font-mono text-foreground">{d.symbol}</span>{" "}
+                has not traded since{" "}
+                <span className="font-mono text-foreground">
+                  {d.symbol_last_session}
+                </span>
+                , so this is everything the floorsheet holds for it — the
+                numbers below are its last session, not an out-of-date read of a
+                current one. Rebuilding will not change them. The market has
+                moved on to{" "}
+                <span className="font-mono text-foreground">
+                  {d.archive_session}
+                </span>
+                .
+              </div>
+            </div>
+          )}
+
+          {!d.session_unknown && !d.symbol_ended && d.stale && (
             <div className="flex items-start gap-3 rounded-lg border border-primary/40 bg-primary/10 p-3.5 text-[13px]">
               <AlertTriangle className="mt-0.5 size-4 shrink-0 text-primary" />
               <div className="text-muted-foreground">

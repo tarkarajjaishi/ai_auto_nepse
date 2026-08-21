@@ -48,7 +48,11 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   }
   const body = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new ApiError(body?.error ?? `${res.status} ${res.statusText}`, res.status, url);
+    throw new ApiError(
+      body?.error ?? `${res.status} ${res.statusText}`,
+      res.status,
+      url,
+    );
   }
   return body as T;
 }
@@ -65,7 +69,10 @@ async function post<T>(path: string): Promise<T> {
   const url = `${API_BASE}${path}`;
   let res: Response;
   try {
-    res = await fetch(url, { method: "POST", headers: { Accept: "application/json" } });
+    res = await fetch(url, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+    });
   } catch {
     throw new ApiError(
       `Cannot reach the API at ${API_BASE || "this origin"}. Is it running?  python -m api`,
@@ -75,7 +82,11 @@ async function post<T>(path: string): Promise<T> {
   }
   const body = await res.json().catch(() => null);
   if (!res.ok && res.status !== 409) {
-    throw new ApiError(body?.error ?? `${res.status} ${res.statusText}`, res.status, url);
+    throw new ApiError(
+      body?.error ?? `${res.status} ${res.statusText}`,
+      res.status,
+      url,
+    );
   }
   return body as T;
 }
@@ -99,7 +110,11 @@ export type Stores = {
  * over from a finished session renders exactly like a live one. Never show `quote` without
  * showing `age`.
  */
-export type BookLevel = { price: number | null; qty: number | null; orders: number | null };
+export type BookLevel = {
+  price: number | null;
+  qty: number | null;
+  orders: number | null;
+};
 
 export type Depth = {
   age: number | null;
@@ -218,7 +233,10 @@ export type Quotes = {
   age: number | null;
   fresh: boolean;
   session: string;
-  quotes: Record<string, { ltp: number; close: number | null; pct: number | null }>;
+  quotes: Record<
+    string,
+    { ltp: number; close: number | null; pct: number | null }
+  >;
 };
 
 /** One supply/demand zone: a band of price, live from `from` until price closes through it. */
@@ -233,7 +251,13 @@ export type Zone = {
 
 export type ZoneChart = {
   symbol: string;
-  bars: { date: string; open: number; high: number; low: number; close: number }[];
+  bars: {
+    date: string;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+  }[];
   zones: Zone[];
   /** the current trade levels, or null when no zone is in play */
   levels: {
@@ -297,8 +321,12 @@ export type RebuildStarted = {
   busy?: RebuildStatus["busy"];
 };
 
-export type Health = { ok: boolean; archive_session: string | null;
-  missed_sessions: number | null; symbols: number };
+export type Health = {
+  ok: boolean;
+  archive_session: string | null;
+  missed_sessions: number | null;
+  symbols: number;
+};
 
 /** One saved broker login. Never carries the password, cookie or session token — only status. */
 export type Connection = {
@@ -433,7 +461,11 @@ export type Questions = {
   answers: Question[];
 };
 
-export type Report = { symbol: string; text: string; fields: Record<string, unknown> };
+export type Report = {
+  symbol: string;
+  text: string;
+  fields: Record<string, unknown>;
+};
 
 export type Trade = {
   buyer: string;
@@ -444,9 +476,18 @@ export type Trade = {
   transaction: string;
 };
 
-export type BrokerNet = { broker: string; bought: number; sold: number; net: number };
+export type BrokerNet = {
+  broker: string;
+  bought: number;
+  sold: number;
+  net: number;
+};
 
-export type FloorsheetDates = { symbol: string; sessions: string[]; latest: string };
+export type FloorsheetDates = {
+  symbol: string;
+  sessions: string[];
+  latest: string;
+};
 
 export type Floorsheet = {
   symbol: string;
@@ -542,7 +583,10 @@ export type Order = {
   working: boolean;
 };
 
-export type Collateral = { configured: boolean; fields: Record<string, number | null> };
+export type Collateral = {
+  configured: boolean;
+  fields: Record<string, number | null>;
+};
 
 /** One numbered section of the swing_quantam spec, already rendered to label/value pairs by
  *  Python. The frontend does not know what §19 means and must not learn — it prints what it is
@@ -567,6 +611,14 @@ export type SwingQuantam = {
    * as current.
    */
   session_unknown: boolean;
+  /** the newest session this SYMBOL has on disk — not the archive's newest */
+  symbol_last_session: string | null;
+  /**
+   * the board is level with everything this symbol has, and the symbol itself stopped trading.
+   * `stale` is true in this case too, but telling the reader to rebuild is advice that cannot
+   * work — 53 of 481 rows are years behind for exactly this reason. Check this BEFORE `stale`.
+   */
+  symbol_ended: boolean;
   /** STRONG BUY ZONE | BUY ZONE | WATCH / BUILDING | NEUTRAL | HOLD / MONITOR |
    *  DISTRIBUTION WATCH | SELL / REDUCE ZONE | STRONG EXIT / INVALIDATION */
   signal: string;
@@ -591,7 +643,10 @@ export const api = {
     get<Timeframes>(`/api/timeframes/${encodeURIComponent(symbol)}`, signal),
   /** Zones + the bars they sit on, so the chart cannot disagree with itself about a date. */
   zones: (symbol: string, bars = 180, signal?: AbortSignal) =>
-    get<ZoneChart>(`/api/zones/${encodeURIComponent(symbol)}?bars=${bars}`, signal),
+    get<ZoneChart>(
+      `/api/zones/${encodeURIComponent(symbol)}?bars=${bars}`,
+      signal,
+    ),
   /** One broker's daily bought/sold/net in one stock — the rows under a summary claim. */
   ledger: (symbol: string, broker: string, days = 30, signal?: AbortSignal) =>
     get<Ledger>(
@@ -607,8 +662,12 @@ export const api = {
   liveBar: (symbol: string, signal?: AbortSignal) =>
     get<LiveBar>(`/api/bar/${encodeURIComponent(symbol)}`, signal),
   quotes: (symbols: string[], signal?: AbortSignal) =>
-    get<Quotes>(`/api/quotes?symbols=${encodeURIComponent(symbols.join(","))}`, signal),
-  rebuildStatus: (signal?: AbortSignal) => get<RebuildStatus>("/api/rebuild", signal),
+    get<Quotes>(
+      `/api/quotes?symbols=${encodeURIComponent(symbols.join(","))}`,
+      signal,
+    ),
+  rebuildStatus: (signal?: AbortSignal) =>
+    get<RebuildStatus>("/api/rebuild", signal),
   /** Start a rebuild. Resolves with `started: false` and a reason when one is already running. */
   rebuild: (board: string) =>
     post<RebuildStarted>(`/api/rebuild/${encodeURIComponent(board)}`),
@@ -618,10 +677,16 @@ export const api = {
    * your book. The server recomputes with the SAME function the script uses; nothing is
    * written, and the API stays GET-only.
    */
-  board: (name: BoardName, signal?: AbortSignal, params?: Record<string, string | number>) => {
-    const q = params ? `?${new URLSearchParams(
-      Object.entries(params).map(([k, v]) => [k, String(v)]),
-    )}` : "";
+  board: (
+    name: BoardName,
+    signal?: AbortSignal,
+    params?: Record<string, string | number>,
+  ) => {
+    const q = params
+      ? `?${new URLSearchParams(
+          Object.entries(params).map(([k, v]) => [k, String(v)]),
+        )}`
+      : "";
     return get<Board>(`/api/board/${name}${q}`, signal);
   },
   symbols: (signal?: AbortSignal) =>
@@ -641,31 +706,50 @@ export const api = {
   /** A 404 here is a legitimate answer — the symbol has not been computed yet — so callers pass
    *  `retry: false` rather than hammering a route that is correctly saying "nothing built". */
   swingQuantam: (symbol: string, signal?: AbortSignal) =>
-    get<SwingQuantam>(`/api/swingquantam/${encodeURIComponent(symbol)}`, signal),
+    get<SwingQuantam>(
+      `/api/swingquantam/${encodeURIComponent(symbol)}`,
+      signal,
+    ),
 
   floorsheetDates: (symbol: string, signal?: AbortSignal) =>
-    get<FloorsheetDates>(`/api/floorsheet/${encodeURIComponent(symbol)}`, signal),
+    get<FloorsheetDates>(
+      `/api/floorsheet/${encodeURIComponent(symbol)}`,
+      signal,
+    ),
   floorsheet: (symbol: string, date: string, signal?: AbortSignal) =>
-    get<Floorsheet>(`/api/floorsheet/${encodeURIComponent(symbol)}?date=${date}`, signal),
+    get<Floorsheet>(
+      `/api/floorsheet/${encodeURIComponent(symbol)}?date=${date}`,
+      signal,
+    ),
   brokerFlow: (symbol: string, n = 20, signal?: AbortSignal) =>
-    get<BrokerFlow>(`/api/brokerflow/${encodeURIComponent(symbol)}?n=${n}`, signal),
+    get<BrokerFlow>(
+      `/api/brokerflow/${encodeURIComponent(symbol)}?n=${n}`,
+      signal,
+    ),
   heatmap: (signal?: AbortSignal) => get<Heatmap>("/api/heatmap", signal),
   indices: (signal?: AbortSignal) => get<Indices>("/api/indices", signal),
 
   /** Read-only. There is deliberately no place/modify/cancel here, and none on the server. */
   holdings: (signal?: AbortSignal) =>
-    get<{ configured: boolean; rows: Holding[]; count: number }>("/api/account/holdings", signal),
+    get<{ configured: boolean; rows: Holding[]; count: number }>(
+      "/api/account/holdings",
+      signal,
+    ),
   /**
    * `count` is every order the book returned TODAY, filled ones included — that is what the
    * endpoint returns. `working` is the subset still live, decided by the same rule that decides
    * whether a row may be cancelled. A screen labelling something "open" must use `working`.
    */
   orderbook: (signal?: AbortSignal) =>
-    get<{ configured: boolean; rows: Order[]; count: number; working: number; done: number }>(
-      "/api/account/orderbook",
-      signal,
-    ),
-  collateral: (signal?: AbortSignal) => get<Collateral>("/api/account/collateral", signal),
+    get<{
+      configured: boolean;
+      rows: Order[];
+      count: number;
+      working: number;
+      done: number;
+    }>("/api/account/orderbook", signal),
+  collateral: (signal?: AbortSignal) =>
+    get<Collateral>("/api/account/collateral", signal),
   /** Status of the saved broker logins. `probe` actually calls the broker — slow, so opt-in. */
   auth: (probe = false, signal?: AbortSignal) =>
     get<AuthStatus>(`/api/auth${probe ? "?probe=1" : ""}`, signal),

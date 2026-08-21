@@ -180,6 +180,7 @@ def route(path, query):
         # `tables` is imported at module level -- a local `from . import tables` here
         # would make the name local to route() and unbind it for every other branch.
         from swing_quantam import store
+        from swing_quantam.loader import sessions as loader_sessions
         d = store.read_detail(arg.upper())
         if d is None:
             # Not an error -- the engine simply has not been run for this symbol. Say
@@ -195,10 +196,21 @@ def route(path, query):
         # opening bell while /api/boards called the very same file fresh. Two routes reading one
         # board and disagreeing about its freshness is worse than either answer alone.
         benchmark = tables.newest_completed()
+        # The newest session this SYMBOL actually has, which is not the same question as how old
+        # the board is. 53 of 481 rows are 1-4 years behind simply because the company stopped
+        # trading -- CBL's last floorsheet is 2023-02-23 and always will be. Telling that reader
+        # to "rebuild" is advice that cannot work, so the page needs to tell the two apart:
+        # a board behind the SYMBOL's own data is stale and fixable; a board level with it is
+        # current, and the symbol is what ended.
+        sessions = loader_sessions(arg.upper())
+        symbol_last = sessions[-1] if sessions else None
         return 200, {
             "symbol": d.symbol,
             "session": d.session,
             "archive_session": newest,
+            "symbol_last_session": symbol_last,
+            "symbol_ended": bool(symbol_last and d.session and d.session >= symbol_last
+                                 and benchmark and symbol_last < benchmark),
             "stale": bool(d.session and benchmark and d.session < benchmark),
             # `stale` is False when the session is UNKNOWN as well as when it is current, and
             # those are not the same fact. Without this flag a detail file that lost its session
