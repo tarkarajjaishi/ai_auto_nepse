@@ -2212,6 +2212,48 @@ class FamilyRow(NamedTuple):
         return self.verdict != "SUPPRESSED"
 
 
+class EdgeRow(NamedTuple):
+    """One section 94/95/96 edge claim that cleared the sample floor."""
+
+    table: str
+    key: str
+    n: int
+    positive_rate: float
+    mean: float
+    median: float
+    consistency: float
+    lead_time: float
+    symbols: int
+    top_symbol_share: float
+    decay: tuple[float, float, float]
+
+    @property
+    def clustered(self) -> bool:
+        """One or two stocks carry the whole row -- a false positive's signature.
+
+        The shuffle control removes the market effect but NOT symbol clustering: a broker
+        whose occurrences are one stock's good run scores exactly like a broker with a real
+        edge. This is the column that tells them apart, and it is why section 95 -- which is
+        ONE broker on ONE stock by construction -- can never clear it.
+        """
+        return self.symbols <= 2 or self.top_symbol_share >= 0.5
+
+
+class EdgeTable(NamedTuple):
+    """The best-of-N control for a screened table -- the number that kills most of them."""
+
+    title: str
+    candidates: int
+    live: int
+    best: float
+    p_value: float
+    groups: int
+
+    @property
+    def artefact(self) -> bool:
+        return self.p_value > 0.10
+
+
 class Summary(NamedTuple):
     """``backtest_summary.txt`` parsed back.
 
@@ -2227,6 +2269,9 @@ class Summary(NamedTuple):
     stability: tuple[tuple[str, float, float, float, float, float], ...]
     importance: tuple[tuple[str, float, float], ...]
     groups: tuple[tuple[str, float], ...]
+    edge_tables: tuple[EdgeTable, ...]
+    edges: tuple[EdgeRow, ...]
+    labels: tuple[tuple[str, str, int], ...]  # (family, label, count)
 
     def num(self, key: str) -> float | None:
         try:
@@ -2239,6 +2284,21 @@ class Summary(NamedTuple):
 
     def family(self, name: str) -> FamilyRow | None:
         return next((f for f in self.families if f.name == name), None)
+
+    # Sections 94-96 are matched on the LEADING NUMBER, not the full title. The titles are
+    # EDGE_KINDS' keys ("94 broker", "95 broker-stock"); keying a renderer off that exact
+    # wording means rewording one silently blanks a board section.
+    def edge_table(self, section: int) -> EdgeTable | None:
+        return next((t for t in self.edge_tables if t.title.startswith(f"{section} ")), None)
+
+    def edges_in(self, section: int) -> tuple[EdgeRow, ...]:
+        return tuple(e for e in self.edges if e.table.startswith(f"{section} "))
+
+    def labels_for(self, family: str) -> tuple[tuple[str, int], ...]:
+        return tuple((lab, n) for f, lab, n in self.labels if f == family)
+
+    def label_families(self) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(f for f, _, _ in self.labels))
 
 
 def _cell(v: object) -> str:
@@ -2381,6 +2441,38 @@ def write_summary(r: Result, leakage: tuple[str, str, int] | None = None,
     for g, d in sorted(r.groups.items(), key=lambda kv: -kv[1]):
         lines.append("\t".join(("group_importance", g, f"{d:.4f}")))
 
+    # --- sections 94-96: the screened broker tables --------------------------
+    # The SUPPRESSED count is carried deliberately. "10 candidates, 0 above the floor" is
+    # the finding for section 96, and a board that renders an empty panel instead reads as
+    # "nothing was looked for" rather than "everything looked at was too thin to report".
+    lines.append(f"pair_min_share\t{PAIR_MIN_SHARE}")
+    if r.obs:
+        shares = sorted(o.pair_share for o in r.obs)
+        lines += [
+            f"pair_share.median\t{history.percentile(shares, 50):.6g}",
+            f"pair_share.p90\t{history.percentile(shares, 90):.6g}",
+            f"pair_share.max\t{shares[-1]:.6g}",
+            f"pair_share.n\t{len(shares)}",
+        ]
+    for title, table, sc in r.edge_tables:
+        live = [e for e in table if not e.suppressed]
+        lines.append("\t".join(("edge_table", _cell(title), str(len(table)), str(len(live)),
+                                f"{sc.best:.4f}", f"{sc.p_value:.4f}", str(sc.groups))))
+        for e in live[:8]:
+            d = tuple(e.decay) + (0.0,) * 3
+            lines.append("\t".join(("edge", _cell(title), _cell(e.key), str(e.n),
+                                    f"{e.positive_rate:.4f}", f"{e.mean:.4f}", f"{e.median:.4f}",
+                                    f"{e.consistency:.4f}", f"{e.lead_time:.4f}",
+                                    str(e.symbols), f"{e.top_symbol_share:.4f}",
+                                    f"{d[0]:.4f}", f"{d[1]:.4f}", f"{d[2]:.4f}")))
+
+    # --- section 97: outcome labels, per family ------------------------------
+    for nm, pf in [("baseline (buy-and-hold)", r.baseline)] + [(f[0], f[2]) for f in r.fams]:
+        if not pf.usable:
+            continue
+        for lab, cnt in pf.labels:
+            lines.append("\t".join(("label", _cell(nm), _cell(lab), str(cnt))))
+
     # --- section 114 --------------------------------------------------------
     lines += [
         f"calibration.calibrated\t{'yes' if r.cal.calibrated else 'no'}",
@@ -2417,6 +2509,9 @@ def read_summary(path: str | None = None) -> Summary | None:
     stab: list[tuple] = []
     imp: list[tuple] = []
     grp: list[tuple] = []
+    etabs: list[EdgeTable] = []
+    erows: list[EdgeRow] = []
+    labs: list[tuple] = []
     with open(p, "r", encoding="utf-8", errors="replace") as fh:
         for ln in fh:
             ln = ln.rstrip("\r\n")
@@ -2435,9 +2530,18 @@ def read_summary(path: str | None = None) -> Summary | None:
                 imp.append((c[1], _f(c[2]), _f(c[3])))
             elif k == "group_importance" and len(c) >= 3:
                 grp.append((c[1], _f(c[2])))
+            elif k == "edge_table" and len(c) >= 7:
+                etabs.append(EdgeTable(c[1], _i(c[2]), _i(c[3]), _f(c[4]), _f(c[5]), _i(c[6])))
+            elif k == "edge" and len(c) >= 14:
+                erows.append(EdgeRow(c[1], c[2], _i(c[3]), _f(c[4]), _f(c[5]), _f(c[6]),
+                                     _f(c[7]), _f(c[8]), _i(c[9]), _f(c[10]),
+                                     (_f(c[11]), _f(c[12]), _f(c[13]))))
+            elif k == "label" and len(c) >= 4:
+                labs.append((c[1], c[2], _i(c[3])))
             else:
                 meta[k] = c[1] if len(c) > 1 else ""
-    return Summary(meta, tuple(fams), tuple(folds), tuple(stab), tuple(imp), tuple(grp))
+    return Summary(meta, tuple(fams), tuple(folds), tuple(stab), tuple(imp), tuple(grp),
+                   tuple(etabs), tuple(erows), tuple(labs))
 
 
 # ---------------------------------------------------------------------------
@@ -2575,8 +2679,36 @@ def _demo() -> None:
         assert s.get(key), f"the summary is missing {key}"
     assert s.num("baseline.n") == r.baseline.n
     assert s.family("zone_buy") is not None, "the board's own signal is not in the summary"
+
+    # Sections 94-96: the SUPPRESSED count has to survive, because for section 96 it is the
+    # entire finding. A table that round-trips as "0 candidates" instead of "10 candidates,
+    # 0 above the floor" turns a measured negative into a blank.
+    assert len(s.edge_tables) == len(r.edge_tables), "an edge table was lost"
+    for (title, table, sc), got in zip(r.edge_tables, s.edge_tables):
+        assert got.title == title and got.candidates == len(table), title
+        assert got.live == sum(1 for e in table if not e.suppressed), title
+        assert abs(got.p_value - sc.p_value) < 5e-5, title
+        n = int(title.split()[0])
+        assert s.edge_table(n) is got, f"section {n} is not reachable by its number"
+        # Only rows above the floor may carry numbers at all.
+        assert len(s.edges_in(n)) == min(8, got.live), title
+    for e in s.edges:
+        assert e.n >= MIN_OBS, f"{e.key}: a suppressed row reached the summary"
+        assert 0.0 <= e.top_symbol_share <= 1.0 and e.symbols >= 1, e.key
+
+    # Section 97: labels must sum back to each family's own n, or the breakdown on the board
+    # is of a different sample than the row above it.
+    assert s.labels, "no outcome labels were written"
+    for nm, pf in [("baseline (buy-and-hold)", r.baseline)] + [(f[0], f[2]) for f in r.fams]:
+        if not pf.usable:
+            continue
+        got_labs = s.labels_for(nm)
+        assert got_labs == pf.labels, nm
+        assert sum(v for _, v in got_labs) == pf.n, f"{nm}: labels sum to != n"
     print(f"written: {spath} ({len(s.families)} families, {len(s.folds)} folds, "
-          f"{len(s.stability)} stability rows, {len(s.importance)} importance rows)")
+          f"{len(s.stability)} stability rows, {len(s.importance)} importance rows, "
+          f"{len(s.edge_tables)} edge tables / {len(s.edges)} rows above the floor, "
+          f"{len(s.labels)} label counts)")
 
 
 if __name__ == "__main__":

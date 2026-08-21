@@ -425,6 +425,59 @@ def _num(s, key: str, fmt: str = "{:+.2%}") -> str:
     return "not computed" if v is None else fmt.format(v)
 
 
+def _edge_rows(s, section: int, gone: str, why: str) -> list[Row]:
+    """Sections 94, 95 and 96 — they are the same shape three times over.
+
+    Screen N candidates, floor most of them out for sample size, then ask whether the
+    survivors beat the best of N RANDOM regroupings. Two things must reach the board and
+    both are easy to lose:
+
+    * The SUPPRESSED count. "10 candidates, 0 above the floor" IS section 96's result. An
+      empty panel in its place reads as "nothing was looked for".
+    * The symbol-clustering columns. The shuffle control removes the market effect but not
+      symbol clustering, so a broker whose occurrences are one stock's good run scores
+      exactly like one with a real edge. ``broker 62 on UMHL`` — n 49, 82% positive, +4.08%
+      excess, positive in 100% of years, and every occurrence on ONE stock — is the most
+      useful row in the study precisely because it shows what a false positive looks like.
+      It is labelled, never dropped.
+    """
+    if s is None:
+        return [Row("historical edge", gone, why)]
+    t = s.edge_table(section)
+    if t is None:
+        return [Row("historical edge", "not computed",
+                    "the last backtest run recorded no table for this section")]
+    floor = s.get("min_obs", "30")
+    rows = [Row("candidates screened", t.candidates,
+                f"{t.live} above the {floor}-occurrence floor, {t.candidates - t.live} "
+                f"SUPPRESSED for sample size")]
+    if t.live == 0:
+        rows.append(Row("result",
+                        f"nothing reportable — all {t.candidates} candidates are below the "
+                        f"{floor}-occurrence floor",
+                        "that IS the result, not a gap: a hit rate off fewer occurrences "
+                        "than that is a number-shaped opinion, so no percentage is printed"))
+        return rows
+    for e in s.edges_in(section):
+        note = (f"n {e.n}, {e.positive_rate:.0%} positive, median {e.median:+.2%}, positive in "
+                f"{e.consistency:.0%} of years, lead {e.lead_time:.1f} sessions, "
+                f"{e.symbols} stock(s) with {e.top_symbol_share:.0%} on the busiest, "
+                f"decay 5d {e.decay[0]:+.2%} / 10d {e.decay[1]:+.2%} / 20d {e.decay[2]:+.2%}")
+        if e.clustered:
+            note += (" — CLUSTERED: one stock's run wearing a broker's number, NOT evidence "
+                     "the broker knew anything")
+        rows.append(Row(e.key, f"{e.mean:+.2%}", note))
+    rows.append(Row("best-of-N control", f"p {t.p_value:.2f}",
+                    f"keeping the group sizes and shuffling which observation lands in which "
+                    f"group produces a best group at least as good as {t.best:+.2%} in "
+                    f"{t.p_value:.0%} of random partitions -> "
+                    + ("this table is a SORTING ARTEFACT" if t.artefact
+                       else "the top of this table survives the shuffle control, but the "
+                            "control does NOT remove symbol clustering — read the stock "
+                            "counts above")))
+    return rows
+
+
 def _evidence_sections(s, upto: str | None = None) -> list[Section]:
     """Sections 93, 98-100, 103, 104, 107, 108, 114 and 115 from one backtest digest.
 
@@ -502,6 +555,36 @@ def _evidence_sections(s, upto: str | None = None) -> list[Section]:
                f"corporate-action ADJUSTED bars. A positive expected value here is mostly the "
                f"market rising over the window — the only column that says the RULE knew "
                f"anything is the date-demeaned excess, and for zone_buy it is negative.")
+
+    # ── 94-96: the screened broker tables ─────────────────────────────────────────────
+    s94 = _edge_rows(s, 94, gone, why)
+    s95 = _edge_rows(s, 95, gone, why)
+    s96 = _edge_rows(s, 96, gone, why)
+    if s is not None and s.num("pair_share.max") is not None:
+        # The floor is unreachable BY CONSTRUCTION on this archive, and the only honest way
+        # to present a vacuous section is to print the distribution that makes it vacuous.
+        s96.insert(0, Row("dominant-pair share of 15-session volume",
+                          f"median {_num(s, 'pair_share.median', '{:.1%}')}, "
+                          f"p90 {_num(s, 'pair_share.p90', '{:.1%}')}, "
+                          f"max {_num(s, 'pair_share.max', '{:.1%}')}",
+                          f"measured across {s.get('pair_share.n', '?')} stock-days; the "
+                          f"section 96 floor is {_num(s, 'pair_min_share', '{:.1%}')}, so the "
+                          f"floor is barely reachable and this section is close to vacuous "
+                          f"by construction rather than negative"))
+
+    # ── 97: outcome labels ────────────────────────────────────────────────────────────
+    if absent:
+        s97 = [Row("outcome labels", gone, why)]
+    elif s.labels:
+        s97 = []
+        for fam in s.label_families():
+            labs = s.labels_for(fam)
+            total = sum(v for _, v in labs)
+            s97.append(Row(fam, labs[0][0],
+                           f"n {total:,} — " + ", ".join(f"{k} {v}" for k, v in labs)))
+    else:
+        s97 = [Row("outcome labels", "not computed",
+                   "the last backtest run recorded no label counts")]
 
     # ── 98: the rule families, each against its own control ───────────────────────────
     if absent:
@@ -704,6 +787,24 @@ def _evidence_sections(s, upto: str | None = None) -> list[Section]:
 
     return [
         Section(93, "Expected value", tuple(s93), n93),
+        Section(94, "Historical broker edge", tuple(s94),
+                "One broker ID pooled across every stock it was the dominant net buyer in. A "
+                "broker is not an investor and not a client (section 107), and the shuffle "
+                "control below does not remove symbol clustering — a broker riding one good "
+                "stock scores like a broker with an edge."),
+        Section(95, "Broker-stock historical edge", tuple(s95),
+                "One broker on ONE stock, so every row here is a single symbol by construction "
+                "and the clustering column reads 100% for all of them. That is exactly why the "
+                "best row in this table is the clearest example of a false positive in the "
+                "whole study, not the best finding in it."),
+        Section(96, "Broker-pair historical edge", tuple(s96),
+                "The busiest ordered (buyer, seller) pair over 15 sessions. Pair reciprocity "
+                "was tested in this repository and died — it is a trade-count proxy."),
+        Section(97, "Outcome labels", tuple(s97),
+                "Every label is a statement about the forward path and NOTHING else, so a "
+                "label cannot leak into a feature. \"no resolution\" means neither the target "
+                "nor the stop was touched inside the horizon, which on this market is the "
+                "single most common outcome."),
         Section(98, "Backtesting", tuple(s98), n98),
         Section(99, "Walk-forward validation", tuple(s99),
                 "Fitting on the whole history is the error that makes every backtest in this "
@@ -1604,7 +1705,7 @@ def _demo() -> None:
     # Sections 93-115 must be present on EVERY build, run or not. The failure this guards
     # against is silent omission: a section that is simply missing reads as "considered and
     # found irrelevant", which is the opposite of "measured, and it does not work".
-    want = [93, 98, 99, 100, 103, 104, 107, 108, 114, 115]
+    want = [93, 94, 95, 96, 97, 98, 99, 100, 103, 104, 107, 108, 114, 115]
     assert [s.n for s in d.sections if s.n >= 93] == want, [s.n for s in d.sections if s.n >= 93]
 
     # ...and the same when the study has never been run. Every backtest-derived section must
@@ -1612,7 +1713,7 @@ def _demo() -> None:
     off = {s.n: s for s in _evidence_sections(None)}
     assert sorted(off) == want, sorted(off)
     assert all(s.rows and s.title and s.note for s in off.values()), "an empty evidence section"
-    for n in (93, 98, 99, 100, 103, 104, 114):
+    for n in (93, 94, 95, 96, 97, 98, 99, 100, 103, 104, 114):
         assert any("not run" in str(x.value) for x in off[n].rows), \
             f"section {n} hides a missing backtest instead of reporting it"
     for n in (107, 108, 115):
@@ -1628,7 +1729,7 @@ def _demo() -> None:
         live = bt.read_summary()
         if live is not None:
             old = {s.n: s for s in _evidence_sections(live, upto="2000-01-01")}
-            for n in (93, 98, 99, 103, 104, 114):
+            for n in (93, 94, 95, 96, 97, 98, 99, 103, 104, 114):
                 assert any("not available at 2000-01-01" in str(x.value) for x in old[n].rows), \
                     f"section {n} quoted a study from the future into a rebuild dated before it"
             # ...and it must still be THERE, saying so, not silently dropped.
@@ -1638,6 +1739,19 @@ def _demo() -> None:
             now = {s.n: s for s in _evidence_sections(live)}
             assert not any("not available" in str(x.value) for x in now[98].rows)
             assert any(x.metric == "zone_buy" for x in now[98].rows), "section 98 lost its rules"
+
+            # The two things sections 94-96 exist to say, asserted rather than hoped for.
+            for n in (94, 95, 96):
+                head = now[n].rows[0] if n != 96 else now[n].rows[1]
+                assert "candidates screened" == head.metric, (n, head.metric)
+                assert "SUPPRESSED" in head.note, f"section {n} dropped the suppressed count"
+            # Section 95 is one broker on one stock BY CONSTRUCTION, so every reported row
+            # must carry the clustering label. If one ever does not, the label is not firing.
+            body = [x for x in now[95].rows if x.metric not in
+                    ("candidates screened", "best-of-N control", "result", "historical edge")]
+            assert body, "section 95 reported no rows at all"
+            assert all("CLUSTERED" in x.note for x in body), \
+                "a single-symbol broker-stock row was presented without its clustering caveat"
 
     r = board_row(d)
     assert r["date"] == d.session and r["symbol"] == d.symbol
