@@ -830,7 +830,6 @@ def board_row(d: store.Detail) -> dict:
         "turnover": get.get((5, "turnover")),
         "vwap": get.get((5, "vwap")),
         "net_qty": get.get((13, "30D net qty")),
-        "imbalance": get.get((15, "30D imbalance")),
         "flow_quality": get.get((16, "30D flow quality")),
         "persistence": get.get((19, "30D persistence")),
         "direction": get.get((19, "30D direction")),
@@ -859,9 +858,15 @@ def board_row(d: store.Detail) -> dict:
     }
 
 
+# `imbalance` was dropped after the first full build: measured across all 481 rows it was
+# flow_quality / 2 exactly (ratio sd 3.7e-6, pure rounding), so the board carried one number in
+# two columns and a reader counting evidence would have counted it twice. flow_quality is the
+# name kept because it is the same quantity as volume_spike.py's net_churn, which is what the
+# scores actually weight. Section 15 still reports it per window in the detail, where it is
+# labelled "net / gross quantity" rather than presented as a second independent measure.
 BOARD_COLUMNS = [
     "symbol", "signal", "score", "confidence", "volume", "turnover", "vwap", "net_qty",
-    "imbalance", "flow_quality", "persistence", "direction", "phase", "reversal", "consensus",
+    "flow_quality", "persistence", "direction", "phase", "reversal", "consensus",
     "breadth", "hhi", "large_pct", "brokers", "top_broker", "top_broker_share", "anomaly",
     "regime", "quality", "alignment", "conflict", "age", "entry_low", "entry_high", "target",
     "stop", "warnings", "date",
