@@ -5,11 +5,14 @@ read-only Python API. Every stored artifact is a plain `.txt` under `Master_data
 database). This file is the operational map: what runs, which external services it talks to,
 and how the VPS is set up.
 
-Live at **https://ai.tarkarajjaishi.com.np** (HTTP Basic Auth, user `tarka`).
+Live at **https://ai.tarkarajjaishi.com.np**. `/` and `/blogs` are PUBLIC — they are the
+marketing site and the blog, and a Basic Auth prompt there means zero Google indexing. Everything
+else keeps the wall (HTTP Basic Auth, user `tarka`), declared at server level and switched off
+with `auth_basic off` in just those two locations.
 
 | URL | Serves | Process |
 |---|---|---|
-| `/` | the Streamlit app | `chukul` — `streamlit run ui.py`, `127.0.0.1:8501` |
+| `/`, `/blogs`, `/_lp` | landing page + blog (public) | `nepse-landing` — `node server.js`, `127.0.0.1:3102` |
 | `/admin` | the Next.js terminal | `chukul-web` — `node server.js`, `127.0.0.1:3101` |
 | `/api/…` | read-only JSON | `chukul-api` — `python -m api`, `127.0.0.1:8600` |
 
@@ -130,7 +133,7 @@ their own Backfill buttons.
 | Piece | Detail |
 |---|---|
 | Host | `ubuntu@202.51.70.101` (`ubuntu-kathmandu-01`, in Nepal — NAASA feeds are local). Key-auth SSH. |
-| App | `~/chukul_data`, venv at `.venv` (streamlit, pandas, plotly, websocket-client) |
+| App | `~/chukul_data`, venv at `.venv` (pandas, websocket-client — streamlit/plotly went with `ui.py`) |
 | Frontend | `~/chukul-web` — the built Next.js standalone tree, ~27 MB. Previous bundle kept at `~/chukul-web.old` for a one-command rollback. |
 | Node | `v24.19.0` LTS at `/opt/nodejs`, symlinked to `/usr/local/bin/node`. Installed from the official tarball with its SHASUMS256 verified. |
 | Services | `chukul` (8501, `MemoryMax=1200M`) · `chukul-api` (8600, `MemoryMax=256M`, measured at 23 MB) · `chukul-web` (3101, `MemoryMax=512M`, ~93 MB). All `Restart=always`, all bound to 127.0.0.1. |
@@ -149,7 +152,7 @@ machine and shipped as a runnable tree; the box needs only the `node` binary.
 
 ```bash
 ssh ubuntu@202.51.70.101
-sudo systemctl restart chukul chukul-api chukul-web
+sudo systemctl restart chukul-api chukul-web chukul-feed
 journalctl -u chukul-web -n 50 -f
 curl -s localhost:8600/api/health          # is the API reading today's archive?
 curl -so /dev/null -w '%{http_code}\n' localhost:3101/admin
@@ -203,8 +206,31 @@ both halves.
 Manual one-file shortcut, if ever needed:
 
 ```bash
-tar czf - ui.py | ssh ubuntu@202.51.70.101 "cd ~/chukul_data && tar xzf - && sudo systemctl restart chukul"
+tar czf - market_hours.py | ssh ubuntu@202.51.70.101 "cd ~/chukul_data && tar xzf - && sudo systemctl restart chukul-api"
 ```
+
+---
+
+## The landing page + blog (`nepse-landing`, port 3102)
+
+Separate app, separate repo folder (`quantam_nepse_landing page/`), and **not** in `deploy.py`.
+Built locally and shipped as a tarball — the box has ~800 MB available and a Next build there
+will OOM or evict a live service.
+
+```bash
+cd "quantam_nepse_landing page" && pnpm build && tar -czf /tmp/landing.tgz -C .next/standalone . && scp /tmp/landing.tgz ubuntu@202.51.70.101:/tmp/ && ssh ubuntu@202.51.70.101 'rm -rf ~/nepse-landing.new && mkdir ~/nepse-landing.new && tar -xzf /tmp/landing.tgz -C ~/nepse-landing.new && rm -rf ~/nepse-landing && mv ~/nepse-landing.new ~/nepse-landing && sudo systemctl restart nepse-landing'
+```
+
+Three things that are easy to get wrong:
+
+- **`assetPrefix: "/_lp"` in `next.config.ts` is load-bearing.** Two Next apps share this vhost
+  and both want to serve `/_next`; the admin app owns it. nginx matches the LONGEST prefix, so
+  `/_lp/_next/…` reaches the landing app and `/_next/…` reaches the terminal. Remove the prefix
+  and every landing asset loads the terminal's chunks — 200s all round, wrong JavaScript, silent.
+- **`ExecStart=/usr/local/bin/node`.** There is no `/usr/bin/node` on this box; systemd calls
+  that `203/EXEC` and restart-loops, which reads as an app crash.
+- **`.next/standalone` must contain `static/` and `public/`.** `next build` does not put them
+  there; the build script copies them in. Without them the page renders unstyled with no video.
 
 ---
 

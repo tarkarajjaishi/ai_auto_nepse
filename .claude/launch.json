@@ -8,12 +8,6 @@
             "port": 5055
         },
         {
-            "name": "ui",
-            "runtimeExecutable": "python",
-            "runtimeArgs": ["-m", "streamlit", "run", "ui.py", "--server.port", "8501", "--server.headless", "true"],
-            "port": 8501
-        },
-        {
             "name": "api",
             "runtimeExecutable": "python",
             "runtimeArgs": ["-m", "api", "--host", "127.0.0.1", "--port", "8600", "--allow-origin", "http://localhost:3200"],

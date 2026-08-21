@@ -12,9 +12,10 @@ rule is dead — do not follow it, and do not re-add it.
 - **Frontend — TypeScript only**, in the Next.js app. No plain JavaScript files, no other
   framework, and **no Python rendering UI any more**.
 
-Streamlit (`ui.py`) is the OLD frontend. It stays live and working until the Next.js app replaces
-it page for page — do not delete or break it in the meantime — but **add no new features to it**.
-New UI work goes in the Next.js app.
+Streamlit (`ui.py`) was the old frontend. **It was deleted on 2026-08-21** — from the repo, from
+the VPS, and from `.claude/launch.json`. Nothing renders UI from Python any more, and nothing
+should. Read it out of git history (`git show d8a952a:ui.py`) if you need a formula it held; do
+not restore it.
 
 Allowed as before (not programming languages): Markdown, JSON/YAML/TOML/INI config, `.env`,
 plain CSV/text data, SQL inside Python.
@@ -74,7 +75,7 @@ How it works, and the one constraint that shapes all of it:
   `feed_publisher.py` (systemd `chukul-feed`) is that process. Nothing else may open one —
   whichever connects second evicts the first and the two fight for the rest of the session.
 - The publisher writes `Master_data/feed_snapshot.txt` every second. **Everything else reads that
-  file.** `ui.py` checks `feed_snap.publishing()` and yields; the API serves it through
+  file.** the API serves it through
   `/api/bar/<symbol>`, `/api/quotes?symbols=`, and `/api/depth`.
 - The browser opens **no** socket. It polls those routes at 1s. True push would need a second
   NAASA session, which does not exist.
@@ -95,4 +96,5 @@ in the frontend, and never poll `/api/bars` — that is the whole archive.
 Every board reads a PRE-COMPUTED `.txt`, so its numbers are only as fresh as the last time its
 script ran. Any UI that shows them must say which session they are from, and warn when the
 archive has moved past it — a stale read presented as current is the failure mode this project
-keeps hitting. See `ui.py:warn_if_behind_archive` for the rule the Next.js app must reproduce.
+keeps hitting. The rule the Next.js app must reproduce is in git: `git show d8a952a:ui.py` ->
+`warn_if_behind_archive`.

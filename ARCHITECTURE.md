@@ -1,7 +1,7 @@
 # Architecture — Python backend, Next.js frontend
 
 Decided 2026-08-20. This supersedes the "Python only" rule that previously governed the whole
-repo, and it is the reason `ui.py` is now legacy rather than the product.
+repo. `ui.py` was its last holdout and was deleted on 2026-08-21.
 
 ## The split
 
@@ -52,14 +52,14 @@ See the table in `CLAUDE.md` — that is the authoritative list. Two entries des
     *.py                 backend: maths, fetchers, scripts  (unchanged)
     api/                 the HTTP layer (Python)
     web/                 the Next.js app (TypeScript)
-    ui.py                LEGACY Streamlit — still live, frozen for new features
     Master_data/         the .txt archive (never in git)
 ```
 
 ## Migration stance
 
-`ui.py` stays running and correct until the Next.js app replaces it screen for screen. It is the
-reference implementation for behaviour — including the parts that were hard-won:
+Complete as of 2026-08-21: `ui.py` is gone and the Next.js app is the only frontend. It remains
+the reference implementation for behaviour — read it from git (`git show d8a952a:ui.py`) — and
+these parts were hard-won, so they must not be lost in the port:
 
 - a board must state its session and warn when the archive has moved past it
 - "AVOID" must not render in the success colour (it starts with "A")
