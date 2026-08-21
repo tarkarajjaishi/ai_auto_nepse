@@ -23,18 +23,24 @@ Four consequences of "load once" that are easy to get wrong:
   ``hist.broker_flow_series`` out of that one result; ``flow.ranking`` is called twice,
   not five times. Those three shortcuts alone took the worst symbol from 11.2 s to 5.8 s,
   and ``_demo`` asserts each still equals the function it stands in for.
-* The market-wide functions are deliberately NOT called per symbol.
-  ``hist.market_flow``/``sector_flow`` (spec 69-71) and ``network.broker_totals`` /
-  ``affinity`` / ``stock_rotation`` (spec 38-39) all take a *symbol list*; invoking them
-  inside one symbol's build turns it into a full market scan. Those sections appear in
-  the output with an explicit "not computed" row and the reason, rather than silently
-  missing.
+* The market-wide functions are deliberately NOT called per symbol. They all take a
+  *symbol list*, so invoking one inside a symbol's build turns that build into a full
+  market scan — 593 of them per run. Sections 69-71 are market facts (on a session they
+  are the SAME numbers in every detail file), so :func:`main` runs ``hist.market_pass``
+  **once** before the loop and hands the result to every ``build_symbol`` via ``market=``;
+  that argument defaults to None, so a direct single-symbol call still works and simply
+  reports those sections as not computed. Sections 38-39 (``network.broker_totals`` /
+  ``affinity`` / ``stock_rotation``) are not market facts — they are per-symbol answers
+  that happen to need the market — so they still carry an explicit "not computed" row and
+  the reason, rather than silently missing.
 * ``--upto`` is threaded into the single ``load_last`` call and nothing else reads the
   filesystem, so point-in-time is enforced in one place instead of sixty. ``zones`` and
   ``timeframes`` are handed ``history=ses`` for the same reason.
 
 MEASURED COST (this machine, warm page cache, HISTORY=120, sections 4-92 all live):
-``python -m swing_quantam --limit 10`` takes **11 s (1.1 s per symbol)**. The whole
+``python -m swing_quantam --limit 10`` takes **11 s (1.1 s per symbol)**, plus a flat
+**~45 s** for the sections 69-71 market pass that every run does once up front — measured
+at 40-46 s over six dates, and it does not grow with the number of symbols built. The whole
 archive — 593 symbols, of which 481 build and 112 are too thin — takes **1,339 s, i.e.
 22 minutes at 2.26 s per symbol attempted / 2.78 s per symbol built**. Do not size a run
 off the ten-symbol figure: it is optimistic because cost tracks TRADE count, not symbol
@@ -202,6 +208,107 @@ _HIST_METRICS = (
 
 _NOT_COMPUTED = "market-wide: takes a symbol list, would turn one symbol's build into a full market scan"
 
+#: Every money figure in sections 69-71 carries this. The market pass reads the prebuilt
+#: broker_flow tables, whose amount columns are summed from the floorsheet's *recorded*
+#: amount rather than quantity x rate — see loader.flow_rows.
+_INDICATIVE = "recorded floorsheet money, indicative only — the quantity columns are the trustworthy ones"
+
+
+def _market_sections(mp: hist.MarketPass) -> list[Section]:
+    """Sections 69-71 rendered from ONE ``hist.market_pass`` — see :func:`build_symbol`.
+
+    These are facts about the SESSION, not about the symbol: on a given day every one of
+    the 593 detail files gets the identical numbers here. That is exactly why the pass is
+    run once in :func:`main` and threaded in, instead of being computed per symbol.
+    """
+    src = (f"One session ({mp.date}), whole market, from the prebuilt broker_flow tables in "
+           f"{mp.seconds:.0f}s — {mp.active} of {mp.covered} symbols traded"
+           + (f", {mp.skipped} had no data at this date." if mp.skipped else "."))
+
+    s69 = [
+        Row("session", mp.date),
+        Row("transactions", mp.trades, "market-wide"),
+        Row("volume", mp.volume, "shares"),
+        Row("turnover", mp.turnover, _INDICATIVE),
+        Row("active stocks", mp.active, f"of {mp.covered} with floorsheet data"),
+        Row("active brokers", mp.brokers,
+            "near-constant at ~90 — a participation check, not a signal"),
+        Row("broker concentration hhi", mp.broker_hhi, "gross quantity across brokers"),
+        Row("buyer concentration hhi", mp.buyer_hhi, "buy quantity across brokers"),
+        Row("seller concentration hhi", mp.seller_hhi, "sell quantity across brokers"),
+        Row("top broker", mp.top_broker, "by gross quantity"),
+        Row("top broker share", mp.top_broker_share, "of market gross quantity"),
+        Row("top net buyer", mp.top_net_buyer, "by net quantity"),
+        Row("top net buyer share", mp.top_net_buyer_share, "its net quantity / market volume"),
+        Row("net buying brokers", mp.net_buyers, f"of {mp.brokers}"),
+        Row("net selling brokers", mp.net_sellers, f"of {mp.brokers}"),
+        Row("stocks accumulating", mp.accumulating, "section 69's market accumulation"),
+        Row("stocks distributing", mp.distributing, "section 69's market distribution"),
+    ] + [
+        Row(f"#{i} broker", b.broker,
+            f"gross {b.gross_qty:,} ({b.gross_share:.1%}), net {b.net_qty:+,} "
+            f"({b.net_share:+.2%} of volume), {b.symbols} stocks")
+        for i, b in enumerate(mp.ranking, 1)
+    ]
+
+    s70 = [
+        Row("stocks with positive net broker flow", mp.accumulating),
+        Row("stocks with negative net broker flow", mp.distributing),
+        Row("stocks flat", mp.flat, "tilt inside +/-0.01"),
+        Row("flow breadth", mp.breadth, "positive / (positive + negative)"),
+        Row("flow breadth pct", mp.breadth_pct),
+        Row("broker flow breadth", mp.broker_breadth,
+            f"{mp.net_buyers} of {mp.net_buyers + mp.net_sellers} brokers ended the session net long"),
+        Row("turnover breadth", mp.turnover_breadth,
+            "share of market turnover in positive-tilt stocks — " + _INDICATIVE),
+        Row("volume breadth", mp.volume_breadth, "share of market volume in positive-tilt stocks"),
+    ]
+
+    if mp.sectors:
+        covered = sum(s.volume for s in mp.sectors) / mp.volume if mp.volume else 0.0
+        s71 = [
+            Row("sectors", len(mp.sectors)),
+            Row("symbols mapped", mp.mapped, f"of {mp.requested} in the archive"),
+            Row("mapped share of market volume", covered, "how much of the session the rows below cover"),
+        ]
+        for s in sorted(mp.sectors, key=lambda x: -x.volume):
+            s71 += [
+                Row(f"{s.sector} volume", s.volume,
+                    f"{s.active}/{s.symbols} active, {s.trades:,} transactions, "
+                    f"turnover {s.turnover:,.0f} ({_INDICATIVE})"),
+                Row(f"{s.sector} net tilt", s.net_tilt,
+                    f"breadth {s.breadth:.2f} — {s.positive} positive, {s.negative} negative"),
+                Row(f"{s.sector} concentration", s.concentration,
+                    f"buying HHI across {s.brokers} brokers; top is broker {s.top_broker} "
+                    f"at {s.top_broker_share:.1%}"),
+                Row(f"{s.sector} rotation", s.rotation,
+                    f"{s.volume_share:.2%} of mapped volume this session vs {s.prior_share:.2%} "
+                    "over the prior 20"),
+            ]
+        n71 = (f"Sector is EXTERNAL (Master_data/sectors.txt) and never a floorsheet field. It maps "
+               f"{mp.mapped} of {mp.requested} symbols into {len(mp.sectors)} sectors, so the "
+               f"{mp.requested - mp.mapped} unmapped ones are in no row below. Sector buying and selling "
+               "are not shown: inside a sector every share bought is a share sold, so both are just "
+               "sector volume. Rotation shares are of the mapped universe and therefore sum to zero.")
+    else:
+        s71 = [Row("sectors", 0,
+                   "Master_data/sectors.txt is missing or empty — nothing to aggregate")]
+        n71 = ("Section 71 needs an external symbol -> sector map at Master_data/sectors.txt "
+               "(tab-separated, header symbol<TAB>sector). Sector is never inferred from trades.")
+
+    return [
+        Section(69, "Market-wide floorsheet analysis", tuple(s69),
+                src + " Market-wide net broker flow is not reported: summed across all brokers it is "
+                      "identically zero every session — every share bought is a share sold — so the "
+                      "distribution across brokers and stocks is reported instead."),
+        Section(70, "Market flow breadth", tuple(s70),
+                "A stock's own net broker flow is zero by construction, so \"positive\" means the flow "
+                "TILT: the top net buyer's share of volume minus the top net seller's. Measured below "
+                "0.5 on every session sampled over fourteen months (0.375-0.539) — read breadth against "
+                "its own history, not against 50%."),
+        Section(71, "Sector flow", tuple(s71), n71),
+    ]
+
 
 # ── the scoring layer (sections 74-92) ─────────────────────────────────────────────────
 
@@ -264,11 +371,17 @@ def _optional(mod, sessions, days):
 # ── the build ──────────────────────────────────────────────────────────────────────────
 
 
-def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY) -> store.Detail | None:
+def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
+                 market: hist.MarketPass | None = None) -> store.Detail | None:
     """Assemble every spec section for one symbol. None when there is too little history.
 
     ``upto`` is the point-in-time guard and is the only date this function trusts;
     ``history`` is how many sessions of context to read (see :data:`HISTORY`).
+
+    ``market`` is the once-per-build ``hist.market_pass`` result that sections 69-71 are
+    rendered from. It defaults to None so a single-symbol call still works — it just says
+    those sections were not computed, rather than kicking off a 593-symbol scan inside one
+    symbol's build.
     """
     symbol = symbol.upper()
     ses = loader.load_last(symbol, history, upto=upto)
@@ -658,8 +771,12 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY) -
         "Over the full loaded history for the top 30D net buyers. A persistent net buyer is the "
         "normal state of a broker, not a finding.")
 
-    add(69, "Market-wide floorsheet analysis", [Row("computed", False, _NOT_COMPUTED)],
-        "Sections 69-71 are market-level and are built by a market-wide pass, not per symbol.")
+    # ── 69-71: market-level, so computed ONCE per build in main() and handed in here ───
+    if market is None:
+        add(69, "Market-wide floorsheet analysis", [Row("computed", False, _NOT_COMPUTED)],
+            "Sections 69-71 are market-level and are built by a market-wide pass, not per symbol.")
+    else:
+        out += _market_sections(market)
 
     regs = hist.regimes(days)
     cur_reg = regs[-1] if regs else None
@@ -901,6 +1018,20 @@ def main(argv: list[str] | None = None) -> int:
         print("no symbols in the archive — nothing to build", file=sys.stderr)
         return 1
 
+    # Sections 69-71 are MARKET facts: on a given session they are the same numbers in
+    # every one of the 593 detail files. Compute them once, here, and thread them in —
+    # per symbol this would be 593 market scans. Over the whole archive, not just `syms`,
+    # because "the market" does not mean "the symbols this run happens to build". It reads
+    # the prebuilt broker_flow tables, so it is ~45 s whatever `syms` is.
+    market = hist.market_pass(loader.symbols(), upto=a.upto)
+    if not market.date:
+        print("market pass found no data — sections 69-71 will say so", file=sys.stderr)
+        market = None
+    else:
+        print(f"market pass: session {market.date}, {market.active} active symbols, "
+              f"{market.brokers} brokers, {len(market.sectors)} sectors, "
+              f"{market.skipped} skipped, in {market.seconds:.0f}s", flush=True)
+
     started = time.time()
     rows: list[dict] = []
     thin: list[str] = []
@@ -910,7 +1041,7 @@ def main(argv: list[str] | None = None) -> int:
     for i, sym in enumerate(syms, 1):
         t0 = time.time()
         try:
-            d = build_symbol(sym, upto=a.upto, history=a.history)
+            d = build_symbol(sym, upto=a.upto, history=a.history, market=market)
         except Exception as exc:
             failed.append((sym, f"{type(exc).__name__}: {exc}"))
             print(f"[{i:>4}/{len(syms)}] {sym:<12} FAILED  {type(exc).__name__}: {exc}", flush=True)
@@ -997,6 +1128,21 @@ def _demo() -> None:
     ahead = [(s.n, r.metric, r.value) for s in pit.sections for r in s.rows
              if isinstance(r.value, str) and len(r.value) == 10 and r.value[4] == "-" and r.value > cut]
     assert not ahead, f"rows dated past {cut}: {ahead[:5]}"
+
+    # Sections 69-71 come from the once-per-build market pass, threaded in — never from
+    # the symbol. A 25-symbol slice and a shallow build keep this a self-check rather
+    # than a 45-second market scan plus a third full build.
+    assert [s.n for s in d.sections if s.n in (69, 70, 71)] == [69], \
+        "without a market pass, 69 must stand alone with its not-computed note"
+    mp = hist.market_pass(loader.symbols()[:25])
+    md = build_symbol(sym, history=40, market=mp)
+    assert md is not None
+    assert [s.n for s in md.sections if s.n in (69, 70, 71)] == [69, 70, 71], \
+        f"market sections missing: {[s.n for s in md.sections]}"
+    assert [s.n for s in md.sections] == sorted(s.n for s in md.sections), "sections out of order"
+    m69 = next(s for s in md.sections if s.n == 69)
+    assert dict((x.metric, x.value) for x in m69.rows)["session"] == mp.date
+    assert all(s.rows and s.note for s in md.sections if s.n in (69, 70, 71))
 
     r = board_row(d)
     assert r["date"] == d.session and r["symbol"] == d.symbol

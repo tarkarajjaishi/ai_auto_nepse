@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import math
 import os
+import time
 from collections import Counter
 from typing import Callable, NamedTuple, Sequence
 
@@ -1385,6 +1386,360 @@ def sector_flow(symbols: Sequence[str], upto: str | None = None, n: int = 1) -> 
 
 
 # ---------------------------------------------------------------------------
+# sections 69-71 again — the WHOLE-market pass the builder actually runs
+# ---------------------------------------------------------------------------
+
+
+class BrokerRank(NamedTuple):
+    """Section 69's broker activity ranking: one broker, market-wide, one session."""
+
+    broker: int
+    gross_qty: int  # bought + sold across every stock it touched
+    gross_share: float  # of the market's gross quantity
+    net_qty: int
+    net_share: float  # signed, as a share of market volume
+    symbols: int  # how many stocks it traded
+
+    # No trade count: the broker_flow table records ONE combined count per broker-day
+    # with no honest buy/sell split, so a per-broker "trades" here would either double
+    # count or invent a split. Gross quantity and stocks touched are the activity.
+
+
+class SectorPass(NamedTuple):
+    """Section 71 — one sector on the session, plus its rotation against the window.
+
+    No ``buying``/``selling`` fields, deliberately: inside a sector every share
+    bought is a share sold, so sector buy quantity == sector sell quantity ==
+    ``volume`` on every sector, every day. Three columns of the same number is
+    what the nine cut metrics in this package all looked like. What is real is
+    how that volume is *distributed* — ``net_tilt``, ``breadth``,
+    ``concentration`` — and how the sector's share of the market moved.
+    """
+
+    sector: str
+    symbols: int  # mapped symbols that have a broker_flow table
+    active: int  # of those, how many traded on the session
+    volume: int
+    turnover: float  # recorded money — indicative, see :func:`market_pass`
+    trades: int
+    brokers: int
+    net_tilt: float  # mean per-stock (top net buyer share - top net seller share)
+    positive: int
+    negative: int
+    breadth: float
+    concentration: float  # HHI of buy quantity across the sector's brokers
+    top_broker: int | None
+    top_broker_share: float
+    # Shares are of the SECTOR-MAPPED universe, not of the whole market, so they sum
+    # to 1 and `rotation` sums to 0 — one sector can only gain share at another's
+    # expense, which is what rotation means. Against total market volume they were
+    # negative on all 13 sectors at once, because the ~308 unmapped symbols are a
+    # different fraction of volume on the session than over the window; that is a
+    # coverage artefact of sectors.txt, not sector rotation.
+    volume_share: float
+    prior_share: float  # the same share over the preceding `window` sessions
+    rotation: float  # volume_share - prior_share
+
+
+class MarketPass(NamedTuple):
+    """Sections 69 + 70 + 71 together — one scan, one session, the whole market."""
+
+    date: str  # the market's latest session at or before `upto`
+    requested: int
+    covered: int  # symbols with broker_flow rows at or before `upto`
+    skipped: int  # symbols with none — no table, or nothing yet at this date. Counted, never fatal
+    active: int  # symbols that actually traded on `date`
+    mapped: int  # symbols the external sector map covers, of `requested`
+    seconds: float  # measured cost of this pass, so the output can report it
+
+    # -- section 69 -----------------------------------------------------------
+    trades: int  # transactions, market-wide
+    volume: int
+    turnover: float  # recorded money — indicative only
+    brokers: int
+    broker_hhi: float  # concentration of gross activity across brokers
+    buyer_hhi: float
+    seller_hhi: float
+    top_broker: int | None
+    top_broker_share: float
+    top_net_buyer: int | None
+    top_net_buyer_share: float
+    net_buyers: int  # brokers that ended the session net long
+    net_sellers: int
+    ranking: tuple[BrokerRank, ...]
+
+    # Section 69's "market accumulation" and "market distribution" are these two counts
+    # and nothing more. :func:`market_flow` also renders them as a three-valued verdict
+    # ("market accumulation" above 0.6 breadth, "market distribution" below 0.4); that
+    # label is NOT carried here because it cannot say all three things. Measured over ten
+    # sessions spanning fourteen months, breadth ran 0.375-0.539 and never came near 0.6
+    # — the largest net seller in a stock is usually bigger than the largest net buyer,
+    # so the tilt is structurally negative. A verdict whose bullish branch is unreachable
+    # is the failure mode this repo already has a memo about.
+    accumulating: int  # stocks whose flow tilts to the buy side
+    distributing: int
+
+    # -- section 70 -----------------------------------------------------------
+    flat: int
+    breadth: float
+    breadth_pct: float
+    broker_breadth: float  # net-buying brokers / (net buyers + net sellers)
+    turnover_breadth: float
+    volume_breadth: float
+
+    # -- section 71 -----------------------------------------------------------
+    sectors: tuple[SectorPass, ...]
+
+
+def market_pass(symbols: Sequence[str], upto: str | None = None, window: int = 20) -> MarketPass:
+    """Sections 69-71 for the whole market, cheap enough to run once per build.
+
+    WHY THIS EXISTS NEXT TO :func:`market_flow`
+    ------------------------------------------
+    :func:`market_flow` re-parses the raw floorsheet, which is right when the money
+    has to be right (it recomputes ``quantity * rate``) but wrong for a build: a
+    market snapshot needs one session, a *rotation* needs twenty, and twenty
+    sessions x 593 symbols is ~12,000 floorsheet files. This one reads
+    ``Master_data/broker_flow/<SYM>.txt`` instead — ONE file per symbol, whatever
+    the window — and that is the only reason sections 69-71 are affordable at all.
+
+    The price of the fast path is money: ``buy_amount``/``sell_amount`` in that
+    table are summed from the floorsheet's *recorded* ``amount`` column, which is
+    unreliable in the 2022-era files. Every measure here that decides anything is
+    therefore a QUANTITY measure; ``turnover`` is carried because section 69 asks
+    for it and is labelled indicative wherever it is printed.
+
+    MEASURED COST: all 593 symbols in **33 s** warm-cache, and **40-46 s** measured
+    across six point-in-time dates. Nearly all of it is :func:`loader.flow_rows`
+    parsing the 11.5 M rows those tables hold (37 s on its own); the aggregation
+    below adds only a few seconds on top. Reported back as ``seconds`` so the
+    section can print what the run it belongs to actually cost.
+
+    WHAT IS DELIBERATELY NOT HERE
+    -----------------------------
+    "Market-wide net broker flow" from the spec's section 69 list is not a metric.
+    Summed across all brokers it is identically zero on every session forever —
+    every share bought is a share sold — exactly like the stock-level imbalance
+    :func:`brokers.stock_flow` already refuses to report. The non-degenerate
+    version is the DISTRIBUTION: how many brokers ended net long vs net short
+    (``net_buyers``/``net_sellers``, ``broker_breadth``) and how many stocks tilt
+    to the buy side (``accumulating``/``distributing``, ``breadth``). Same for the
+    sector version — see :class:`SectorPass`. There is no market accumulation/
+    distribution *verdict* either, for a measured reason recorded on the fields.
+
+    ``upto`` is the point-in-time guard, threaded into :func:`loader.flow_rows`
+    exactly as the per-symbol path threads it into ``load_last``. Symbols with no
+    broker_flow table are skipped and counted, never raised.
+    """
+    started = time.time()
+    smap = sector_map()
+
+    # Per symbol: its own last session, that session's per-broker aggregate, and the
+    # transaction count. Held for every symbol because the market's session is only
+    # known once every symbol has been read.
+    snap: dict[str, tuple[str, dict[int, brokers.BrokerDay], int]] = {}
+    mkt_vol: dict[str, int] = {}  # date -> market volume, for the rotation window
+    sec_vol: dict[str, dict[str, int]] = {}  # sector -> date -> volume
+    requested = len(symbols)
+    skipped = 0
+
+    for sym in symbols:
+        sym = sym.upper()
+        rows = loader.flow_rows(sym, upto=upto)
+        if not rows:
+            skipped += 1
+            continue
+        # build_broker_flow writes the table date-ascending, so the tail IS the recent
+        # window and walking backwards stops after ~20 sessions instead of aggregating
+        # all ~19,000 rows of full history each file holds. (flow_rows has already PARSED
+        # them all — that cost is unavoidable without touching loader — but this at least
+        # does not walk them a second time.) _demo pins that ordering: if the table ever
+        # stops being sorted, this reads the wrong window in silence rather than erroring.
+        last = rows[-1].date
+        agg: dict[int, brokers.BrokerDay] = {}
+        sides = 0
+        vol: dict[str, int] = {}
+        for r in reversed(rows):
+            if r.date not in vol:
+                if len(vol) > window:
+                    break
+                vol[r.date] = 0
+            vol[r.date] += r.bought
+            if r.date == last:
+                # trades is left at 0 on both sides on purpose: the table records ONE
+                # combined count per broker-day and there is no honest buy/sell split.
+                # The session's transaction count is recovered below instead.
+                bd = brokers.BrokerDay(r.broker, r.bought, r.buy_amount, 0, 0,
+                                       r.sold, r.sell_amount, 0, 0)
+                agg[r.broker] = agg[r.broker].plus(bd) if r.broker in agg else bd
+                sides += r.trades
+        # Every transaction increments the count for its buyer AND its seller, so the
+        # sum over brokers is two sides per trade.
+        snap[sym] = (last, agg, sides // 2)
+
+        sec = smap.get(sym)
+        by_sec = sec_vol.setdefault(sec, {}) if sec else None
+        for d, v in vol.items():
+            mkt_vol[d] = mkt_vol.get(d, 0) + v
+            if by_sec is not None:
+                by_sec[d] = by_sec.get(d, 0) + v
+
+    mapped = sum(1 for s in symbols if s.upper() in smap)
+    if not snap:
+        return MarketPass("", requested, 0, skipped, 0, mapped, time.time() - started,
+                          0, 0, 0.0, 0, 0.0, 0.0, 0.0, None, 0.0, None, 0.0, 0, 0, (),
+                          0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, ())
+
+    date = max(v[0] for v in snap.values())
+
+    market: dict[int, brokers.BrokerDay] = {}
+    bsym: dict[int, int] = {}
+    sec_brokers: dict[str, dict[int, brokers.BrokerDay]] = {}
+    sec_acc: dict[str, dict] = {}
+    for sym in snap:
+        sec = smap.get(sym)
+        if sec:
+            sec_acc.setdefault(sec, {"n": 0, "act": 0, "vol": 0, "to": 0.0, "tr": 0,
+                                     "tilt": [], "pos": 0, "neg": 0})["n"] += 1
+
+    active = trades = volume = pos = neg = flat = pos_vol = 0
+    turnover = pos_to = 0.0
+
+    for sym, (last, agg, txn) in snap.items():
+        if last != date or not agg:
+            continue
+        active += 1
+        f = brokers.stock_flow(agg)
+        trades += txn
+        volume += f.volume
+        turnover += f.turnover
+        # Same definition the per-symbol path uses (see __main__._daystats): the top net
+        # buyer's share of volume minus the top net seller's. A stock's own net flow is
+        # zero by construction; its tilt is not.
+        tilt = f.top_buyer_share - f.top_seller_share
+        if tilt > 0.01:
+            pos += 1
+            pos_vol += f.volume
+            pos_to += f.turnover
+        elif tilt < -0.01:
+            neg += 1
+        else:
+            flat += 1
+        for b, bd in agg.items():
+            market[b] = market[b].plus(bd) if b in market else bd
+            bsym[b] = bsym.get(b, 0) + 1
+        sec = smap.get(sym)
+        if not sec:
+            continue
+        sb = sec_brokers.setdefault(sec, {})
+        for b, bd in agg.items():
+            sb[b] = sb[b].plus(bd) if b in sb else bd
+        a = sec_acc[sec]
+        a["act"] += 1
+        a["vol"] += f.volume
+        a["to"] += f.turnover
+        a["tr"] += txn
+        a["tilt"].append(tilt)
+        if tilt > 0.01:
+            a["pos"] += 1
+        elif tilt < -0.01:
+            a["neg"] += 1
+
+    gross = sum(b.gross_qty for b in market.values())
+    buy_tot = sum(b.buy_qty for b in market.values())
+    sell_tot = sum(b.sell_qty for b in market.values())
+    tb = max(market.values(), key=lambda b: b.gross_qty, default=None)
+    tn = max(market.values(), key=lambda b: b.net_qty, default=None)
+    net_buyers = sum(1 for b in market.values() if b.net_qty > 0)
+    net_sellers = sum(1 for b in market.values() if b.net_qty < 0)
+
+    ranking = tuple(
+        BrokerRank(
+            broker=b.broker,
+            gross_qty=b.gross_qty,
+            gross_share=b.gross_qty / gross if gross else 0.0,
+            net_qty=b.net_qty,
+            net_share=b.net_qty / volume if volume else 0.0,
+            symbols=bsym.get(b.broker, 0),
+        )
+        for b in sorted(market.values(), key=lambda b: -b.gross_qty)[:10]
+    )
+
+    # The market's own recent calendar: the union of every symbol's trailing dates,
+    # last `window`+1 of them. A symbol cannot trade more than `window` times inside a
+    # `window`-session span, so its trailing slice always contains all of its trades in
+    # this range — the union is complete, not a sample.
+    prior = [d for d in sorted(mkt_vol)[-(window + 1):] if d < date]
+
+    # Both share denominators are the mapped universe — see SectorPass.
+    s_prior = {sec: sum(sec_vol.get(sec, {}).get(d, 0) for d in prior) for sec in sec_acc}
+    map_now = sum(a["vol"] for a in sec_acc.values())
+    map_prior = sum(s_prior.values())
+
+    sectors: list[SectorPass] = []
+    for sec, a in sorted(sec_acc.items()):
+        bk = sec_brokers.get(sec, {})
+        s_buy = sum(b.buy_qty for b in bk.values())
+        top = max(bk.values(), key=lambda b: b.buy_qty, default=None)
+        pn = a["pos"] + a["neg"]
+        share = a["vol"] / map_now if map_now else 0.0
+        p_share = s_prior[sec] / map_prior if map_prior else 0.0
+        sectors.append(SectorPass(
+            sector=sec,
+            symbols=a["n"],
+            active=a["act"],
+            volume=a["vol"],
+            turnover=a["to"],
+            trades=a["tr"],
+            brokers=len(bk),
+            net_tilt=sum(a["tilt"]) / len(a["tilt"]) if a["tilt"] else 0.0,
+            positive=a["pos"],
+            negative=a["neg"],
+            breadth=a["pos"] / pn if pn else 0.0,
+            concentration=sum((b.buy_qty / s_buy) ** 2 for b in bk.values()) if s_buy else 0.0,
+            top_broker=top.broker if top else None,
+            top_broker_share=(top.buy_qty / s_buy) if top and s_buy else 0.0,
+            volume_share=share,
+            prior_share=p_share,
+            rotation=share - p_share,
+        ))
+
+    breadth = pos / (pos + neg) if (pos + neg) else 0.0
+    return MarketPass(
+        date=date,
+        requested=requested,
+        covered=len(snap),
+        skipped=skipped,
+        active=active,
+        mapped=mapped,
+        seconds=time.time() - started,
+        trades=trades,
+        volume=volume,
+        turnover=turnover,
+        brokers=len(market),
+        broker_hhi=sum((b.gross_qty / gross) ** 2 for b in market.values()) if gross else 0.0,
+        buyer_hhi=sum((b.buy_qty / buy_tot) ** 2 for b in market.values()) if buy_tot else 0.0,
+        seller_hhi=sum((b.sell_qty / sell_tot) ** 2 for b in market.values()) if sell_tot else 0.0,
+        top_broker=tb.broker if tb else None,
+        top_broker_share=tb.gross_qty / gross if tb and gross else 0.0,
+        top_net_buyer=tn.broker if tn else None,
+        top_net_buyer_share=tn.net_qty / volume if tn and volume else 0.0,
+        net_buyers=net_buyers,
+        net_sellers=net_sellers,
+        ranking=ranking,
+        accumulating=pos,
+        distributing=neg,
+        flat=flat,
+        breadth=breadth,
+        breadth_pct=100.0 * breadth,
+        broker_breadth=net_buyers / (net_buyers + net_sellers) if (net_buyers + net_sellers) else 0.0,
+        turnover_breadth=pos_to / turnover if turnover else 0.0,
+        volume_breadth=pos_vol / volume if volume else 0.0,
+        sectors=tuple(sectors),
+    )
+
+
+# ---------------------------------------------------------------------------
 # sections 72-73 — regimes and transitions
 # ---------------------------------------------------------------------------
 
@@ -1707,8 +2062,30 @@ def _demo() -> None:
     try:
         assert sector_map() == {}, "missing sector map should be empty, not raise"
         assert sector_flow(slice_, n=1) == {}, "sector flow should be empty without a map"
+        assert market_pass(slice_).sectors == (), "market_pass must lose its sectors, not raise"
     finally:
         SECTORS = keep
+
+    # The whole-market pass the builder runs. Same slice, so this stays a self-check
+    # and not a 45-second market scan.
+    mp = market_pass(slice_)
+    assert mp.requested == len(slice_) and mp.covered + mp.skipped == mp.requested
+    assert mp.accumulating + mp.distributing + mp.flat == mp.active <= mp.covered
+    assert 0.0 <= mp.breadth <= 1.0 and 0.0 <= mp.broker_breadth <= 1.0
+    assert 0.0 <= mp.volume_breadth <= 1.0 and 0.0 <= mp.turnover_breadth <= 1.0
+    assert mp.volume > 0 and mp.trades > 0 and mp.brokers > 0
+    assert mp.ranking and mp.ranking[0].gross_qty >= mp.ranking[-1].gross_qty
+    # Rotation is zero-sum by construction; if it ever isn't, the two share
+    # denominators have drifted apart and every sector reads as rotating one way.
+    if mp.sectors:
+        assert abs(sum(s.rotation for s in mp.sectors)) < 1e-9, "sector rotation must sum to 0"
+        assert abs(sum(s.volume_share for s in mp.sectors) - 1.0) < 1e-9
+    # Point-in-time, and the backwards walk depends on the table being date-ascending:
+    # if it ever stops being sorted this reads the wrong window in silence.
+    cut = days[len(days) // 2].date
+    assert market_pass(slice_, upto=cut).date <= cut, "LEAK: market pass read past upto"
+    fr = loader.flow_rows(sym)
+    assert all(a.date <= b.date for a, b in zip(fr, fr[1:])), "broker_flow is no longer date-ascending"
 
     # -- sections 72-73 -----------------------------------------------------
     regs = regimes(days)
