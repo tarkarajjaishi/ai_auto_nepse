@@ -4,6 +4,9 @@ One reader for every board, because they all share a shape: a tab-separated file
 line. `ui.py` reads several of these POSITIONALLY (`int(r[9])`), which is exactly the fragility
 test_ops now pins — the JSON API returns named fields so the frontend can never inherit that.
 """
+from datetime import datetime, timedelta
+
+import market_hours
 from fetch_ohlc import MASTER
 
 # board -> the file it reads. The frontend asks for the board, not the filename.
@@ -68,15 +71,44 @@ def read(board):
         rows.append({c: (f[i] if c in _TEXT else _num(f[i])) for i, c in enumerate(cols)})
     session = max((r["date"] for r in rows if r.get("date")), default=None)
     newest = newest_bar()
+    benchmark = newest_completed()
     # `stale` is False when the session is UNKNOWN as well as when the board is current, and
     # those are not the same thing. Four boards shipped without a `date` column and every one of
     # them reported itself fresh forever — CLAUDE.md's named failure mode, four times over. The
     # producing scripts now emit `date`; this flag is here so the next board that forgets says
     # "I cannot tell" on screen instead of quietly claiming to be up to date.
     return {"rows": rows, "columns": cols, "session": session,
-            "stale": bool(session and newest and session < newest),
+            # Against the newest FINISHED session, not the newest bar. See newest_completed().
+            "stale": bool(session and benchmark and session < benchmark),
             "session_unknown": bool(rows) and session is None,
             "archive_session": newest, "missing": False}
+
+
+def newest_completed():
+    """The newest bar that belongs to a session that has FINISHED.
+
+    `newest_bar()` is what is on disk, and from 11:00 that includes today's partial bar because
+    the live writer keeps it current. A board rebuilt after last night's close is not out of date
+    just because a newer bar is still being written — judging it against that marked all eleven
+    boards stale from the opening bell.
+
+    So: today counts once the market has closed; while it is still trading the yardstick is the
+    previous trading day, taken from the same open/closed switch as everything else.
+    """
+    newest = newest_bar()
+    if not newest:
+        return newest
+    today = datetime.now(market_hours.NPT).date()
+    if newest != today.isoformat():
+        return newest                       # the archive has not reached today; nothing to adjust
+    if market_hours.session_now()[0] == "CLOSED":
+        return newest                       # today is over, so today is a fair comparison
+    day = today - timedelta(days=1)
+    for _ in range(14):                     # a bounded walk: holidays cannot spin this forever
+        if market_hours.is_trading_day(day):
+            return day.isoformat()
+        day -= timedelta(days=1)
+    return newest
 
 
 _bar_cache = {"stamp": None, "value": None}

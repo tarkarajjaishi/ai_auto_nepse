@@ -509,6 +509,55 @@ def test_freshness_is_never_reported_from_one_half():
              sum(1 for b in _tables.BOARDS if jobs.auto(b)), len(jobs.MANUAL)))
 
 
+def test_a_partial_bar_does_not_make_every_board_stale():
+    """A board is not out of date for being older than a bar that is still being written.
+
+    Making the system live had a side effect: live_1d keeps TODAY's partial bar in every 1D.txt
+    from 11:00, so `newest_bar()` becomes today at the opening bell — and every board, all of them
+    rebuilt after last night's close exactly as designed, started reporting itself stale. The
+    header pill read "11 BEHIND" for the whole session.
+
+    The boards were right; the yardstick was wrong. `newest_completed()` is today only once the
+    market has closed, and the previous trading day while it is still trading.
+    """
+    from api import tables as _t
+
+    real_newest, real_session, real_trading = _t.newest_bar, market_hours.session_now, \
+        market_hours.is_trading_day
+    try:
+        # Friday 2026-08-21, mid-session, and the archive already carries today's partial bar.
+        today = "2026-08-21"
+        _t.newest_bar = lambda: today
+        market_hours.is_trading_day = lambda d: d.weekday() in (0, 1, 2, 3, 4)
+
+        market_hours.session_now = lambda when=None: ("LIVE", 120)
+        got = _t.newest_completed()
+        assert got == "2026-08-20", (
+            "while the market trades, the yardstick must be the previous session, not today's "
+            "half-formed bar — got %r" % got)
+
+        market_hours.session_now = lambda when=None: ("CLOSED", None)
+        assert _t.newest_completed() == today, "after the close, today is a fair comparison"
+
+        # Monday: the walk back must skip the weekend rather than land on Sunday.
+        _t.newest_bar = lambda: "2026-08-24"
+        market_hours.session_now = lambda when=None: ("LIVE", 120)
+        # newest_completed compares newest_bar against the REAL today, so this only exercises the
+        # "archive has not reached today" path — which must return the bar untouched.
+        assert _t.newest_completed() == "2026-08-24"
+
+        # And an archive behind today is never adjusted, whatever the session says.
+        _t.newest_bar = lambda: "2026-08-10"
+        assert _t.newest_completed() == "2026-08-10"
+        _t.newest_bar = lambda: None
+        assert _t.newest_completed() is None, "no archive is not a date"
+    finally:
+        _t.newest_bar, market_hours.session_now, market_hours.is_trading_day = \
+            real_newest, real_session, real_trading
+
+    print("  partial bar         a forming bar does not mark every board stale")
+
+
 def test_open_orders_never_counts_a_filled_one():
     """A tile labelled "Open orders" may not count a trade that already executed.
 
@@ -1006,6 +1055,7 @@ def main():
     test_every_page_has_a_body()
     test_order_body_is_exactly_what_the_screen_sends()
     test_freshness_is_never_reported_from_one_half()
+    test_a_partial_bar_does_not_make_every_board_stale()
     test_open_orders_never_counts_a_filled_one()
     test_money_calls_never_auto_retry()
     test_order_ticket_is_not_on_a_timer()
