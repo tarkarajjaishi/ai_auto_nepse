@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "motion/react";
 import { AlertTriangle, CircleAlert, Inbox } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { BoardTable } from "@/components/board-table";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -59,6 +59,29 @@ export function BoardPage({
     placeholderData: (prev) => prev,
   });
 
+  // Live prices, per CLAUDE.md's live-data rule. A board is analysis computed at a session's
+  // close — but a `close` or `ltp` column on one is still a price, and during a session a stored
+  // close under a bare heading is the same lie as a stale board.
+  //
+  // Declared BEFORE the error return below: a hook after a conditional return changes hook order
+  // between renders, which React rejects outright.
+  const symbols = useMemo(
+    () =>
+      (q.data?.rows ?? [])
+        .map((r) => String(r.symbol ?? ""))
+        .filter(Boolean)
+        .slice(0, 400),          // the route's cap; no board is near it
+    [q.data],
+  );
+  const live = useQuery({
+    queryKey: ["quotes", "board", board],
+    queryFn: ({ signal }) => api.quotes(symbols, signal),
+    enabled: symbols.length > 0,
+    refetchInterval: 500,
+    retry: false,
+  });
+  const quotes = live.data?.fresh ? live.data.quotes : undefined;
+
   if (q.isError) {
     return (
       <div className="p-4 md:p-6">
@@ -73,7 +96,19 @@ export function BoardPage({
     );
   }
 
-  const rows = q.data?.rows ?? [];
+  // Only the columns that ARE a spot price. Everything else on the row is what a script decided
+  // at the close and stays exactly as written.
+  const rows = !quotes
+    ? (q.data?.rows ?? [])
+    : (q.data?.rows ?? []).map((r) => {
+        const t = quotes[String(r.symbol ?? "")];
+        if (!t) return r;
+        const out = { ...r };
+        if ("close" in r) out.close = t.ltp;
+        if ("ltp" in r) out.ltp = t.ltp;
+        if ("change_pct" in r && t.pct != null) out.change_pct = t.pct;
+        return out;
+      });
   const chosen = filters?.[active];
   const shown = chosen ? rows.filter(chosen.test) : rows;
 
@@ -137,8 +172,24 @@ export function BoardPage({
               </button>
             );
           })}
-          <span className="ml-auto font-mono text-[11px] text-muted-foreground">
-            {q.data?.session ?? "—"}
+          <span className="ml-auto flex items-center gap-2">
+            {quotes && (
+              <span
+                title={
+                  "close and change% are ticking off the NAASA socket" +
+                  (live.data?.age != null ? `, ${Math.round(live.data.age)}s old` : "") +
+                  ". Entry, stop, target and risk stay as this board computed them — so once " +
+                  "close moves, risk% no longer matches close-to-stop. That is the setup's " +
+                  "risk as decided, not a rounding error."
+                }
+                className="rounded bg-down/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide text-down"
+              >
+                live price
+              </span>
+            )}
+            <span className="font-mono text-[11px] text-muted-foreground">
+              {q.data?.session ?? "—"}
+            </span>
           </span>
         </div>
 

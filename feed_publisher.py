@@ -32,7 +32,8 @@ import live_1d
 import market_hours
 import naasa
 
-PUBLISH = 1.0        # snapshot -> disk. A screen polls at 1s; publishing slower just adds latency.
+PUBLISH = 0.5        # snapshot -> disk. Screens poll at 500ms; publishing slower than they
+                     # read just serves the same file twice and adds latency for nothing.
 FLUSH = 20           # today's bar -> the archive, matching ui.py's LIVE_1D_FLUSH
 IDLE = 2.0           # how often to re-check the switches while the market is shut
 RETRY = 5            # after a socket error

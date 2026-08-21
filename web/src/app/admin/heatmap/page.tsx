@@ -18,12 +18,12 @@ export default function HeatmapPage() {
   const hm = useQuery({
     queryKey: qk.heatmap,
     queryFn: ({ signal }) => api.heatmap(signal),
-    refetchInterval: 1000,
+    refetchInterval: 500,
   });
   const idx = useQuery({
     queryKey: qk.indices,
     queryFn: ({ signal }) => api.indices(signal),
-    refetchInterval: 1000,
+    refetchInterval: 500,
   });
 
   const sectors = hm.data?.sectors ?? [];

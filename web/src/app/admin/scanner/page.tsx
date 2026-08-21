@@ -78,6 +78,22 @@ function StrongSignals({ onPick }: { onPick: (symbol: string) => void }) {
   const [fresh, setFresh] = useState(FRESH_DEFAULT);
   const q = useQuery({ queryKey: qk.board("scan"), queryFn: ({ signal }) => api.board("scan", signal) });
 
+  // This list puts Close directly beside Stop / T1 / T2, so a stale close is read as the current
+  // price against the trade levels and the distance to the stop is computed off it. It has its own
+  // query, so it needs its own overlay — BoardPage's applies to the table below, not to this.
+  const symbols = useMemo(
+    () => (q.data?.rows ?? []).map((r) => String(r.symbol ?? "")).filter(Boolean).slice(0, 400),
+    [q.data],
+  );
+  const liveQ = useQuery({
+    queryKey: ["quotes", "board", "scan"],
+    queryFn: ({ signal }) => api.quotes(symbols, signal),
+    enabled: symbols.length > 0,
+    refetchInterval: 500,
+    retry: false,
+  });
+  const quotes = liveQ.data?.fresh ? liveQ.data.quotes : undefined;
+
   const { buys, sells } = useMemo(() => {
     const rows = q.data?.rows ?? [];
     const pick = (side: "BUY" | "SELL") =>
@@ -95,7 +111,10 @@ function StrongSignals({ onPick }: { onPick: (symbol: string) => void }) {
             risk <= 20
           );
         })
-        // freshest first, then by the size of the day's move
+        // Freshest first, then by the size of the day's move — deliberately the STORED move, not
+        // the live one. Ordering on a ticking number reshuffles the rows every second inside a
+        // 260px scroll box, which is worse than useless. The live price is displayed; the order
+        // is stable.
         .sort(
           (a, b) =>
             (num(a.badge_age) ?? 0) - (num(b.badge_age) ?? 0) ||
@@ -147,8 +166,8 @@ function StrongSignals({ onPick }: { onPick: (symbol: string) => void }) {
       </div>
 
       <div className="grid gap-px bg-border md:grid-cols-2">
-        <Side title="Strong buy" tone="up" rows={buys} onPick={onPick} />
-        <Side title="Strong sell" tone="down" rows={sells} onPick={onPick} />
+        <Side title="Strong buy" tone="up" rows={buys} quotes={quotes} onPick={onPick} />
+        <Side title="Strong sell" tone="down" rows={sells} quotes={quotes} onPick={onPick} />
       </div>
     </section>
   );
@@ -158,11 +177,14 @@ function Side({
   title,
   tone,
   rows,
+  quotes,
   onPick,
 }: {
   title: string;
   tone: "up" | "down";
   rows: Row[];
+  /** live ltp per symbol, when the socket has one */
+  quotes?: Record<string, { ltp: number; close: number | null; pct: number | null }>;
   onPick: (symbol: string) => void;
 }) {
   return (
@@ -202,7 +224,9 @@ function Side({
                   className="cursor-pointer border-t border-border/50 hover:bg-accent"
                 >
                   <td className="px-4 py-1.5 font-medium">{String(r.symbol)}</td>
-                  <td className="px-2 py-1.5 text-right font-mono tabular-nums">{fmt(r.close)}</td>
+                  <td className="px-2 py-1.5 text-right font-mono tabular-nums">
+                    {fmt(quotes?.[String(r.symbol)]?.ltp ?? r.close)}
+                  </td>
                   <td className="px-2 py-1.5 text-right font-mono tabular-nums text-down">
                     {fmt(r.stop)}
                   </td>

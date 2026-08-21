@@ -29,9 +29,10 @@ export function LiveDepth({ symbol }: { symbol: string }) {
   const q = useQuery({
     queryKey: ["depth", watch],
     queryFn: ({ signal }) => api.depth(watch, signal),
-    // 1s, matching the rest of the terminal. It reads one small file, so this is cheap — and
-    // unlike the account panels it touches no authenticated broker call.
-    refetchInterval: 1000,
+    // 500ms, matching the rest of the terminal and the publisher's own write interval. It reads
+    // one small file, so this is cheap — and unlike the account panels beside it, it touches no
+    // authenticated broker call, so polling fast costs NAASA nothing.
+    refetchInterval: 500,
     retry: false,
   });
 

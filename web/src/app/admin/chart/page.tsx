@@ -101,7 +101,7 @@ function ChartInner() {
   const live = useQuery({
     queryKey: ["live-bar", symbol],
     queryFn: ({ signal }) => api.liveBar(symbol, signal),
-    refetchInterval: 1000,
+    refetchInterval: 500,
     retry: false,
   });
   const liveBar = live.data?.fresh ? (live.data.bar ?? null) : null;

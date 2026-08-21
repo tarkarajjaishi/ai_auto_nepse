@@ -145,7 +145,7 @@ function RailInner() {
     queryKey: ["quotes", visible.join(",")],
     queryFn: ({ signal }) => api.quotes(visible, signal),
     enabled: wanted && visible.length > 0,
-    refetchInterval: 1000,
+    refetchInterval: 500,
     retry: false,
   });
   const quotes = live.data?.fresh ? live.data.quotes : undefined;
