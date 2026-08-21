@@ -499,6 +499,8 @@ export type Order = {
   price: number | null;
   status: string | null;
   time: string | null;
+  /** still live? decided server-side by the same rule that decides if it may be cancelled */
+  working: boolean;
 };
 
 export type Collateral = { configured: boolean; fields: Record<string, number | null> };
@@ -609,8 +611,16 @@ export const api = {
   /** Read-only. There is deliberately no place/modify/cancel here, and none on the server. */
   holdings: (signal?: AbortSignal) =>
     get<{ configured: boolean; rows: Holding[]; count: number }>("/api/account/holdings", signal),
+  /**
+   * `count` is every order the book returned TODAY, filled ones included — that is what the
+   * endpoint returns. `working` is the subset still live, decided by the same rule that decides
+   * whether a row may be cancelled. A screen labelling something "open" must use `working`.
+   */
   orderbook: (signal?: AbortSignal) =>
-    get<{ configured: boolean; rows: Order[]; count: number }>("/api/account/orderbook", signal),
+    get<{ configured: boolean; rows: Order[]; count: number; working: number; done: number }>(
+      "/api/account/orderbook",
+      signal,
+    ),
   collateral: (signal?: AbortSignal) => get<Collateral>("/api/account/collateral", signal),
   /** Status of the saved broker logins. `probe` actually calls the broker — slow, so opt-in. */
   auth: (probe = false, signal?: AbortSignal) =>

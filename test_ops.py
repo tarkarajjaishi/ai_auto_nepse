@@ -508,6 +508,30 @@ def test_freshness_is_never_reported_from_one_half():
              sum(1 for b in _tables.BOARDS if jobs.auto(b)), len(jobs.MANUAL)))
 
 
+def test_open_orders_never_counts_a_filled_one():
+    """A tile labelled "Open orders" may not count a trade that already executed.
+
+    The order book returns TODAY's orders with the filled ones in it. `count` was the only number
+    the API sent, and the account page bound its "Open orders" tile straight to it — so a trade
+    that executed at 12:52 was displayed as still working, on the money screen.
+
+    `naasa.order_is_working` already decided this everywhere else; it simply was not imported
+    under api/. This pins the split, and that the screen reads the right half of it.
+    """
+    src = Path("api/account.py").read_text(encoding="utf-8")
+    assert "order_is_working" in src,         "api/account.py no longer asks whether an order is working"
+    for key in ('"working"', '"done"'):
+        assert key in src, "the orderbook response no longer carries %s" % key
+
+    page = Path("web/src/app/admin/account/page.tsx").read_text(encoding="utf-8")
+    i = page.find('label="Open orders"')
+    assert i != -1, "the Open orders tile is gone from the account page"
+    tile = page[i:i + 400]
+    assert "orders.data?.working" in tile,         'the "Open orders" tile must read `working`, not `count` — count includes filled orders'
+
+    print("  open orders         a filled trade is not an open order (api + tile agree)")
+
+
 def test_money_calls_never_auto_retry():
     """x_report retries once on a stale session. A transport error can fire AFTER the exchange has
     accepted an order, so retrying a place would DUPLICATE it. Both money paths must opt out —
@@ -981,6 +1005,7 @@ def main():
     test_every_page_has_a_body()
     test_order_body_is_exactly_what_the_screen_sends()
     test_freshness_is_never_reported_from_one_half()
+    test_open_orders_never_counts_a_filled_one()
     test_money_calls_never_auto_retry()
     test_order_ticket_is_not_on_a_timer()
     test_board_writers_emit_exactly_their_header()

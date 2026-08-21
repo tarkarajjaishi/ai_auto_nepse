@@ -142,8 +142,18 @@ def orderbook():
             "price": _num(r.get("Price")),
             "status": r.get("OrderStatus"),
             "time": r.get("BrokerOrderTime"),
+            # Whether this row is still live, decided by the SAME function the Streamlit page uses
+            # to decide whether it may be cancelled. Sending it per row means a screen never has to
+            # re-derive "open" from the status string and reach a different answer.
+            "working": naasa.order_is_working(r),
         })
-    return {"rows": [r for r in out if r["symbol"]], "count": len(out)}
+    kept = [r for r in out if r["symbol"]]
+    working = sum(1 for r in kept if r["working"])
+    # `count` is every order the book returned TODAY -- filled ones included, because that is what
+    # the endpoint returns. It was the only number sent, and the screen labels its tile "Open
+    # orders", so a trade that executed at 12:52 was counted and shown as still working.
+    return {"rows": kept, "count": len(kept), "working": working,
+            "done": len(kept) - working}
 
 
 def collateral():

@@ -117,10 +117,19 @@ export default function AccountPage() {
               tone={day == null ? "default" : day >= 0 ? "up" : "down"}
               loading={holdings.isPending}
             />
+            {/* WORKING, not count. The order book returns today's orders with the filled ones
+                in it, so `count` under an "Open orders" label counted a trade that executed at
+                lunchtime as still live. The sub-line keeps the completed ones visible rather
+                than hiding them — they are the day's activity. */}
             <StatTile
               index={4}
               label="Open orders"
-              value={num(orders.data?.count, 0)}
+              value={num(orders.data?.working, 0)}
+              note={
+                orders.data && orders.data.done > 0
+                  ? `${orders.data.done} completed today`
+                  : undefined
+              }
               loading={orders.isPending}
             />
           </div>
@@ -161,7 +170,7 @@ export default function AccountPage() {
             count={orders.data?.count}
             error={orders.error}
             loading={orders.isPending}
-            empty="No open orders."
+            empty="No orders today."
             head={["Symbol", "Side", "Qty", "Remaining", "Price", "Status", "Time"]}
             rows={orders.data?.rows ?? []}
             render={(r: Order, i: number) => (
