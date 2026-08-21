@@ -189,11 +189,17 @@ def route(path, query):
                                   if known else f"no such symbol {arg.upper()!r}",
                          "known_symbol": known}
         newest = tables.newest_bar()
+        # Judged against the newest FINISHED session, not the newest bar on disk -- the same
+        # yardstick tables.read() uses for every other board. newest_bar() includes today's
+        # partial bar from 11:00, so comparing against it marked this page stale from the
+        # opening bell while /api/boards called the very same file fresh. Two routes reading one
+        # board and disagreeing about its freshness is worse than either answer alone.
+        benchmark = tables.newest_completed()
         return 200, {
             "symbol": d.symbol,
             "session": d.session,
             "archive_session": newest,
-            "stale": bool(d.session and newest and d.session < newest),
+            "stale": bool(d.session and benchmark and d.session < benchmark),
             # `stale` is False when the session is UNKNOWN as well as when it is current, and
             # those are not the same fact. Without this flag a detail file that lost its session
             # line takes the fresh branch and the page reports week-old numbers as today's --
