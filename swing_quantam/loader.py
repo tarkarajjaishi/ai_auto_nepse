@@ -3,17 +3,41 @@
 Every other module in this package codes against the types defined here. Nothing
 else in the package touches the filesystem for floorsheet rows.
 
-Two hard-won rules are baked in and must not be relaxed:
+Three hard-won rules are baked in and must not be relaxed:
 
 1. Numeric columns are parsed with ``int(float(x))``. The 2022-era files (and some
    2025 ones) write quantities as ``50.0``; a plain ``int()`` raises and, if the
    caller skips bad rows quietly, a whole session yields zero trades. That looked
    in practice like NABIL having 227 usable sessions out of 1056 — a 79% silent
    loss that reads as "the symbol didn't trade back then".
-2. The recorded ``amount`` column is unreliable across eras, so ``Trade.amount``
-   is always recomputed as ``quantity * rate``. The recorded value is kept as
-   ``source_amount`` purely so the spec's ``amount ~= quantity x rate`` check has
-   something to compare against.
+2. **The broker columns are not always numeric.** NEPSE's dealer account trades
+   under the code ``D01``, and parsing the broker cell with ``int()`` threw on it
+   and dropped the row — BOTH sides of it. See :func:`broker_id` and
+   :data:`DEALERS` for the reserved-id scheme that fixes it, and :func:`_demo`
+   for the external-oracle check that catches it if it ever comes back.
+3. ``Trade.amount`` is recomputed as ``quantity * rate``, and ``source_amount``
+   keeps the recorded value for the spec's ``amount ~= quantity x rate`` check.
+
+   The reason is NOT that the recorded column is unreliable — that claim was in
+   this docstring for a long time and it is false. Measured over the whole
+   archive (9,614,462 trades, 2022-2026): every row has an ``amount``, and not
+   one of them disagrees with ``quantity * rate``. The column is exact.
+
+   It is recomputed because it must be DERIVED rather than READ, for two
+   reasons that survive the column being correct. First, ``amount`` is the only
+   field in the row that is redundant with two others, so reading it throws away
+   the one cross-check the floorsheet gives us for free; recomputing turns it
+   into an assertion instead (that is what ``amount_mismatch`` counts, and on
+   this archive it is always 0 — a non-zero count means the file is corrupt, not
+   that the era is old). Second, an ``amount`` that is read cannot be kept
+   consistent with a ``quantity`` that this parser has already coerced, so a
+   ``50.0`` quantity truncated to ``50`` would silently leave turnover computed
+   off a different quantity than volume. Every money figure in this package is
+   therefore ``quantity * rate`` of the quantity actually used.
+
+   ``1D.txt``'s ``amount`` column is a DIFFERENT column and genuinely is mostly
+   absent (populated on 37 of 27,759 symbol-sessions). Do not conflate the two:
+   :func:`bars` does not read it.
 
 Pure stdlib on purpose: this runs on a RAM-starved VPS beside the stdlib-only API.
 """
@@ -38,6 +62,79 @@ HEADER = ("buyer", "seller", "quantity", "rate", "amount", "transaction")
 VALID, WARNING, INVALID = "VALID", "WARNING", "INVALID"
 
 
+# --------------------------------------------------------------------------
+# broker identity — see rule 2 in the module docstring
+# --------------------------------------------------------------------------
+
+#: Reserved id floor for non-member participants. Real NEPSE member codes are small
+#: positive integers: measured over the WHOLE archive (307,969 files, 69,526,892
+#: rows) they run **1 to 101**. Nothing here can collide with one.
+DEALER_BASE = 900_000
+
+
+class _Code(int):
+    """A broker id that renders as its NEPSE code instead of its number.
+
+    ``broker`` is an ``int`` everywhere in this package — dict key, sort key, rank,
+    Counter key. NEPSE's dealer account is written ``D01``, which is not one, and
+    the parser used to throw on it and drop the row. Retyping ``broker`` to ``str``
+    would ripple through every module; giving the dealer a reserved integer that
+    knows its own label does not.
+
+    An instance IS an int: it hashes, sorts, compares and keys identically to the
+    number it carries, so every ``dict[int, ...]``, ``sorted()``, ``max()`` and
+    ``Counter`` in the package keeps working untouched. It only differs in how it
+    prints — ``str()``, ``repr()`` and every f-string render ``D01``, which means
+    ``store._fmt`` and all board output get the real code for free rather than a
+    bare sentinel number. (An explicit numeric format spec such as ``{:,}`` still
+    shows the sentinel; no broker id on this board is formatted that way.)
+    """
+
+    def __new__(cls, value: int, label: str) -> "_Code":
+        self = super().__new__(cls, value)
+        self.label = label
+        return self
+
+    def __str__(self) -> str:
+        return self.label
+
+    __repr__ = __str__
+
+
+#: Every non-numeric participant code the archive actually contains. The full scan
+#: found exactly one: ``D01``, on 9,315 rows (5,385 buyer-side, 3,930 seller-side)
+#: across 82 symbols, confined to 2022-01-25 .. 2023-06-07. Singletons on purpose —
+#: one object per code, so identity as well as equality holds.
+DEALERS: dict[str, _Code] = {"D01": _Code(DEALER_BASE + 1, "D01")}
+
+
+def is_dealer(broker: int) -> bool:
+    """Is this id a dealer account rather than a member broker?
+
+    A dealer trades its own book; a member broker executes for clients. They are
+    genuinely different kinds of participant, so anything that counts brokers,
+    measures breadth or reports concentration should say when one is in the mix
+    rather than quietly folding it into the broker population.
+    """
+    return broker >= DEALER_BASE
+
+
+def broker_id(cell: str) -> int:
+    """Parse one broker column into a stable id. Raises ValueError if unrecognised.
+
+    Raising on an *unknown* non-numeric code is deliberate: it is the honest
+    outcome, and :func:`load` counts it under its own quality warning rather than
+    burying it in "unparsable rows". If NEPSE ever adds a second dealer or a
+    special account, that warning is what surfaces it — add it to :data:`DEALERS`
+    and the rows come back.
+    """
+    text = cell.strip()
+    code = DEALERS.get(text.upper())
+    if code is not None:
+        return code
+    return int(_num(text))
+
+
 class Trade(NamedTuple):
     """One executed transaction. Only fields the floorsheet actually records."""
 
@@ -56,6 +153,10 @@ class Quality(NamedTuple):
     rows_total: int  # data rows seen in the file
     rows_kept: int  # rows that survived validation
     warnings: tuple[str, ...]
+    #: Kept rows with a dealer account on either side. NOT a defect and NOT in
+    #: ``warnings`` — it is a composition fact, reported so a dealer never counts
+    #: silently as an ordinary member broker. See :func:`is_dealer`.
+    dealer_rows: int = 0
 
 
 class Session(NamedTuple):
@@ -138,6 +239,8 @@ def load(symbol: str, date: str) -> Session | None:
     trades: list[Trade] = []
     warnings: list[str] = []
     unparsed = 0
+    unknown_code = 0
+    dealer_rows = 0
     nonpositive = 0
     amount_mismatch = 0
     seen_contracts: set[str] = set()
@@ -150,9 +253,16 @@ def load(symbol: str, date: str) -> Session | None:
         if len(parts) < 6:
             unparsed += 1
             continue
+        # Broker cells are parsed separately from the numeric ones so an unrecognised
+        # participant code is reported as itself instead of hiding inside "unparsable
+        # rows" — that conflation is exactly how D01 stayed invisible for so long.
         try:
-            buyer = int(_num(parts[0]))
-            seller = int(_num(parts[1]))
+            buyer = broker_id(parts[0])
+            seller = broker_id(parts[1])
+        except ValueError:
+            unknown_code += 1
+            continue
+        try:
             qty = int(_num(parts[2]))
             rate = _num(parts[3])
             src_amount = _num(parts[4])
@@ -182,12 +292,20 @@ def load(symbol: str, date: str) -> Session | None:
         else:
             seen_rows.add(key)
 
+        if is_dealer(buyer) or is_dealer(seller):
+            dealer_rows += 1
         trades.append(Trade(buyer, seller, qty, rate, amount, contract, src_amount))
 
     total = len(lines)
     kept = len(trades)
     if unparsed:
         warnings.append(f"{unparsed} unparsable rows")
+    if unknown_code:
+        warnings.append(f"{unknown_code} rows with an unrecognised broker code")
+    # NOTE: dealer_rows is deliberately NOT a warning. A dealer trade is a real NEPSE
+    # trade and this session is not defective for containing one — filing it as a
+    # defect would flip clean sessions to WARNING and make the status column lie in
+    # the opposite direction. It travels as its own Quality field instead.
     if nonpositive:
         warnings.append(f"{nonpositive} rows with a non-positive quantity/rate/broker")
     if amount_mismatch:
@@ -211,7 +329,8 @@ def load(symbol: str, date: str) -> Session | None:
     else:
         status = VALID
 
-    return Session(symbol, date, tuple(trades), Quality(status, score, total, kept, tuple(warnings)))
+    return Session(symbol, date, tuple(trades),
+                   Quality(status, score, total, kept, tuple(warnings), dealer_rows))
 
 
 def load_last(symbol: str, n: int, upto: str | None = None) -> list[Session]:
@@ -307,10 +426,15 @@ def flow_rows(symbol: str, upto: str | None = None) -> list[FlowRow]:
 
     Two caveats, both real:
 
-    * The money columns are summed from the floorsheet's **recorded** ``amount``,
-      which is unreliable in the 2022-era files. Quantities are trustworthy;
-      treat ``buy_amount``/``sell_amount`` as indicative and recompute from raw
-      trades (``quantity * rate``) whenever the figure actually matters.
+    * The money columns are summed from the floorsheet's **recorded** ``amount``.
+      That used to be described here as unreliable in the 2022-era files; it is
+      not — the recorded column was measured across the whole archive and agrees
+      with ``quantity * rate`` on every row (see rule 3 in the module docstring).
+      What is genuinely true is narrower: these are SUMS taken by a different
+      program, rounded to one decimal on write, so they are not guaranteed to
+      match a total this package recomputes to the last paisa. Cross-check a
+      money figure against raw trades when the last decimal matters; do not
+      distrust it because of its era.
     * There is no trade-level detail here at all — no rates, no sizes, no
       counterparties. Trade-size, fragmentation, volume-at-price, broker pairs and
       the execution network all still need :func:`load`.
@@ -334,7 +458,10 @@ def flow_rows(symbol: str, upto: str | None = None) -> list[FlowRow]:
                 out.append(
                     FlowRow(
                         p[0],
-                        int(float(p[1])),
+                        # build_broker_flow.py keeps the broker cell verbatim, so this
+                        # column carries "D01" too. It used to be int()'d and dropped —
+                        # the same bug as in load(), on the fast path.
+                        broker_id(p[1]),
                         int(float(p[2])),
                         int(float(p[3])),
                         float(p[5]),
@@ -391,6 +518,52 @@ def _demo() -> None:
     # Adjusted bars are a different series from raw ones and must not be swapped.
     adj = adjusted_bars(sym, upto=cut)
     assert all(b.date <= cut for b in adj)
+
+    # ── the D01 regression: an EXTERNAL oracle, because no internal check can see it ──
+    #
+    # This parser silently discarded every trade involving NEPSE's dealer account D01,
+    # because the broker cell was int()'d and "D01" is not a number: 9,315 rows over 82
+    # symbols, confined to 2022-01-25..2023-06-07.
+    #
+    # WHY NO EXISTING ASSERT CAUGHT IT, and why a new conservation assert never would:
+    # a dropped row removes a buyer AND a seller of exactly equal size, so every
+    # internal identity still balances perfectly on a session whose total is wrong.
+    # brokers._demo's `sum(net_qty) == 0`, `buy_qty == sell_qty == volume` and
+    # `gross_qty == 2 * volume` were all GREEN the entire time. Self-consistency is
+    # structurally incapable of detecting an ingest bug — it only proves the rows we
+    # kept are coherent with each other, never that we kept all of them.
+    #
+    # So this compares against something the parser cannot influence: 1D.txt's volume,
+    # which is NEPSE's own published daily total. Of the 77 affected sessions with a
+    # bar, 77/77 match the floorsheet WITH D01 and 0/77 match it without. Two of the
+    # worst cases are asserted here; both are single-session reads, so this is cheap.
+    #
+    #   NMB50 2023-03-30 — every trade that day involved D01: the engine reported 0
+    #                      shares against a true 10,000. A -100% session.
+    #   NBL   2023-01-02 — 49,063 reported against a true 56,863.
+    for tie_sym, tie_date, official in (("NMB50", "2023-03-30", 10_000),
+                                        ("NBL", "2023-01-02", 56_863)):
+        ts = load(tie_sym, tie_date)
+        if ts is None:
+            continue  # this archive slice does not carry the symbol; nothing to prove
+        assert ts.volume == official, (
+            f"{tie_sym} {tie_date}: floorsheet totals {ts.volume:,} shares but NEPSE "
+            f"published {official:,}. Rows are being dropped on ingest — check for a "
+            f"broker code the parser cannot read (this is exactly how D01 was lost)."
+        )
+        bar = next((b for b in bars(tie_sym, upto=tie_date) if b.date == tie_date), None)
+        assert bar is not None and int(bar.volume) == ts.volume, (
+            f"{tie_sym} {tie_date}: floorsheet {ts.volume:,} vs 1D.txt "
+            f"{bar.volume if bar else None} — the external oracle disagrees"
+        )
+        assert ts.quality.dealer_rows > 0, f"{tie_sym} {tie_date} must show its dealer rows"
+        assert any(is_dealer(t.buyer) or is_dealer(t.seller) for t in ts.trades)
+
+    # A dealer must be distinguishable and must print as its real code, not a sentinel.
+    d01 = DEALERS["D01"]
+    assert is_dealer(d01) and not is_dealer(101), "101 is a real member code, not a dealer"
+    assert str(d01) == "D01" and f"{d01}" == "D01", "a dealer must render as D01"
+    assert d01 == DEALER_BASE + 1 and sorted([d01, 5])[0] == 5, "a dealer id is still an int"
 
     print(f"loader ok — {sym}: {len(dates)} sessions, {ratio:.1%} parsed, latest {dates[-1]}")
     print(f"  {s.date}: {len(s.trades)} trades, {s.volume:,} shares, vwap {s.vwap:.2f}, {s.quality.status}")

@@ -226,8 +226,12 @@ _NOT_COMPUTED = "market-wide: takes a symbol list, would turn one symbol's build
 
 #: Every money figure in sections 69-71 carries this. The market pass reads the prebuilt
 #: broker_flow tables, whose amount columns are summed from the floorsheet's *recorded*
-#: amount rather than quantity x rate — see loader.flow_rows.
-_INDICATIVE = "recorded floorsheet money, indicative only — the quantity columns are the trustworthy ones"
+#: amount rather than being recomputed here — see loader.flow_rows.
+#:
+#: This used to say the recorded amount was unreliable. It is not: measured across the whole
+#: archive it agrees with quantity x rate on every row. The real caveat is only that these are
+#: another program's sums, rounded on write, so they need not match to the last paisa.
+_INDICATIVE = "summed by build_broker_flow and rounded on write — exact to the rupee, not the paisa"
 
 
 def _market_sections(mp: hist.MarketPass) -> list[Section]:
@@ -540,10 +544,24 @@ def _evidence_sections(s, upto: str | None = None) -> list[Section]:
                 f"non-overlapping holding periods; baseline "
                 f"{_num(s, 'baseline.max_drawdown', '{:.1%}')}"),
             Row("date-demeaned excess", _num(s, "zone_buy.excess_mean"),
-                f"median {_num(s, 'zone_buy.excess_median')}, control p "
-                f"{_num(s, 'zone_buy.control_p', '{:.2f}')}, positive in "
+                f"median {_num(s, 'zone_buy.excess_median')}, "
+                f"{_num(s, 'zone_buy.excess_lfo')} against the same day's NON-members "
+                f"(the board's own signal is inside the universe mean it is compared with, "
+                f"which flatters it), positive in "
                 f"{s.get('zone_buy.years_positive', '?')}/{s.get('zone_buy.years', '?')} years "
                 f"-> {s.get('zone_buy.verdict', 'not computed')}"),
+            Row("is it worse than random?",
+                "not computed" if s.num("zone_buy.control_p_low") is None else
+                ("YES — significantly negative"
+                 if (s.num("zone_buy.control_p_low") or 1.0) < 0.05 else
+                 "not distinguishable from chance"),
+                f"lower-tail control p {_num(s, 'zone_buy.control_p_low', '{:.4f}')} — the share "
+                f"of {s.get('control_draws', '?')} date-matched random draws that did as badly as "
+                f"the rule or worse. Upper tail {_num(s, 'zone_buy.control_p', '{:.4f}')}. "
+                f"Per-year excess: {s.get('zone_buy.year_excess', 'not computed')}"),
+            Row("beat the same-day universe", _num(s, "zone_buy.excess_win_rate", "{:.1%}"),
+                f"of the time, against the baseline's "
+                f"{_num(s, 'baseline.excess_win_rate', '{:.1%}')} on the same dates"),
             Row("baseline mean", _num(s, "baseline.mean"),
                 f"median {_num(s, 'baseline.median')} — buy-and-hold EVERY stock-day on the "
                 f"same dates. The median is negative while the mean is positive: a thin tail "
@@ -554,7 +572,22 @@ def _evidence_sections(s, upto: str | None = None) -> list[Section]:
                f"study run {s.get('run_date', 'unknown')}. Entry is the NEXT session's open on "
                f"corporate-action ADJUSTED bars. A positive expected value here is mostly the "
                f"market rising over the window — the only column that says the RULE knew "
-               f"anything is the date-demeaned excess, and for zone_buy it is negative.")
+               f"anything is the date-demeaned excess, and for zone_buy it is negative"
+               + ("." if (s.num("zone_buy.control_p_low") or 1.0) >= 0.05 else
+                  f", significantly so. This is not 'unproven': the excess is "
+                  f"{_num(s, 'zone_buy.excess_mean')} mean and "
+                  f"{_num(s, 'zone_buy.excess_median')} median, "
+                  f"{_num(s, 'zone_buy.excess_lfo')} against the stocks it passed over, it beat "
+                  f"the same-day universe only "
+                  f"{_num(s, 'zone_buy.excess_win_rate', '{:.1%}')} of the time, it was negative "
+                  f"in {s.get('zone_buy.years_negative', '?')} of "
+                  f"{s.get('zone_buy.years', '?')} years, and the chance of a random date-matched "
+                  f"selection doing this badly is "
+                  f"{_num(s, 'zone_buy.control_p_low', '{:.4f}')}. Zones fire every "
+                  f"{s.get('zone_stride', '?')} sessions against a "
+                  f"{s.get('horizon', '?')}-session horizon, so these observations do not overlap "
+                  f"and that p-value needs no discount. The BUY ZONE this board prints is, on "
+                  f"this evidence, worse than picking at random from the same day's universe."))
 
     # ── 94-96: the screened broker tables ─────────────────────────────────────────────
     s94 = _edge_rows(s, 94, gone, why)
@@ -597,7 +630,12 @@ def _evidence_sections(s, upto: str | None = None) -> list[Section]:
                 f"the study took {s.get('runtime_seconds', '?')}s and is NOT re-run per board "
                 f"build — these numbers are as old as this date"),
             Row("universe", s.get("universe", "?"),
-                "symbols, liquidity-stratified, survivorship-biased by construction"),
+                "symbols, liquidity-stratified. The universe filter's survivorship clause is a "
+                "no-op — it drops 3 symbols that have no price bars at all. What it really "
+                "excludes is 69 symbols listed after the window opened, and those returned MORE "
+                "than the ones kept, so this universe is selection-DEPRESSED at the median, not "
+                "flattered. Every comparison below is within it, against the same symbols on the "
+                "same dates, so the level cancels either way"),
             Row("observations", s.get("observations", "?"),
                 f"stock-days over {s.get('decision_dates', '?')} decision dates"),
             Row("window", f"{s.get('start', '?')} -> {s.get('end', '?')}",
@@ -623,10 +661,13 @@ def _evidence_sections(s, upto: str | None = None) -> list[Section]:
                                f"n {f.n}, below the {s.get('min_obs', '30')}-observation floor "
                                f"— no rate is reported off a sample that small"))
                 continue
+            tail = (f"lower-tail p {f.control_p_low:.4f}" if f.verdict == "NEGATIVE"
+                    else f"control p {f.control_p:.4f}")
             s98.append(Row(f.name, f.verdict,
                            f"n {f.n:,}, win {f.win:.1%}, mean {f.mean:+.2%}, "
-                           f"median {f.median:+.2%}, EXCESS {f.excess:+.2%}, control p "
-                           f"{f.control_p:.2f}, positive in {f.years_positive}/{f.years} years"))
+                           f"median {f.median:+.2%}, EXCESS {f.excess:+.2%} "
+                           f"(vs same-day non-members {f.excess_lfo:+.2%}), {tail}, "
+                           f"positive in {f.years_positive}/{f.years} years"))
         s98 += [
             Row("families with a demonstrated edge",
                 f"{s.get('families_edge', '0')} of {s.get('families_tested', '0')}",
@@ -637,14 +678,28 @@ def _evidence_sections(s, upto: str | None = None) -> list[Section]:
                 (s.get("families_weak_names") or "none")
                 + " — which is about what screening this many rules produces on data with no "
                   "signal in it"),
+            Row("families that are significantly NEGATIVE", s.get("families_negative", "0"),
+                (s.get("families_negative_names") or "none")
+                + " — measurably WORSE than a date-matched random pick, which is a different "
+                  "finding from 'no edge' and must not be read as 'unproven'"),
         ]
+        for name, ph, n, exc, pv in s.phases:
+            s98.append(Row(f"{name}: non-overlapping phase {ph}", f"{exc:+.2%}",
+                           f"n {n:,}, control p {pv:.4f} — the grid overlaps its own horizon, so "
+                           f"the full-sample p above is over-confident; every phase is shown "
+                           f"because reporting the best one would be the screening error this "
+                           f"study exists to avoid"))
         n98 = ("EXCESS is the date-demeaned edge: the family's return minus the mean of EVERY "
                "stock in the universe on the SAME day. On a strong market day every stock looks "
                "accumulated, so that column — not `mean` — is the one that says whether the rule "
-               "knew anything. `control p` is the share of "
-               f"{s.get('control_draws', '200')} date-matched random-entry draws that matched or "
-               "beat the family. A `short` family is an AVOIDANCE signal, sign-flipped so that "
-               "'right' reads positive: NEPSE has no short selling.")
+               "knew anything. A family is inside that mean, which shrinks its own excess toward "
+               "zero in proportion to how much of the universe it holds, so the figure against "
+               "the same-day NON-members is given beside it. `control p` is the share of "
+               f"{s.get('control_draws', '?')} date-matched random draws that matched or "
+               "beat the family; the draws are subsets of each day's universe taken WITHOUT "
+               "replacement, so the null is 'pick this many stocks today' and carries the "
+               "finite-population correction. A `short` family is an AVOIDANCE signal, "
+               "sign-flipped so that 'right' reads positive: NEPSE has no short selling.")
 
     # ── 99: walk-forward validation ───────────────────────────────────────────────────
     if absent:
@@ -760,24 +815,47 @@ def _evidence_sections(s, upto: str | None = None) -> list[Section]:
         s114.append(Row("calibration", gone,
                         why + " — so the scores above are uncalibrated AND untested"))
     else:
-        lo, hi = s.num("calibration.bottom_bucket_win"), s.num("calibration.top_bucket_win")
+        # TWO DIFFERENT SCORES, and this section used to conflate them. Everything keyed
+        # on `calibration.*` measures backtest._score() — the walk-forward FITTED composite
+        # of feature percentiles. The 0-100 "swing score" in section 90 comes out of
+        # zones.py and shares none of its inputs. This board printed the composite's
+        # flatness under the heading "does the swing score rank? NO", which asserted a
+        # measurement of the board's own number that nobody had taken. Each row below now
+        # names which score it is about, and the swing score has its own measurement.
         s114 += [
-            Row("calibrated", s.get("calibration.calibrated", "not computed"),
-                "'no' means the number ranks but does not predict"),
-            Row("reliability slope", _num(s, "calibration.slope", "{:.2f}"),
+            Row("fitted composite: calibrated", s.get("calibration.calibrated", "not computed"),
+                "the walk-forward composite of feature percentiles, NOT the swing score in "
+                "section 90 — 'no' means the number ranks but does not predict"),
+            Row("fitted composite: reliability slope", _num(s, "calibration.slope", "{:.2f}"),
                 "1.00 would mean the score can be read as P(positive return over the horizon)"),
-            Row("mean absolute error", _num(s, "calibration.mean_abs_error", "{:.1%}"),
+            Row("fitted composite: mean absolute error",
+                _num(s, "calibration.mean_abs_error", "{:.1%}"),
                 "how far the implied probability sits from the realised rate"),
-            Row("bottom-score bucket win rate", _num(s, "calibration.bottom_bucket_win", "{:.1%}"),
-                f"of {s.get('calibration.buckets', '?')} equal buckets of the walk-forward score"),
-            Row("top-score bucket win rate", _num(s, "calibration.top_bucket_win", "{:.1%}")),
-            Row("does the swing score rank?",
-                "not computed" if lo is None or hi is None else
-                ("weakly" if hi - lo > 0.05 else "NO"),
-                "not computed" if lo is None or hi is None else
-                f"the top bucket wins {hi - lo:+.1%} more often than the bottom, across the "
-                f"whole range of the score"),
-            Row("verdict", s.get("calibration.note", "not computed")),
+            Row("fitted composite: bottom bucket win rate",
+                _num(s, "calibration.bottom_bucket_win", "{:.1%}"),
+                f"of {s.get('calibration.buckets', '?')} equal buckets of the WALK-FORWARD "
+                f"FITTED score"),
+            Row("fitted composite: top bucket win rate",
+                _num(s, "calibration.top_bucket_win", "{:.1%}")),
+            Row("fitted composite: verdict", s.get("calibration.note", "not computed")),
+            # The rank/no-rank rule lives in backtest.swing_rank() and travels as a word.
+            # Re-deriving it from the two bucket numbers here is how the two surfaces drift
+            # into disagreeing, which is the whole reason this row was wrong before.
+            Row("THE BOARD'S OWN SWING SCORE (section 90)",
+                {"yes": "ranks", "BACKWARDS": "ranks BACKWARDS — higher scored WORSE",
+                 "no": "does NOT rank", "untested": "not measured by the last run",
+                 "": "not measured by the last run"}.get(
+                    s.get("swing_score.ranks"), s.get("swing_score.ranks")),
+                "measured directly, on every scored stock-day — no fold is needed because "
+                "the score is a fixed formula from zones.py with nothing fitted in it"),
+            Row("swing score: rank IC", _num(s, "swing_score.ic", "{:+.3f}"),
+                f"against the date-demeaned {s.get('horizon', '?')}-session return, over "
+                f"{s.get('swing_score.n', '?')} scored stock-days"),
+            Row("swing score: top minus bottom bucket",
+                _num(s, "swing_score.spread_win", "{:+.1%}"),
+                f"on win rate; {_num(s, 'swing_score.spread_excess', '{:+.2%}')} on "
+                f"date-demeaned excess, which is the cross-sectional statement"),
+            Row("swing score: verdict", s.get("swing_score.note", "not measured by the last run")),
         ]
 
     # ── 107, 108, 115: the spec's honesty sections. Static, always rendered. ───────────
@@ -981,8 +1059,20 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
         Row("mean quality score", sum(s.quality.score for s in ses) / len(ses)),
     ]
     q_rows += [Row(f"defect: {k}", v, "sessions affected") for k, v in sorted(seen.items())]
+    # Dealer rows are NOT a defect and are deliberately not in the list above. They are
+    # reported because a dealer trades its own book while a member broker executes for
+    # clients, so it should never be counted as just one more broker without saying so.
+    dealer_rows = sum(s.quality.dealer_rows for s in ses)
+    if dealer_rows:
+        dealer_sessions = sum(1 for s in ses if s.quality.dealer_rows)
+        q_rows.append(Row("dealer rows", dealer_rows,
+                          f"on {dealer_sessions} of {len(ses)} sessions — NEPSE's dealer account "
+                          f"(D01) on one side. Real trades, counted in volume, but a dealer is "
+                          f"NOT a member broker: it inflates every broker count and breadth "
+                          f"figure below by one wherever it traded"))
     add(4, "Data quality layer", q_rows,
-        "Quality is per session; WARNING sessions were still used, with the defect named above.")
+        "Quality is per session; WARNING sessions were still used, with the defect named above. "
+        "A dealer row is not a defect — see the note on that row.")
     if last.quality.status != loader.VALID:
         warnings.append(f"the {last.date} session is quality {last.quality.status} "
                         f"(score {last.quality.score:.1f}) — every headline number is built on it")
@@ -1017,19 +1107,37 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
     sellers = sorted(agg[w30].values(), key=lambda b: b.sell_qty, reverse=True)[:5]
     b_rows: list[Row] = []
     s_rows: list[Row] = []
+    # These rank by NET quantity. Sections 24 and 28 rank by GROSS BUY quantity, over all trades
+    # and over large trades respectively. Three different questions, and every one of them used to
+    # be called "top buyer share", so the board printed 0.00525 and 0.9895 for the same window and
+    # both were correct. Measured on the shipped board: the net-ranked and gross-ranked winners are
+    # DIFFERENT brokers in 205 of 480 symbols at 30D, and the two shares differ by up to 0.995
+    # (BOKD86KA, 3D). The arithmetic was never wrong — the labels were. Keep the word NET here and
+    # the word GROSS there, and a reader cannot collapse them into one figure.
     for w in loader.WINDOWS:
-        b_rows += [Row(f"{w}D top buyer", sf[w].top_buyer),
-                   Row(f"{w}D top buyer share", sf[w].top_buyer_share)]
-        s_rows += [Row(f"{w}D top seller", sf[w].top_seller),
-                   Row(f"{w}D top seller share", sf[w].top_seller_share)]
+        b_rows += [Row(f"{w}D top NET buyer", sf[w].top_buyer, "the broker with the largest net position"),
+                   Row(f"{w}D top NET buyer, share of volume", sf[w].top_buyer_share,
+                       "that broker's NET buying / window volume — not its gross buying")]
+        s_rows += [Row(f"{w}D top NET seller", sf[w].top_seller, "the broker with the largest net position"),
+                   Row(f"{w}D top NET seller, share of volume", sf[w].top_seller_share,
+                       "that broker's NET selling / window volume — not its gross selling")]
     b_rows += _top_rows(buyers, ("broker", "buy_qty", "buy_amt", "buy_trades", "buy_max"), prefix="30D buyer #")
     s_rows += _top_rows(sellers, ("broker", "sell_qty", "sell_amt", "sell_trades", "sell_max"), prefix="30D seller #")
-    add(11, "Buyer analysis", b_rows, "Broker IDs, not client IDs — a broker is not an investor.")
-    add(12, "Seller analysis", s_rows, "Broker IDs, not client IDs — a broker is not an investor.")
+    add(11, "Buyer analysis", b_rows,
+        "Broker IDs, not client IDs — a broker is not an investor. Ranked by NET quantity; section "
+        "24's \"buy top1\" and section 28's largest gross buyer rank by GROSS buying and routinely "
+        "name a different broker.")
+    add(12, "Seller analysis", s_rows,
+        "Broker IDs, not client IDs — a broker is not an investor. Ranked by NET quantity; section "
+        "24's \"sell top1\" ranks by GROSS selling and routinely names a different broker.")
 
     add(13, "Net broker flow",
-        _by_window(lambda w: sf[w], only=("volume", "turnover", "trades", "brokers", "gross_qty", "net_qty",
-                                          "net_buyers", "net_sellers", "neutral")))
+        _by_window(lambda w: sf[w], only=("volume", "turnover", "trades", "brokers", "dealers",
+                                          "gross_qty", "net_qty",
+                                          "net_buyers", "net_sellers", "neutral")),
+        "\"dealers\" is how many of \"brokers\" are NEPSE's dealer account rather than a member "
+        "broker executing for clients. It is included in every count and breadth figure here, so "
+        "it is named rather than left to be assumed away.")
 
     n_rows: list[Row] = []
     for r in rank_acc[:3]:
@@ -1044,21 +1152,42 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
         "Every figure is a share of THIS stock's own 30D volume/turnover — raw quantities are "
         "not comparable across stocks.")
 
+    # The row that used to sit here, "{w}D imbalance" = net / gross, was not an imbalance. Every
+    # share bought is a share sold, so gross qty is EXACTLY 2 x volume (asserted below) and the
+    # numerator is the positive side only — making the ratio non-negative by construction and
+    # capped at 0.5. Measured across the shipped board: 1,924 (symbol, window) pairs, range
+    # [0.00525, 0.50000], never once negative, so a "buy/sell imbalance" that could not indicate
+    # net selling. Worse, it was section 16's flow quality halved — equal to fq/2 in 1,924 of
+    # 1,924 pairs. That is the SAME duplicate the board already had removed once between two of
+    # its columns (see the note above BOARD_COLUMNS); this is the detail-section half of it.
+    #
+    # Section 16 keeps the canonical quantity. What goes here instead is the tilt between the top
+    # net buyer and the top net seller, which is genuinely signed: measured over the same 1,924
+    # pairs it ranges [-0.6953, +0.6494] with 989 negative, 848 positive and 87 flat.
     i_rows: list[Row] = []
     for w in loader.WINDOWS:
         f_ = sf[w]
         i_rows += [
-            Row(f"{w}D net qty", f_.net_qty),
-            Row(f"{w}D gross qty", f_.gross_qty),
-            Row(f"{w}D imbalance", f_.net_qty / f_.gross_qty if f_.gross_qty else 0.0,
-                "net / gross quantity"),
+            Row(f"{w}D net qty", f_.net_qty, "shares that changed hands net between brokers"),
+            Row(f"{w}D gross qty", f_.gross_qty, "buy + sell, so exactly 2x volume — every share "
+                "is bought once and sold once"),
+            Row(f"{w}D top-buyer minus top-seller tilt", f_.top_buyer_share - f_.top_seller_share,
+                "SIGNED: negative means the largest single net actor is a seller"),
             Row(f"{w}D buyer-seller ratio",
-                f_.net_buyers / f_.net_sellers if f_.net_sellers else 0.0),
+                f_.net_buyers / f_.net_sellers if f_.net_sellers else 0.0,
+                "headcount of net buyers / net sellers"),
         ]
-    add(15, "Buy/sell imbalance", i_rows)
+    add(15, "Buy/sell imbalance", i_rows,
+        "There is NO stock-level buy/sell imbalance and there cannot be one: buy == sell == volume "
+        "on every stock every day. The net-to-gross ratio that used to sit here was half of section "
+        "16's flow quality under a second name, and could never go negative. The signed figure is "
+        "the top-buyer/top-seller tilt.")
     add(16, "Flow quality / net-to-gross",
-        [Row(f"{w}D flow quality", sf[w].flow_quality) for w in loader.WINDOWS],
-        "1.0 means every share that changed hands moved in one direction; near 0 means churn.")
+        [Row(f"{w}D flow quality", sf[w].flow_quality,
+             "net qty / volume — the CANONICAL net-to-gross figure on this board") for w in loader.WINDOWS],
+        "The share of volume that changed hands NET between brokers, after each broker's own two-way "
+        "churn cancels. 1.0 means every share moved in one direction; near 0 means churn. This is the "
+        "only place this quantity is reported — section 15 points here rather than restate it.")
 
     # ── 17-21: accumulation, distribution, persistence, acceleration, reversal ─────────
     add(17, "Accumulation", _by_window(lambda w: flow.accumulation(sd[-w:]),
@@ -1104,13 +1233,42 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
                            "top100_pct", "buyers", "sellers", "vwap", "vwap_premium", "rate_p10", "rate_p90")),
         "Cutoffs are this stock's own history (rupee basis). The share-count basis is an inverse-price "
         "proxy and is reported under section 29, not used for the cutoff.")
+    # Hand-written rather than _by_window because two things have to be said per row that a
+    # field-name-derived label cannot say. First, this section's "top buyer" is the largest GROSS
+    # buyer of large prints — a different question from section 11's top NET buyer, and the two
+    # named different brokers in 205 of 480 symbols. Second, when a window held no large trades at
+    # all, the concentration of a set with nothing in it is UNDEFINED, not zero: it is emitted as
+    # None (the store writes a blank) with the reason on the row, instead of a 0 that reads as
+    # "perfectly diffuse". Measured on the shipped board: 224 such rows across 79 symbols, and
+    # every one of them was the empty set.
+    lc_rows: list[Row] = []
+    for w in loader.WINDOWS:
+        lv = st.large_value[w]
+        empty = "" if lv.trades else "no large trade in this window — undefined, not zero"
+        lc_rows += _rows(lv, prefix=f"{w}D ",
+                         only=("trades", "volume_pct", "turnover_pct", "net_qty", "net_share",
+                               "persistence"))
+        lc_rows += [
+            Row(f"{w}D large-buyer hhi", lv.buyer_hhi, empty or "concentration of GROSS buying "
+                "across brokers on large prints"),
+            Row(f"{w}D large-seller hhi", lv.seller_hhi, empty or "concentration of GROSS selling "
+                "across brokers on large prints"),
+            Row(f"{w}D largest GROSS buyer", lv.top_buyer,
+                empty or "most large-print buying — NOT section 11's top net buyer"),
+            Row(f"{w}D largest GROSS buyer, share of large buying", lv.top_buyer_share if lv.trades else None,
+                empty or "its gross buy quantity / large-trade volume"),
+            Row(f"{w}D largest GROSS seller", lv.top_seller,
+                empty or "most large-print selling — NOT section 12's top net seller"),
+            Row(f"{w}D largest GROSS seller, share of large selling", lv.top_seller_share if lv.trades else None,
+                empty or "its gross sell quantity / large-trade volume"),
+        ]
     add(28, "Large-trade conviction",
-        _by_window(lambda w: st.large_value[w],
-                   only=("trades", "volume_pct", "turnover_pct", "net_qty", "net_share", "persistence",
-                         "buyer_hhi", "seller_hhi", "top_buyer", "top_buyer_share", "top_seller",
-                         "top_seller_share"))
+        lc_rows
         + [Row("large emergence", st.frag_change.large_emergence),
-           Row("large disappearance", st.frag_change.large_disappearance)])
+           Row("large disappearance", st.frag_change.large_disappearance)],
+        "Shares here are of LARGE-TRADE volume and rank brokers by GROSS side quantity. Sections "
+        "11/12 rank by NET quantity over all trades — the two name a different broker more often "
+        "than not. A blank means the window held no large trades, so the figure is undefined.")
 
     add(29, "Trade-size distribution",
         _by_window(lambda w: st.sizes[w])
@@ -1234,8 +1392,13 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
         "Trends are signs over the last 7 sessions, not a fitted model.")
     corr = hist.correlations(days)
     if corr:
-        add(57, "Price-flow correlation", _rows(corr),
-            "Correlation over one symbol's recent history — not evidence of causation or of edge.")
+        add(57, "Price-flow correlation",
+            [Row("n", corr.n, f"FIXED {hist.CORR_WINDOW}-session lookback, minus one spent "
+                 f"differencing — NOT the {len(ses)} sessions loaded in section 4")]
+            + _rows(corr, only=("price_flow", "volume_price", "turnover_price", "sensitivity", "regime")),
+            f"Deliberately the last {hist.CORR_WINDOW} sessions on EVERY symbol, so n is the same "
+            "everywhere: this reads as \"how has flow tracked price lately\", and a 120-session "
+            "correlation is not comparable with a 32-session one. Not evidence of causation or of edge.")
     lag = hist.lag_scan(days)
     if lag:
         add(58, "Flow-price lag",
@@ -1500,8 +1663,8 @@ def board_row(d: store.Detail) -> dict:
         "hhi": get.get((24, "30D broker hhi")),
         "large_pct": get.get((27, "30D turnover pct")),
         "brokers": get.get((33, "active")),
-        "top_broker": get.get((11, "30D top buyer")),
-        "top_broker_share": get.get((11, "30D top buyer share")),
+        "top_broker": get.get((11, "30D top NET buyer")),
+        "top_broker_share": get.get((11, "30D top NET buyer, share of volume")),
         "anomaly": get.get((49, "score")),
         "regime": get.get((72, "current regime")),
         "alignment": get.get((76, "score")),

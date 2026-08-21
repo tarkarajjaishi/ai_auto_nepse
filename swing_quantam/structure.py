@@ -567,8 +567,14 @@ class LargeStats(NamedTuple):
     top100_pct: float
     buyers: int  # distinct brokers on the buy side of a large print
     sellers: int
-    buyer_hhi: float  # large-buyer concentration
-    seller_hhi: float
+    # None, NOT 0.0, when the window held no large trades. HHI is defined on (0, 1]; 0 is not a
+    # value it can take, and printing one reads as "perfectly diffuse" when it means "the set was
+    # empty and there was nothing to measure". Measured on the shipped board: 224 rows across 79
+    # symbols printed 0 here, and in every single one the window contained ZERO large trades —
+    # there was no case of large trades existing and the HHI genuinely coming out at 0. The store
+    # writes None as a blank field, which is the format's existing way to say "undefined".
+    buyer_hhi: float | None  # large-buyer concentration
+    seller_hhi: float | None
     top_buyer: int | None
     top_buyer_share: float
     top_seller: int | None
@@ -614,7 +620,7 @@ def large(sessions: Sequence[Session], th: Thresholds, basis: str = BASIS_RUPEES
     cut = th.large_for(basis)
     if not trades:
         return LargeStats(basis, cut, 0, 0.0, 0, 0.0, 0.0, 0.0, 0, 0.0, 0.0, 0.0, 0.0,
-                          0, 0, 0.0, 0.0, None, 0.0, None, 0.0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+                          0, 0, None, None, None, 0.0, None, 0.0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 
     vol = sum(t.quantity for t in trades)
     to = sum(t.amount for t in trades)
@@ -653,8 +659,9 @@ def large(sessions: Sequence[Session], th: Thresholds, basis: str = BASIS_RUPEES
         top100_pct=topn(100),
         buyers=len(buyers),
         sellers=len(sellers),
-        buyer_hhi=_hhi([b.buy_qty for b in buyers]),
-        seller_hhi=_hhi([b.sell_qty for b in sellers]),
+        # Undefined, not zero, on an empty set — see the field comment on LargeStats.
+        buyer_hhi=_hhi([b.buy_qty for b in buyers]) if big else None,
+        seller_hhi=_hhi([b.sell_qty for b in sellers]) if big else None,
         top_buyer=tb.broker if tb else None,
         top_buyer_share=(tb.buy_qty / big_vol) if tb and big_vol else 0.0,
         top_seller=ts.broker if ts else None,
@@ -1061,7 +1068,13 @@ def _demo() -> None:
             assert lg.trades <= n_all and 0.0 <= lg.trade_pct <= 1.0
             assert 0.0 <= lg.volume_pct <= 1.0 and 0.0 <= lg.turnover_pct <= 1.0
             assert lg.top10_pct <= lg.top50_pct + 1e-12 <= lg.top100_pct + 1e-12 <= 1.0 + 1e-9
-            assert 0.0 <= lg.buyer_hhi <= 1.0 and 0.0 <= lg.seller_hhi <= 1.0
+            # HHI is defined on (0, 1] and is None — never 0.0 — when no large trade landed in
+            # the window. Both halves are asserted: a 0.0 here is the bug this replaced.
+            if lg.trades:
+                assert 0.0 < lg.buyer_hhi <= 1.0 and 0.0 < lg.seller_hhi <= 1.0
+            else:
+                assert lg.buyer_hhi is None and lg.seller_hhi is None, \
+                    f"{w}D {lg.basis}: empty large-trade set must report an undefined HHI, not 0"
             assert 0.0 <= lg.persistence <= 1.0
             assert lg.rate_p10 <= lg.rate_p90 + 1e-9
             assert lg.largest_qty <= max(t.quantity for s in ses[-w:] for t in s.trades)

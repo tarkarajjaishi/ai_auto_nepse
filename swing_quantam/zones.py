@@ -148,7 +148,9 @@ ENTRY_WEIGHTS: dict[str, float] = {
     "net_churn": 2.0,        # section 91 flow quality — the one OOS-supported input
     "accumulation": 1.0,     # 30D flow tilt, ranked against this stock's own history
     "breadth": 1.0,          # section 23 net-buyer share of participating brokers
-    "consensus": 1.0,        # section 22 headcount vote
+    "consensus": 1.0,        # section 22 ACTIVITY-WEIGHTED vote — see the registry note;
+                             # reading the headcount vote here made this a duplicate of
+                             # ``breadth`` on 481/481 symbols, doubling breadth to 2.0
     "participation": 1.0,    # section 33 daily roster stability
     "persistence": 1.0,      # section 19 positive-day share
     "large_conviction": 1.0,  # section 28 net share inside the large-trade subset
@@ -176,7 +178,7 @@ SWING_WEIGHTS: dict[str, float] = {
     "flow_stability": 1.0,    # section 19 stability — spiky flow is not a swing setup
     "persistence": 1.0,
     "breadth": 1.0,
-    "consensus": 1.0,
+    "consensus": 1.0,        # activity-weighted, not headcount — see ENTRY_WEIGHTS
     "participation": 1.0,
     "large_conviction": 1.0,
     "vwap_structure": 1.0,    # where volume sits in the range (section 10)
@@ -899,11 +901,42 @@ def zones(
     contradiction = len(fired) / len(checks)
 
     # -- the component registry: every value already in [0, 1] ----------------
+    # DO NOT ADD ``cons.strength`` HERE. Section 22's strength is sum(|net_b|) / gross,
+    # and by conservation sum(|net_b|) == 2 * sum(positive net) while gross == 2 * volume,
+    # so it reduces to pos / volume — which is ``StockFlow.flow_quality``, which is
+    # ``net_churn`` on the line below. Measured on 105 symbols: |strength - flow_quality|
+    # == 0.0 exactly, 105/105. Wiring it in would make net_churn's effective weight 3.0
+    # and repeat the breadth/consensus mistake documented further down. Audited 2026-08-21:
+    # nothing in this file reads it today, and it must stay that way.
     reg: dict[str, tuple[float, str]] = {
         "net_churn": (net_churn, f"net churn {net_churn:.3f} — {sf30.net_qty:,} of {sf30.volume:,} shares changed hands net over {len(recent)} sessions"),
         "accumulation": (_rank01(acc_flow.m30, tilt30), f"30D flow tilt {acc_flow.m30:+.4f}, {_rank01(acc_flow.m30, tilt30):.0%} of this stock's own {len(tilt30)} rolling windows"),
         "breadth": (brd.pct, f"{brd.net_buyers} net buyers vs {brd.net_sellers} net sellers ({brd.pct:.0%})"),
-        "consensus": ((cons.consensus + 1.0) / 2.0, f"broker consensus {cons.consensus:+.2f}, {cons.accumulation} accumulation"),
+        # ``consensus`` USED TO READ ``(cons.consensus + 1) / 2`` AND WAS A BIT-FOR-BIT
+        # DUPLICATE OF ``breadth``. Section 22's headcount vote is
+        # (nb - ns) / (nb + ns) (structure.py:248) so (consensus + 1) / 2 == nb / (nb + ns),
+        # which is precisely Breadth.pct (structure.py:302) — the same algebra, twice.
+        # A 481-symbol audit found the two components identical on 481/481 symbols, and a
+        # 105-symbol resample confirmed it (max |difference| 1.1e-16, 93 bit-identical, the
+        # rest float rounding). Effect: ``breadth`` was silently carrying weight 2.0 — equal
+        # to ``net_churn``, the ONLY component with out-of-sample support and the one
+        # deliberately given the largest weight. That design was defeated by an accident.
+        #
+        # Fixed by option (a): point this at ``weighted_consensus``, the activity-weighted
+        # sign vote (structure.py:231) that was already computed and unused here. Chosen
+        # over option (b) — deleting the component — because it MEASURED independent, not
+        # because it reads independent: on 105 symbols across four turnover tiers
+        # (median Rs 14.6m to Rs 816m) against ``breadth`` it runs pearson +0.084,
+        # spearman +0.139, and regressing it on breadth leaves residual sd 0.0923 against
+        # its own sd 0.0926 — breadth explains 0.7% of its variance. Range -0.695..+0.681
+        # raw (0.152..0.840 normalised), zero exact ties, mean |gap| 0.116. So it is a
+        # different reading, not another rescaling: headcount breadth counts brokers,
+        # this one weights each broker's vote by the share of gross volume it traded, so
+        # ten idle brokers outvote one dominant one in ``breadth`` and lose here.
+        # timeframes.py:979 already pairs these two the same way.
+        "consensus": ((cons.weighted_consensus + 1.0) / 2.0,
+                      f"activity-weighted broker consensus {cons.weighted_consensus:+.2f} "
+                      f"(headcount vote {cons.consensus:+.2f}), {cons.accumulation} accumulation"),
         "participation": (part.breadth, f"{part.active} brokers active, {part.per_session_mean:.0f} per session ({part.breadth:.0%} roster stability)"),
         "persistence": (pers.positive_persistence, f"positive tilt on {pers.positive} of {pers.days} sessions"),
         "flow_stability": (pers.stability, f"flow stability {pers.stability:.2f} (1.0 = identical every session)"),
@@ -1136,6 +1169,17 @@ def _demo() -> None:
             assert 0.0 <= c.value <= 1.0, f"{sc.name}.{c.name} = {c.value} outside [0, 1]"
             assert abs(c.contribution - c.value * c.weight) < 1e-12
             assert c.note, f"{sc.name}.{c.name} has no note"
+    # ``breadth`` and ``consensus`` must not be the same number. A duplicate fails none of
+    # the checks above — it just silently doubles one weight, which is how ``consensus``
+    # rode along as a second copy of ``breadth`` on 481/481 symbols until an audit caught
+    # it. Several symbols, because a chance tie on one would hide the regression.
+    for sym_ in [s for s in (sym, "UPPER", "SHIVM", "NICA") if s in syms]:
+        vals = {c.name: c.value for c in zones(sym_).entry_score.components}
+        assert abs(vals["breadth"] - vals["consensus"]) > 1e-9, (
+            f"{sym_}: breadth and consensus are both {vals['breadth']!r} — consensus is "
+            f"back to being a rescaled headcount vote and breadth is weighted twice"
+        )
+
     # every weight key must resolve to a real component, or a weight silently does nothing
     for name, w in (("entry", ENTRY_WEIGHTS), ("exit", EXIT_WEIGHTS), ("swing", SWING_WEIGHTS)):
         got = {c.name for c in {"entry": z.entry_score, "exit": z.exit_score, "swing": z.swing_score}[name].components}

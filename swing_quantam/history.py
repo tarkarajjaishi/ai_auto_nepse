@@ -659,13 +659,29 @@ class Correlations(NamedTuple):
     regime: str  # convergent | divergent | unclear
 
 
-def correlations(days: Sequence[DayStat], window: int = 30) -> Correlations | None:
+CORR_WINDOW = 30
+"""Section 57's fixed lookback, in sessions. DELIBERATE, not a truncation bug.
+
+Every symbol's price-flow correlation is computed on the last
+:data:`CORR_WINDOW` sessions regardless of how much history was loaded, which is
+why section 57 reports n = 29 (one observation is spent differencing) on every
+symbol while section 4 reports 32-120 sessions loaded. It is fixed on purpose:
+the number is read as "how has flow tracked price *lately*", and letting n follow
+the archive would make it a different measurement per symbol — a 120-session
+correlation and a 32-session one are not comparable, and ranking symbols on a
+mixed-length statistic is a bug that looks like a feature. The board says so on
+the row rather than leaving a reader to assume all loaded history was used.
+"""
+
+
+def correlations(days: Sequence[DayStat], window: int = CORR_WINDOW) -> Correlations | None:
     """Correlate price change against flow, volume change and turnover change.
 
-    None under 8 observations: a correlation over five points is noise with a
-    decimal point. Volume and turnover enter as log changes so both sides of
-    every pair are changes — correlating a return against a *level* mostly
-    measures how big the stock is.
+    ``window`` is a FIXED lookback — see :data:`CORR_WINDOW` for why n is the same
+    on every symbol. None under 8 observations: a correlation over five points is
+    noise with a decimal point. Volume and turnover enter as log changes so both
+    sides of every pair are changes — correlating a return against a *level*
+    mostly measures how big the stock is.
     """
     w = list(days[-window:])
     if len(w) < 8:

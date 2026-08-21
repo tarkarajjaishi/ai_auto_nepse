@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Iterable, NamedTuple
 
-from .loader import Session, Trade
+from .loader import Session, Trade, is_dealer
 
 
 class BrokerDay(NamedTuple):
@@ -152,6 +152,12 @@ class StockFlow(NamedTuple):
     ``top_buyer``/``top_seller`` are the single largest net positions, which the
     breadth and concentration layers need in order to tell "many brokers buying"
     apart from "one broker doing all of it".
+
+    ``dealers`` exists because ``brokers`` — and therefore ``breadth``,
+    ``breadth_ratio`` and every concentration figure built on them — counts
+    NEPSE's dealer account as one more participant. It is one, but it is not a
+    member broker executing for clients, so a reader comparing breadth across
+    sessions is told when one is in the count instead of having to know.
     """
 
     volume: int
@@ -168,6 +174,9 @@ class StockFlow(NamedTuple):
     gross_qty: int
     net_qty: int  # section 13: total net buying, i.e. shares that changed hands net
     flow_quality: float  # section 16, at stock level: net_qty / volume
+    #: How many of ``brokers`` are dealer accounts, not member brokers. Trailing with
+    #: a default so the two positional constructions below stay valid.
+    dealers: int = 0
 
     @property
     def breadth(self) -> float:
@@ -230,6 +239,7 @@ def stock_flow(agg: dict[int, BrokerDay]) -> StockFlow:
         gross_qty=gross,
         net_qty=pos,
         flow_quality=(pos / volume) if volume else 0.0,
+        dealers=sum(1 for b in agg if is_dealer(b)),
     )
 
 
@@ -286,6 +296,14 @@ def _demo() -> None:
     # reintroduces it this fails loudly on real data instead of shipping zeros.
     assert sum(b.buy_qty for b in agg.values()) - sum(b.sell_qty for b in agg.values()) == 0
     assert flow.net_qty > 0, "net_qty is the non-degenerate replacement and must be positive"
+
+    # The same conservation, one level up, and the reason section 15 no longer prints net/gross as
+    # an "imbalance": gross DOUBLE-COUNTS volume, so net/gross is flow_quality/2 exactly — one
+    # number under two names, and non-negative by construction so it can never show net selling.
+    # Both halves are asserted here so a re-added ratio fails loudly instead of shipping.
+    assert flow.gross_qty == 2 * flow.volume, "gross qty must be exactly twice volume"
+    assert abs(flow.net_qty / flow.gross_qty - flow.flow_quality / 2.0) < 1e-12, \
+        "net/gross is half of flow quality — it is not an independent measure"
 
     for b in agg.values():
         assert -1.0 <= b.imbalance <= 1.0

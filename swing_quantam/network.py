@@ -888,11 +888,21 @@ def network(sessions: list[Session], pair_map: dict[tuple[int, int], Pair] | Non
     total_w = sum(wdeg.values()) or 1
     top = max(wdeg, key=wdeg.get) if wdeg else None
 
+    # Density counts only edges between DIFFERENT brokers, because n*(n-1) is the number of
+    # ordered pairs of different brokers -- a self-loop has no slot in that denominator. Counting
+    # them in the numerator (as this did) inflates density by the self-trade rate, and self-trades
+    # are not rare here: they appear in 72% of real (symbol, window) combinations and on 100% of
+    # NABIL's sessions. Measured worst case before the fix, BOKD86KA over 26 brokers with 6
+    # self-loops: 0.0738 reported against a true 0.0646, +12.5%. Real broker graphs are sparse
+    # enough that it never printed >1.0, so nothing raised -- it was simply wrong by a few percent
+    # on most windows. Self-trades are not lost: section 47 counts and reports them on their own.
+    cross_edges = sum(1 for (a, b) in edge_qty if a != b)
+
     return Network(
         nodes=n,
         edges=len(edge_qty),
         undirected_edges=len(undirected),
-        density=len(edge_qty) / (n * (n - 1)) if n > 1 else 0.0,
+        density=cross_edges / (n * (n - 1)) if n > 1 else 0.0,
         mean_degree=statistics.fmean(deg.values()) if deg else 0.0,
         max_degree=max(deg.values()) if deg else 0,
         concentration=_hhi(edge_qty.values()),
@@ -913,8 +923,16 @@ class NetworkDrift(NamedTuple):
     central_changed: bool
     degree_centrality_change: float  # long-window central broker: short centrality - long
     weighted_centrality_change: float
-    counterparty_expansion: int  # brokers whose degree grew, short vs long
-    counterparty_contraction: int
+    # There is NO "counterparty expansion" twin to the row below, and there cannot be one.
+    # The windows NEST: the short window is ``sessions[-3:]``, a subset of the long window's
+    # ``sessions[-30:]``, so the short network's edge set is a subset of the long one's and a
+    # broker's degree can only shrink or hold — never grow — going from long to short. The
+    # column shipped anyway and measured 0 on 481 of 481 symbols, sd exactly 0, one distinct
+    # value ever written. Removed rather than left as a permanently-zero column presented as a
+    # measurement (see the repo's note on rules that read correctly, test green, and never fire).
+    # A real expansion measure needs windows that do not nest — e.g. this 30D against the PRIOR
+    # 30D, which section 43's pair_shift already does.
+    counterparty_contraction: int  # brokers with fewer counterparties in the short window
     concentration_change: float
     restructuring: float  # 1 - Jaccard(short edges, long edges), in [0, 1]
     stability: float  # Jaccard(short edges, long edges)
@@ -924,7 +942,7 @@ def centrality_drift(sessions: list[Session], windows: tuple[int, ...] = WINDOWS
     """Section 42. Slices one already-loaded window list — no extra I/O."""
     nets = {w: network(sessions[-w:]) for w in windows if sessions}
     if not nets:
-        return NetworkDrift({}, False, 0.0, 0.0, 0, 0, 0.0, 0.0, 0.0)
+        return NetworkDrift({}, False, 0.0, 0.0, 0, 0.0, 0.0, 0.0)
 
     short, long = min(nets), max(nets)
     ns, nl = nets[short], nets[long]
@@ -935,7 +953,6 @@ def centrality_drift(sessions: list[Session], windows: tuple[int, ...] = WINDOWS
     wl = sum(nl.weighted_degree.values()) or 1
     wcc = (ns.weighted_degree.get(ref, 0) / ws - nl.weighted_degree.get(ref, 0) / wl) if ref is not None else 0.0
 
-    exp = sum(1 for v, d in ns.degree.items() if d > nl.degree.get(v, 0))
     con = sum(1 for v, d in nl.degree.items() if d > ns.degree.get(v, 0))
 
     es, el = set(ns.edge_qty), set(nl.edge_qty)
@@ -946,7 +963,6 @@ def centrality_drift(sessions: list[Session], windows: tuple[int, ...] = WINDOWS
         central_changed=ns.central != nl.central,
         degree_centrality_change=dcc,
         weighted_centrality_change=wcc,
-        counterparty_expansion=exp,
         counterparty_contraction=con,
         concentration_change=ns.concentration - nl.concentration,
         restructuring=1.0 - jac,
@@ -1545,6 +1561,18 @@ def _demo() -> None:
     assert all(d <= net.nodes - 1 for d in net.degree.values()), "degree exceeds nodes-1"
     assert 0.0 <= net.density <= 1.0, net.density
     assert 0.0 <= net.clustering <= 1.0
+
+    # Density must exclude self-loops, and a bound check on REAL data cannot prove it: broker
+    # graphs are sparse, so counting self-loops in the numerator inflated density by a few
+    # percent and still landed under 1.0 on every real window. It took a constructed graph to
+    # make it fail, so the constructed graph lives here.
+    _t = lambda b, s: Trade(b, s, 100, 10.0, 1000.0, f"{b}{s}", 1000.0)
+    loopy = Session("SYNTH", "2026-01-01", (_t(1, 2), _t(2, 1), _t(1, 1), _t(2, 2)), None)
+    ln = network([loopy])
+    assert ln.nodes == 2, ln.nodes
+    # 2 ordered pairs of DIFFERENT brokers exist and both traded -> exactly 1.0, not 2.0.
+    assert ln.density == 1.0, f"self-loops are in the density numerator again: {ln.density}"
+    assert sum(1 for (a, b) in ln.edge_qty if a == b) == 2, "the self-loops must still be counted"
     assert 0.0 < net.concentration <= 1.0
     assert all(0.0 <= c <= 1.0 for c in net.centrality.values())
     assert net.central is not None and 0.0 < net.central_share <= 1.0
@@ -1555,6 +1583,16 @@ def _demo() -> None:
     assert 0.0 <= drift.stability <= 1.0
     assert abs(drift.stability + drift.restructuring - 1.0) < 1e-9
     assert drift.by_window[3].nodes <= drift.by_window[30].nodes
+
+    # The windows NEST, which is the whole reason NetworkDrift has no counterparty_expansion
+    # field: sessions[-3:] is a subset of sessions[-30:], so the short edge set is a subset of
+    # the long one and no broker's degree can grow. Assert it on real data — if this ever
+    # fails the windows have stopped nesting and an expansion column would become meaningful.
+    n3, n30 = drift.by_window[3], drift.by_window[30]
+    assert set(n3.edge_qty) <= set(n30.edge_qty), "short window must be a subset of the long one"
+    grew = [v for v, d in n3.degree.items() if d > n30.degree.get(v, 0)]
+    assert not grew, f"nested windows cannot grow a degree, but {grew} did"
+    assert "counterparty_expansion" not in NetworkDrift._fields, "a permanently-zero column came back"
 
     # -- 45/46: contract order is not file order -----------------------------
     ot = ordered_trades(last)

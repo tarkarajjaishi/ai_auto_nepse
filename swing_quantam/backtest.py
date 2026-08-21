@@ -46,6 +46,21 @@ already produced a wrong answer in this repo:
    (c) the same-day universe mean, i.e. date-demeaned excess. On a strong market
    day every stock looks accumulated; date-demeaning is what removes that.
 
+   The control's null has to be the null of the thing being claimed, and for a
+   while it was not: the claim is "pick k of today's N stocks", so the draw is a
+   k-of-N SUBSET (:func:`control`, without replacement) and its variance carries
+   the finite-population correction. Drawing k times with replacement made the
+   null up to 30% too wide and buried a real result. The number of draws is part
+   of the same rule -- an empirical p quantised to 1/200 cannot resolve a
+   Bonferroni bar of 0.0033, so :data:`CONTROL_DRAWS` is sized against the bar and
+   :func:`_demo` asserts that it still is.
+
+   And the benchmark must not contain the thing it benchmarks. A family that
+   holds half the universe is half of its own comparison, so every excess is
+   reported twice: against the whole universe, and against that day's
+   NON-members (``Perf.excess_lfo``). The second is the larger number in both
+   directions.
+
 5. **Median as well as mean.** The median NEPSE 20-day return is negative and a
    thin tail carries the mean, so a mean-only result actively misleads.
 
@@ -62,10 +77,13 @@ Two artefacts come out of a run, and the second one is the point. ``backtest.txt
 is this module's report, written for a human and read by nobody. ``backtest_summary.txt``
 (:func:`write_summary` / :func:`read_summary`) is the same verdict in ``key<TAB>value``
 form, small enough that :mod:`swing_quantam.__main__` reads it once per board build --
-so the board that prints an entry zone and a 0-100 score also prints, beside them, the
-measurement that neither has a demonstrated edge. The study costs ~470 s and the board
-rebuild is 22 minutes, so re-running it per build is not an option; carrying the answer
-forward in a file is.
+so the board that prints an entry zone and a 0-100 score also prints, beside them, what
+each of them measured. As of the run that fixed the control, that is: one family of
+fifteen clears the corrected bar and it is a price-momentum feature, not a floorsheet
+one; the board's own BUY ZONE is significantly WORSE than a date-matched random pick;
+and the board's own 0-100 swing score does not order the outcome at all. The study costs
+~490 s and the board rebuild is 22 minutes, so re-running it per build is not an option;
+carrying the answer forward in a file is.
 """
 
 from __future__ import annotations
@@ -153,7 +171,28 @@ MIN_OBS = 30
 PAIR_MIN_SHARE = 0.005
 
 #: How many date-matched random draws form the control distribution.
-CONTROL_DRAWS = 200
+#:
+#: This number has to be able to RESOLVE the bar it is compared against. Fifteen
+#: families make the Bonferroni threshold 0.05/15 = 0.0033, and with 200 draws an
+#: empirical p can only be 0.000 or >=0.005 -- so the corrected bar was reachable
+#: at exactly p = 0.000 and nowhere else, and 0/200 only bounds the true p at
+#: <1.5% by the rule of three, not at <0.33%. That coarseness misclassified a real
+#: family: ``large_trade``'s exact p is 0.046 and the 200-draw run reported 0.08.
+#:
+#: 10,000 resolves p to 1e-4, which puts ~33 attainable values below the corrected
+#: bar and bounds a 0/N result at <0.03%. MEASURED cost on the 36-symbol universe:
+#: the study went from 323 s to 486 s, so the fifteen controls plus the phase splits
+#: are about 160 s of it. The work is O(sum of family sizes x draws), so 50,000 --
+#: which is what it takes to put a second significant figure on p = 0.0001 -- would
+#: add ~800 s and roughly triple the study. Not worth it to decorate a p-value that
+#: has already cleared its bar; raise it by hand if a specific number needs it.
+CONTROL_DRAWS = 10_000
+
+#: Round-trip cost of one NEPSE trade (broker commission + SEBON + DP, both legs),
+#: as a fraction. A range, not a point: it is size-dependent and the small-ticket
+#: end is the expensive one. Nothing in this file is net of cost -- every return
+#: here is GROSS -- so this exists only to print what an excess would survive to.
+ROUND_TRIP = (0.006, 0.009)
 
 #: Rows in the section 103 sensitivity sample, per symbol.
 SENS_DAYS = 25
@@ -917,6 +956,7 @@ class Perf(NamedTuple):
     excess_mean: float      # against the same-day universe -- the date-demeaned edge
     excess_median: float
     excess_win_rate: float
+    excess_lfo: float       # against the same-day NON-MEMBERS -- coverage removed
     coverage: float         # share of the universe this family holds on its firing dates
     labels: tuple[tuple[str, int], ...]
 
@@ -953,6 +993,27 @@ def _drawdown(dated: Sequence[tuple[str, float]]) -> float:
     return dd
 
 
+def _nonmember_means(sel: Sequence[Obs], per_date: Counter,
+                     pool_by_date: dict[str, list[Obs]], demean: Demean) -> list[float]:
+    """For each observation, the same day's mean return over the family's NON-members.
+
+    Taken by subtraction rather than by re-scanning the pool: the day's total is
+    already known and the family's own total costs one pass, so this is O(n) and
+    not O(n * pool). Membership is by date and count, which is exact because
+    ``sel`` is by construction a subset of that date's pool.
+    """
+    mem_sum: dict[str, float] = {}
+    for o in sel:
+        mem_sum[o.date] = mem_sum.get(o.date, 0.0) + o.ret
+    ref: dict[str, float] = {}
+    for d, k in per_date.items():
+        pool = pool_by_date.get(d, ())
+        rest = len(pool) - k
+        ref[d] = ((sum(x.ret for x in pool) - mem_sum[d]) / rest) if rest > 0 \
+            else _dm(demean, d)
+    return [ref[o.date] for o in sel]
+
+
 def perf(name: str, sel: Sequence[Obs], demean: Demean, side: str = "long",
          pool_by_date: dict[str, list[Obs]] | None = None) -> Perf:
     """Every section 93/98 metric for one selection of observations.
@@ -968,12 +1029,24 @@ def perf(name: str, sel: Sequence[Obs], demean: Demean, side: str = "long",
     zero. A near-zero excess on a high-coverage family is weak evidence of no
     edge; on a low-coverage one it is strong evidence.
 
+    ``excess_lfo`` stops that being a caveat and makes it a number: the same
+    excess taken against the same day's NON-MEMBERS, so the family is no longer
+    inside its own benchmark. Printing ``coverage`` and leaving the reader to
+    correct for it by eye was the old behaviour and it understated every family in
+    the table -- at ~50% coverage the pull toward zero is about a factor of two
+    (``vwap_slope`` +0.70% -> +1.81%, ``zone_buy`` -0.86% -> -1.45%). On a date
+    where the family IS the whole universe there are no non-members and the
+    universe mean is used instead, which is why the buy-and-hold baseline's
+    ``excess_lfo`` is exactly 0.0 rather than undefined.
+
     ``side="short"`` flips the return sign so that a correct bearish call reads
     positive. NEPSE has no short selling, so those rows are avoidance signals and
     the report says so.
     """
     if not sel:
-        return Perf(name, 0, *([0.0] * 31), ())
+        # Sized off _fields so that adding a metric upstream cannot silently shift
+        # the empty record's columns by one.
+        return Perf(name, 0, *([0.0] * (len(Perf._fields) - 3)), ())
     sgn = 1.0 if side == "long" else -1.0
     rs = [sgn * o.ret for o in sel]
     ex = [sgn * (o.ret - _dm(demean, o.date)) for o in sel]
@@ -990,6 +1063,9 @@ def perf(name: str, sel: Sequence[Obs], demean: Demean, side: str = "long",
     lab = Counter(label(o, side) for o in sel)
     per_date = Counter(o.date for o in sel)
     cov = _mean([per_date[o.date] / len(pool_by_date.get(o.date, (o,))) for o in sel]) \
+        if pool_by_date else 0.0
+    lfo = _mean([sgn * (o.ret - m) for o, m in
+                 zip(sel, _nonmember_means(sel, per_date, pool_by_date, demean))]) \
         if pool_by_date else 0.0
     return Perf(
         name=name,
@@ -1028,6 +1104,7 @@ def perf(name: str, sel: Sequence[Obs], demean: Demean, side: str = "long",
         excess_mean=_mean(ex),
         excess_median=_median(ex),
         excess_win_rate=sum(1 for e in ex if e > 0) / len(ex),
+        excess_lfo=lfo,
         coverage=cov,
         labels=tuple(sorted(lab.items(), key=lambda kv: -kv[1])),
     )
@@ -1094,7 +1171,8 @@ class Control(NamedTuple):
     mean: float
     median: float
     win_rate: float
-    p_value: float  # share of random draws whose mean matched or beat the family
+    p_value: float      # share of random draws whose mean matched or BEAT the family
+    p_low: float = 1.0  # share whose mean matched or fell BELOW it -- the other tail
 
 
 def control(sel: Sequence[Obs], pool_by_date: dict[str, list[Obs]],
@@ -1105,21 +1183,49 @@ def control(sel: Sequence[Obs], pool_by_date: dict[str, list[Obs]],
     the whole history and would mostly be measuring which months the family
     happened to trade in -- this repo has already been fooled once by a "signal"
     that turned out to be a date effect.
+
+    WITHOUT REPLACEMENT, which is not a detail. The estimand is "pick k of the N
+    stocks trading that day", so the null is a k-of-N subset and its variance
+    carries the finite-population correction (N-k)/(N-1). Drawing k times WITH
+    replacement -- which is what this function did until it was audited -- omits
+    that factor and makes the null distribution too WIDE in proportion to the
+    family's coverage: sd_correct/sd_as_coded measured 0.68 at 53% coverage, 0.72
+    at 54%, 0.98 at 8%. A null that is 30% too wide swallows real effects, and it
+    swallowed one (``vwap_slope``, p 0.01 -> 0.0002). :func:`screening_test` in
+    this same file always did it correctly -- shuffle the pool, then slice -- and
+    this function's own docstring described that scheme while the code did the
+    other one.
+
+    The subsets are drawn by partial Fisher-Yates on a per-date copy: k swaps
+    rather than a full shuffle, which is the same distribution at O(k) instead of
+    O(N) and is what keeps :data:`CONTROL_DRAWS` affordable at 10,000.
+
+    Both tails come back. ``p_value`` answers "could random entries have done this
+    WELL"; ``p_low`` answers "could they have done this BADLY", which is the only
+    way a board signal that is actively worse than the coin flip can be called
+    what it is instead of merely unproven.
     """
     if not sel:
-        return Control(0, 0.0, 0.0, 0.0, 1.0)
+        return Control(0, 0.0, 0.0, 0.0, 1.0, 1.0)
     sgn = 1.0 if side == "long" else -1.0
     want = Counter(o.date for o in sel)
     actual = _mean([sgn * o.ret for o in sel])
+    # Sign applied once, per date, so the inner loop moves floats and nothing else.
+    pools = {d: [sgn * o.ret for o in pool_by_date.get(d, ())] for d in want}
     rng = random.Random(seed)
-    means, meds, wins, beat = [], [], [], 0
+    means, meds, wins, beat, below = [], [], [], 0, 0
     for _ in range(draws):
         picks: list[float] = []
         for d, k in want.items():
-            pool = pool_by_date.get(d, ())
-            if not pool:
+            pool = pools[d]
+            n = len(pool)
+            if not n:
                 continue
-            picks.extend(sgn * rng.choice(pool).ret for _ in range(k))
+            k = min(k, n)  # sel is a subset of the pool, so this only ever binds if it is not
+            for i in range(k):
+                j = rng.randrange(i, n)
+                pool[i], pool[j] = pool[j], pool[i]
+            picks.extend(pool[:k])
         if not picks:
             continue
         m = _mean(picks)
@@ -1128,9 +1234,53 @@ def control(sel: Sequence[Obs], pool_by_date: dict[str, list[Obs]],
         wins.append(sum(1 for x in picks if x > 0) / len(picks))
         if m >= actual:
             beat += 1
+        if m <= actual:
+            below += 1
     if not means:
-        return Control(0, 0.0, 0.0, 0.0, 1.0)
-    return Control(len(means), _mean(means), _mean(meds), _mean(wins), beat / len(means))
+        return Control(0, 0.0, 0.0, 0.0, 1.0, 1.0)
+    return Control(len(means), _mean(means), _mean(meds), _mean(wins),
+                   beat / len(means), below / len(means))
+
+
+class Phase(NamedTuple):
+    """One non-overlapping slice of a family's observations."""
+
+    phase: int
+    n: int
+    excess: float
+    p_value: float
+
+
+def phase_split(sel: Sequence[Obs], obs: Sequence[Obs], demean: Demean,
+                pool_by_date: dict[str, list[Obs]], side: str = "long") -> list[Phase]:
+    """The same family re-measured on each NON-OVERLAPPING subset of its dates.
+
+    The grid fires every :data:`GRID_STRIDE` sessions and the horizon is
+    :data:`PRIMARY`, so four consecutive observations of the same symbol share
+    most of their forward window. Overlap does not bias the mean but it destroys
+    the independence the control's p-value assumes: 1,471 overlapping rows carry
+    roughly 368 rows' worth of information, and a p-value computed as if they were
+    independent is four times too confident.
+
+    Taking every fourth decision date fixes that, at the cost of a quarter of the
+    sample. Four phases exist and all four are reported, because reporting the
+    best one would be the same screening error this whole file is built to avoid.
+    A family whose excess survives on one phase and inverts on another has not
+    been demonstrated -- it has been sliced until it agreed.
+
+    Only run for families that reached EDGE, since it costs a full control each.
+    """
+    order = {d: i for i, d in enumerate(sorted({o.date for o in obs}))}
+    step = max(1, PRIMARY // GRID_STRIDE)
+    out = []
+    for ph in range(step):
+        sp = [o for o in sel if order[o.date] % step == ph]
+        pool = {d: v for d, v in pool_by_date.items() if order.get(d, -1) % step == ph}
+        if not sp:
+            continue
+        p = perf(f"phase {ph}", sp, demean, side, pool)
+        out.append(Phase(ph, len(sp), p.excess_mean, control(sp, pool, side).p_value))
+    return out
 
 
 def per_year(sel: Sequence[Obs], demean: Demean, side: str = "long") -> dict[str, Perf]:
@@ -1658,6 +1808,70 @@ def calibration(obs: Sequence[Obs], folds: Sequence[Fold], bins: int = 10) -> Ca
     return Calibration(tuple(buckets), slope, mae, ok, note)
 
 
+class SwingRank(NamedTuple):
+    """Whether the BOARD'S OWN 0-100 swing score orders the forward return."""
+
+    n: int
+    ic: float           # rank IC of swing_score against the date-demeaned return
+    spread_win: float   # top bucket win rate minus bottom bucket win rate
+    spread_excess: float  # ...and the same for date-demeaned excess
+    buckets: tuple[tuple[float, float, float, int], ...]  # (score, win rate, excess, n)
+    ranks: str          # "yes" / "BACKWARDS" / "no"
+    note: str
+
+
+def swing_rank(obs: Sequence[Obs], demean: Demean, bins: int = 10) -> SwingRank:
+    """Test ``zone.swing_score`` -- the number the board actually prints.
+
+    THIS FUNCTION EXISTS BECAUSE THE BOARD WAS PRINTING SOMEONE ELSE'S RESULT.
+    Section 114 rendered "does the swing score rank? NO" out of
+    :func:`calibration`, which measures :func:`_score` -- the walk-forward FITTED
+    composite over feature percentiles. That is a different number with different
+    inputs and a different fitting story; the board's swing score appeared in no
+    family predicate, no calibration and no fold, so it was untested in either
+    direction while the board claimed it had been tested and had failed.
+
+    The measurement is the plain one and needs no fold, because there is nothing
+    fitted here to leak: the score is a fixed weighted sum emitted by
+    :mod:`zones`, so its whole history is out of sample by construction. Rank IC
+    and equal-count buckets against the DATE-DEMEANED return, so "the market went
+    up while the score was high" cannot pass for ranking.
+    """
+    rows = [o for o in obs if o.zone is not None]
+    if len(rows) < bins * 10:
+        return SwingRank(len(rows), 0.0, 0.0, 0.0, (), "untested",
+                         f"only {len(rows)} scored observations -- too few to test the ranking")
+    xs = [o.zone.swing_score for o in rows]
+    ys = [o.ret - _dm(demean, o.date) for o in rows]
+    ic = _spearman(xs, ys)
+    pts = sorted(zip(xs, ys, [1.0 if o.ret > 0 else 0.0 for o in rows]))
+    k = len(pts) // bins
+    buckets = []
+    for i in range(bins):
+        chunk = pts[i * k:(i + 1) * k] if i < bins - 1 else pts[i * k:]
+        if chunk:
+            buckets.append((_mean([a for a, _, _ in chunk]), _mean([c for _, _, c in chunk]),
+                            _mean([b for _, b, _ in chunk]), len(chunk)))
+    dw = buckets[-1][1] - buckets[0][1]
+    de = buckets[-1][2] - buckets[0][2]
+    # Two standard errors of a Spearman correlation under the null. A spread that
+    # looks like a ranking is worth nothing if the IC behind it is inside the noise,
+    # and on a sample this size the noise is +/-0.05.
+    se = 1.0 / math.sqrt(len(rows) - 1)
+    ranks = "no" if abs(ic) <= 2 * se else ("yes" if ic > 0 else "BACKWARDS")
+    tail = {
+        "no": (f"|IC| is inside two standard errors of zero (+/-{2 * se:.3f}), so this score "
+               f"orders NOTHING measurable -- it is not a ranking, let alone a probability"),
+        "yes": "the score ORDERS the outcome; it is a ranking and still not a probability",
+        "BACKWARDS": ("the score orders the outcome BACKWARDS -- a HIGHER swing score picked a "
+                      "WORSE stock. The board prints it as if higher were better"),
+    }[ranks]
+    note = (f"the board's own swing score over {len(rows):,} scored stock-days: rank IC {ic:+.3f} "
+            f"against the date-demeaned {PRIMARY}-day return, top bucket minus bottom bucket "
+            f"{dw:+.1%} on win rate and {de:+.2%} on excess -- " + tail)
+    return SwingRank(len(rows), ic, dw, de, tuple(buckets), ranks, note)
+
+
 def probabilistic(name: str, p: Perf, cal: Calibration) -> str:
     """Section 114's output block, with the calibration verdict attached."""
     if not p.usable:
@@ -1722,10 +1936,28 @@ def universe(n: int = 36, min_sessions: int = 700) -> list[str]:
     than a parse) and sampled at even ranks, so the set spans NIFRA at 44 MB down
     to symbols with a few thousand prints a year.
 
-    SURVIVORSHIP, stated because it does not go away by being ignored: every
-    symbol here traded from 2022 to 2026. That biases the LEVEL of every return
-    in this file upwards. It does not bias the comparisons, which is exactly why
-    the buy-and-hold baseline on the same universe and dates is compulsory.
+    SELECTION, stated because it does not go away by being ignored -- and stated
+    in the direction it actually runs, which is not the direction this docstring
+    used to claim. The filter has three clauses and they are not equally guilty:
+
+    * ``d[-1] >= 2026-08-01`` is the survivorship clause, and it is a NO-OP. It
+      removes exactly three symbols (CMF2, PFL, SFCL) and all three have zero
+      price bars, so :func:`_panel` drops them anyway at ``len(abars) < 60``.
+      Measured impact on every number in this file: 0.00%.
+    * ``d[0] <= 2022-02-15`` is the clause that actually selects. It removes 69
+      symbols listed after the window opened, and on the same grid and horizon
+      those 69 return a MEDIAN of -0.03% and win 49.3% of the time against the
+      qualifying universe's -0.91% and 44.6%. The excluded names did BETTER.
+    * ``len(d) >= 700`` removes 351 symbols with too little history to compute a
+      trailing percentile against; that is a measurement floor, not a selection.
+
+    So the universe is selection-DEPRESSED at the median, not inflated: dropping
+    the recent listings drops the better half. The earlier claim that this "biases
+    the LEVEL of every return in this file upwards" was backwards. What has not
+    changed is the mitigation, and it is the one that matters: every comparison in
+    this file is WITHIN this universe, against a buy-and-hold baseline built from
+    the same symbols on the same dates, so a level bias in either direction
+    cancels out of every excess column.
     """
     rows = []
     for s in loader.symbols():
@@ -1758,6 +1990,8 @@ class Result(NamedTuple):
     inter: tuple[Interaction, ...]
     edge_tables: tuple[tuple[str, tuple[Edge, ...], Screen], ...]  # sections 94, 95, 96
     cal: Calibration
+    swing: SwingRank
+    phases: tuple[tuple[str, tuple[Phase, ...]], ...]  # only for families that reached EDGE
     seconds: float
     errors: tuple[str, ...]
 
@@ -1839,6 +2073,15 @@ def run(symbols: Sequence[str] | None = None, start: str = START, end: str = END
     grp = group_importance(obs, demean, folds) if folds else {}
     cal = calibration(obs, folds)
 
+    # Anything that clears the corrected bar gets the overlap test before it is
+    # allowed to be called an edge in print. It is the cheapest way to stop this
+    # file publishing a p-value that is four times too confident.
+    bonf = 0.05 / max(1, sum(1 for f in fams if f[2].usable))
+    phases = tuple((name, tuple(phase_split(
+        [o for o in obs if fn(o)], obs, demean, by_date, side)))
+        for (name, side, fn), (_, _, p, c, ys) in zip(families(), fams)
+        if verdict(p, c, ys, bonf)[0] == "EDGE")
+
     return Result(
         symbols=tuple(syms),
         obs=tuple(obs),
@@ -1858,6 +2101,8 @@ def run(symbols: Sequence[str] | None = None, start: str = START, end: str = END
             for title, (kind, share) in EDGE_KINDS.items()
         ),
         cal=cal,
+        swing=swing_rank(obs, demean),
+        phases=phases,
         seconds=time.time() - t0,
         errors=tuple(errors),
     )
@@ -1885,14 +2130,22 @@ def bonferroni(r: Result) -> tuple[float, int]:
 
 def verdict(p: Perf, c: Control, years: dict[str, Perf],
             bonf: float) -> tuple[str, int, int]:
-    """EDGE / weak / no edge / SUPPRESSED, plus the per-year count behind it.
+    """EDGE / weak / NEGATIVE / no edge / SUPPRESSED, plus the per-year count behind it.
 
     Lifted out of :func:`report` so that the text report and the board's section 98
-    cannot drift into disagreeing about what a family was judged to be. Three states,
-    not two, and the reason is arithmetic: screening fifteen families and announcing
-    whichever ones clear p<0.05 finds two of them on data with nothing in it, so only
-    the Bonferroni-corrected threshold earns the word EDGE and the naive one earns
-    the word "weak". Neither threshold is chosen after looking at the answer.
+    cannot drift into disagreeing about what a family was judged to be. Screening
+    fifteen families and announcing whichever ones clear p<0.05 finds two of them on
+    data with nothing in it, so only the Bonferroni-corrected threshold earns the word
+    EDGE and the naive one earns the word "weak". Neither threshold is chosen after
+    looking at the answer.
+
+    NEGATIVE is the state this function used to be missing, and its absence was not
+    neutral. A rule whose excess is reliably BELOW the same-day universe was reported
+    as "no edge" -- the same words as a rule that simply could not be distinguished
+    from chance. They are not the same finding, and the one the board itself trades
+    (``zone_buy``) is in the first category: -0.86% mean excess, negative in all five
+    years, and a lower-tail control p of 0.006. Calling that "unproven" flatters it.
+    The lower tail is tested with the same two thresholds as the upper one.
 
     Returns ``(verdict, years with positive excess, years with n>=10)``.
     """
@@ -1905,6 +2158,9 @@ def verdict(p: Perf, c: Control, years: dict[str, Perf],
         return "EDGE", pos, len(yrs)
     if ok and c.p_value < 0.05:
         return "weak", pos, len(yrs)
+    bad = p.excess_mean < 0 and bool(yrs) and (len(yrs) - pos) / len(yrs) >= 0.6
+    if bad and c.p_low < 0.05:
+        return "NEGATIVE", pos, len(yrs)
     return "no edge", pos, len(yrs)
 
 
@@ -1915,7 +2171,8 @@ def report(r: Result) -> str:
     add("=" * 100)
     add("SWING QUANTUM BACKTEST -- spec sections 93-104 + 114")
     add("=" * 100)
-    add(f"universe        {len(r.symbols)} symbols, liquidity-stratified, survivorship-biased by construction")
+    add(f"universe        {len(r.symbols)} symbols, liquidity-stratified, selection-filtered "
+        f"(see SELECTION below)")
     add(f"                {', '.join(r.symbols)}")
     add(f"window          {START} -> {END}   grid every {GRID_STRIDE} sessions, zones every {ZONE_STRIDE}")
     add(f"observations    {len(r.obs):,} stock-days over {len({o.date for o in r.obs})} decision dates")
@@ -1924,6 +2181,20 @@ def report(r: Result) -> str:
     add(f"runtime         {r.seconds:.0f}s")
     for e in r.errors:
         add(f"  ! {e}")
+    add("")
+    add("SELECTION -- what the universe filter does, in the direction it actually does it.")
+    add("  A symbol qualifies on three clauses: >=700 sessions, first session <= 2022-02-15, last")
+    add("  session >= 2026-08-01. Only the middle one selects anything that matters.")
+    add("    survivorship (last session): removes 3 symbols, ALL of which have zero price bars and")
+    add("      are dropped by the panel builder regardless. Measured impact on this file: 0.00%.")
+    add("    start date: removes 69 symbols listed after the window opened. On the same grid and")
+    add("      horizon those 69 return a MEDIAN of -0.03% and win 49.3%, against the qualifying")
+    add("      universe's -0.91% and 44.6% -- the EXCLUDED names did better.")
+    add("    >=700 sessions: a measurement floor (a trailing percentile needs history), not a bet.")
+    add("  So this universe is selection-DEPRESSED at the median, not inflated. An earlier version")
+    add("  of this file claimed the opposite. Either way it does not touch the comparisons: every")
+    add("  excess column below is taken WITHIN this universe against the same-day mean of the same")
+    add("  symbols, which is why the buy-and-hold baseline on identical dates is compulsory.")
 
     add("")
     add("-" * 100)
@@ -1944,7 +2215,8 @@ def report(r: Result) -> str:
     add("SECTION 98 -- RULE FAMILIES, each against the baseline and a date-matched random control")
     add("-" * 100)
     add(f"  {'family':<26}{'side':>6}{'n':>7}{'win':>8}{'mean':>9}{'median':>9}"
-        f"{'EXCESS':>9}{'rand':>9}{'p':>7}{'PF':>7}{'MFE':>8}{'MAE':>8}{'hold':>6}{'cov':>7}")
+        f"{'EXCESS':>9}{'vs REST':>9}{'rand':>9}{'p':>9}{'p.low':>9}{'PF':>7}"
+        f"{'MFE':>8}{'MAE':>8}{'cov':>7}")
     for name, side, p, c, _ in r.fams:
         if p.n == 0:
             add(f"  {name:<26}{side:>6}{0:>7}   (never fired -- the rule is unreachable on this archive)")
@@ -1954,16 +2226,24 @@ def report(r: Result) -> str:
                 f"no rate reported")
             continue
         add(f"  {name:<26}{side:>6}{p.n:>7}{p.win_rate:>8.1%}{p.mean:>9.2%}{p.median:>9.2%}"
-            f"{p.excess_mean:>9.2%}{c.mean:>9.2%}{c.p_value:>7.2f}{p.profit_factor:>7.2f}"
-            f"{p.mfe_mean:>8.2%}{p.mae_mean:>8.2%}{p.avg_hold:>6.1f}{p.coverage:>7.0%}")
+            f"{p.excess_mean:>9.2%}{p.excess_lfo:>9.2%}{c.mean:>9.2%}{c.p_value:>9.4f}"
+            f"{c.p_low:>9.4f}{p.profit_factor:>7.2f}"
+            f"{p.mfe_mean:>8.2%}{p.mae_mean:>8.2%}{p.coverage:>7.0%}")
     add("")
     add("  EXCESS is the date-demeaned edge: the family's return minus the mean of EVERY stock in")
     add("  the universe on the same day. On a strong market day every stock looks accumulated, so")
     add("  this column -- not `mean` -- is the one that says whether the rule knew anything.")
-    add("  p is the share of 200 date-matched random-entry draws that matched or beat the family.")
-    add("  cov is the share of the universe the family holds on its own firing dates. A family")
-    add("  with high coverage IS most of the universe mean, so its EXCESS is mechanically pulled")
-    add("  toward zero and a null result there is weaker evidence than it looks.")
+    add("  vs REST is the same excess taken against the same day's NON-MEMBERS. EXCESS puts the")
+    add("  family inside its own benchmark, which shrinks it toward zero in proportion to cov -- at")
+    add("  ~50% coverage by about half. vs REST is the number with that removed, and it is the")
+    add("  larger of the two in BOTH directions: it makes the good families look better and the")
+    add("  bad ones look worse. Neither column is the 'real' one; EXCESS is what a long-only book")
+    add("  earns over the index, vs REST is what the RULE knew relative to what it passed over.")
+    add(f"  p is the share of {CONTROL_DRAWS:,} date-matched random draws that matched or BEAT the")
+    add("  family; p.low is the share that matched or fell BELOW it. The draws are k-of-N subsets")
+    add("  of each day's universe taken WITHOUT replacement, which is what makes them a null for")
+    add("  'pick k stocks today' rather than a null with the finite-population correction missing.")
+    add("  cov is the share of the universe the family holds on its own firing dates.")
     add("  A `short` side is an AVOIDANCE signal, sign-flipped so 'right' reads positive: NEPSE")
     add("  has no short selling, so a profitable short row is not a tradeable strategy.")
     add(f"  Compare every excess win rate against the BASELINE's {b.excess_win_rate:.1%}, not against")
@@ -1980,7 +2260,8 @@ def report(r: Result) -> str:
         add(f"      EV {p.expected_value:+.2%}   expectancy {p.expectancy:+.2f}R   payoff {p.payoff:.2f}   "
             f"max fav {p.max_mfe:+.1%} / max adv {p.max_mae:+.1%}   max DD {p.max_drawdown:.1%}")
         add(f"      time to target {p.time_to_target:.1f} sessions ({p.target_rate:.0%} got there), "
-            f"time to invalidation {p.time_to_invalidation:.1f} ({p.invalidation_rate:.0%})")
+            f"time to invalidation {p.time_to_invalidation:.1f} ({p.invalidation_rate:.0%}), "
+            f"average hold {p.avg_hold:.1f}")
         add("      labels: " + ", ".join(f"{k} {v}" for k, v in p.labels[:6]))
 
     add("")
@@ -2117,9 +2398,22 @@ def report(r: Result) -> str:
         for pr, re_, n in r.cal.buckets:
             add(f"  {pr:>11.2f}{re_:>11.2f}{n:>8}")
         lo_b, hi_b = r.cal.buckets[0][1], r.cal.buckets[-1][1]
-        add(f"  bottom bucket wins {lo_b:.1%} of the time, top bucket {hi_b:.1%}: the score "
-            f"{'at least RANKS' if hi_b - lo_b > 0.05 else 'does not even RANK'} "
+        add(f"  bottom bucket wins {lo_b:.1%} of the time, top bucket {hi_b:.1%}: the WALK-FORWARD")
+        add(f"  FITTED COMPOSITE {'at least RANKS' if hi_b - lo_b > 0.05 else 'does not even RANK'} "
             f"(spread {hi_b - lo_b:+.1%}).")
+    add("")
+    add("  THE BOARD'S OWN SWING SCORE, tested separately -- it is NOT the score above.")
+    add("  Everything in the block above measures the fitted composite of feature percentiles that")
+    add("  walk_forward() produces. The 0-100 `swing score` the board prints comes out of zones.py")
+    add("  and shares none of its inputs. Attributing one score's flatness to the other is a claim")
+    add("  about a number nobody measured, so here is the number.")
+    add("  " + r.swing.note)
+    if r.swing.buckets:
+        add(f"  {'score':>9}{'win rate':>11}{'excess':>10}{'n':>8}")
+        for sc_, wr, exc, n_ in r.swing.buckets:
+            add(f"  {sc_:>9.1f}{wr:>11.1%}{exc:>10.2%}{n_:>8}")
+        add("  'excess' is date-demeaned, so it is the cross-sectional statement: did a higher score")
+        add("  pick a better stock THAT DAY. A monotone column would be a ranking; a flat one is not.")
     add("")
     best = max((f for f in r.fams if f[2].usable), key=lambda f: f[2].excess_mean, default=None)
     if best:
@@ -2134,28 +2428,87 @@ def report(r: Result) -> str:
     # the corrected threshold is what earns the word EDGE and the naive one only
     # earns "weak". Both are shown; neither is chosen after looking.
     bonf, tested = bonferroni(r)
-    strong, weak = [], []
+    strong, weak, bad = [], [], []
     add(f"  criterion: positive date-demeaned excess, positive in >=60% of years with n>=10, and")
     add(f"  a control p below {bonf:.4f} (0.05 Bonferroni-corrected for {tested} screened families).")
     add(f"  'weak' clears the uncorrected 0.05 only -- which is what screening {tested} rules")
-    add("  produces on data with no signal in it.")
+    add("  produces on data with no signal in it. 'NEGATIVE' is the mirror image and is NOT the")
+    add("  same finding as 'no edge': the excess is BELOW the same-day universe, in >=60% of years,")
+    add("  with a lower-tail control p under 0.05. 'no edge' means indistinguishable from chance.")
     add("")
     for n, s, p, c, ys in r.fams:
         v, pos, ny = verdict(p, c, ys, bonf)
         if v == "SUPPRESSED":
-            add(f"  {n:<26}{'SUPPRESSED':<9} n={p.n}, below the {MIN_OBS}-observation floor")
+            add(f"  {n:<26}{'SUPPRESSED':<10} n={p.n}, below the {MIN_OBS}-observation floor")
             continue
         if v == "EDGE":
             strong.append(n)
         elif v == "weak":
             weak.append(n)
-        add(f"  {n:<26}{v:<9} excess {p.excess_mean:+.2%}, control p {c.p_value:.2f}, "
-            f"positive in {pos}/{ny} years")
+        elif v == "NEGATIVE":
+            bad.append(n)
+        tail = f"p.low {c.p_low:.4f}" if v == "NEGATIVE" else f"p {c.p_value:.4f}"
+        add(f"  {n:<26}{v:<10} excess {p.excess_mean:+.2%} (vs rest {p.excess_lfo:+.2%}), "
+            f"control {tail}, positive in {pos}/{ny} years")
     add("")
     add(f"  {len(strong)} of {tested} testable families survive the corrected threshold"
         f"{': ' + ', '.join(strong) if strong else '.'}")
     add(f"  {len(weak)} clear the uncorrected 0.05 only"
         f"{': ' + ', '.join(weak) if weak else '.'}")
+    add(f"  {len(bad)} are significantly NEGATIVE"
+        f"{': ' + ', '.join(bad) if bad else '.'}")
+
+    for n, s, p, c, ys in r.fams:
+        if verdict(p, c, ys, bonf)[0] != "NEGATIVE":
+            continue
+        yrs = [(y, q) for y, q in sorted(ys.items()) if q.n >= 10]
+        add("")
+        add(f"  {n.upper()} IS NOT NEUTRAL AND MUST NOT BE READ AS 'UNPROVEN'.")
+        add(f"    n {p.n:,}   excess {p.excess_mean:+.2%} mean, {p.excess_median:+.2%} median, "
+            f"{p.excess_lfo:+.2%} against the same day's non-members")
+        add(f"    it beat the same-day universe {p.excess_win_rate:.1%} of the time "
+            f"(baseline {b.excess_win_rate:.1%})")
+        add(f"    negative in {sum(1 for _, q in yrs if q.excess_mean <= 0)}/{len(yrs)} years: "
+            + ", ".join(f"{y} {q.excess_mean:+.2%}" for y, q in yrs))
+        add(f"    under the corrected null the chance of an excess this negative is "
+            f"{c.p_low:.4f}, on {CONTROL_DRAWS:,} draws")
+        if n.startswith("zone"):
+            add(f"    and this is the LEAST forgiving sample in the file to fail on: zones are "
+                f"emitted every {ZONE_STRIDE} sessions and the horizon is {PRIMARY}, so these")
+            add("    observations do not overlap at all and the p-value needs no discount.")
+
+    for name, phs in r.phases:
+        fam = next(f for f in r.fams if f[0] == name)
+        p = fam[2]
+        add("")
+        add(f"  {name.upper()} CLEARED THE BAR. Before trading it, the two things that shrink it:")
+        add(f"    OVERLAP -- the grid fires every {GRID_STRIDE} sessions and the horizon is "
+            f"{PRIMARY}, so the {p.n:,} rows above carry about {p.n // max(1, PRIMARY // GRID_STRIDE):,}")
+        add("    rows' worth of independent information. Re-measured on each non-overlapping phase:")
+        add(f"      {'phase':>7}{'n':>7}{'excess':>10}{'p':>9}")
+        for ph in phs:
+            add(f"      {ph.phase:>7}{ph.n:>7}{ph.excess:>10.2%}{ph.p_value:>9.4f}")
+        neg = [ph.phase for ph in phs if ph.excess <= 0]
+        add(f"      -> {len(neg)} of {len(phs)} phases have a NEGATIVE excess"
+            f"{' (' + ', '.join(str(x) for x in neg) + ')' if neg else ''}. A result that survives")
+        add("      on some phases and inverts on others has not been demonstrated on this sample.")
+        lo_c, hi_c = ROUND_TRIP
+        add(f"    COST -- every number in this file is GROSS. A NEPSE round trip is "
+            f"{lo_c:.1%}-{hi_c:.1%}, so this excess of {p.excess_mean:+.2%}")
+        add(f"      nets {p.excess_mean - lo_c:+.2%} to {p.excess_mean - hi_c:+.2%} per trade before "
+            f"slippage on a market where the median stock-day loses to the mean.")
+        grp_of = {f: g for g, fs in GROUPS.items() for f in fs}.get(name)
+        if grp_of:
+            add(f"    WHAT IT IS -- this family fires on the `{name}` feature, which section 104")
+            add(f"      classifies in the {grp_of.upper()} group.")
+            if grp_of == "price":
+                add("      That makes it a PRICE-MOMENTUM result, not a floorsheet one: vwap_slope is")
+                add("      3-session mean VWAP over 15-session mean VWAP, a price ratio that needs no")
+                add("      broker column at all. It does not validate the flow engine this file tests;")
+                add("      the one family that cleared the bar is the one that reads the least flow.")
+            add("      Per-year excess above shows where it lives; a family that is one or two years")
+            add("      is a regime, not an edge.")
+    add("")
     add("  Anything not marked EDGE should not be traded, and no threshold in this file was moved")
     add("  to make one appear.")
     return "\n".join(L)
@@ -2167,11 +2520,11 @@ def report(r: Result) -> str:
 #
 # WHY this file exists at all. :func:`report` writes 34 KB of prose to
 # ``backtest.txt`` and nobody opens it. Meanwhile the board prints an entry zone,
-# a target and a 0-100 score for 481 symbols, and the measurement saying those have
-# no demonstrated edge lives only in that unopened file. A board that shows the
-# target and hides the verdict is not neutral, it is advertising. So the verdict has
+# a target and a 0-100 score for 481 symbols, and the measurement saying the buy signal
+# is significantly worse than random lives only in that unopened file. A board that shows
+# the target and hides the verdict is not neutral, it is advertising. So the verdict has
 # to reach the board -- and the board is rebuilt in 22 minutes while this study costs
-# ~470 s, so it cannot be recomputed per build. One small tab-separated digest,
+# ~490 s, so it cannot be recomputed per build. One small tab-separated digest,
 # written when the study runs and read once when the board is built, is the whole
 # mechanism.
 #
@@ -2205,6 +2558,8 @@ class FamilyRow(NamedTuple):
     years_positive: int
     years: int
     verdict: str
+    excess_lfo: float = 0.0   # against the same-day non-members
+    control_p_low: float = 0.0  # the lower tail -- how a NEGATIVE verdict is earned
 
     @property
     def usable(self) -> bool:
@@ -2272,6 +2627,8 @@ class Summary(NamedTuple):
     edge_tables: tuple[EdgeTable, ...]
     edges: tuple[EdgeRow, ...]
     labels: tuple[tuple[str, str, int], ...]  # (family, label, count)
+    #: (family, phase, n, excess, p) for families that cleared the corrected bar
+    phases: tuple[tuple[str, int, int, float, float], ...] = ()
 
     def num(self, key: str) -> float | None:
         try:
@@ -2377,7 +2734,7 @@ def write_summary(r: Result, leakage: tuple[str, str, int] | None = None,
     # The board prints an entry zone, so the family the board itself would trade gets
     # its whole Perf written out -- section 93 is about THAT rule, not about an average
     # of fifteen. The rest travel as the compact section 98 table below.
-    strong, weak = [], []
+    strong, weak, bad = [], [], []
     fam_lines: list[str] = []
     for name, side, p, c, ys in r.fams:
         v, pos, ny = verdict(p, c, ys, bonf)
@@ -2385,6 +2742,8 @@ def write_summary(r: Result, leakage: tuple[str, str, int] | None = None,
             strong.append(name)
         elif v == "weak":
             weak.append(name)
+        elif v == "NEGATIVE":
+            bad.append(name)
         # A suppressed family gets blanks, not zeros. MIN_OBS exists because a rate off
         # nine events is a number-shaped opinion, and a 0.0000 in a data file is quoted
         # as a measurement by whoever reads it next.
@@ -2392,18 +2751,28 @@ def write_summary(r: Result, leakage: tuple[str, str, int] | None = None,
             f"{p.win_rate:.4f}", f"{p.mean:.4f}", f"{p.median:.4f}",
             f"{p.excess_mean:.4f}", f"{c.p_value:.4f}",
         ]
+        extra = ["", ""] if v == "SUPPRESSED" else [f"{p.excess_lfo:.4f}", f"{c.p_low:.4f}"]
         fam_lines.append("\t".join(["family", _cell(name), side, str(p.n)] + cells
-                                   + [str(pos), str(ny), v]))
+                                   + [str(pos), str(ny), v] + extra))
         if name == "zone_buy":
             lines += _perf_lines("zone_buy", p)
             lines += [f"zone_buy.side\t{side}", f"zone_buy.control_p\t{c.p_value:.4f}",
+                      f"zone_buy.control_p_low\t{c.p_low:.4f}",
                       f"zone_buy.verdict\t{v}", f"zone_buy.years_positive\t{pos}",
-                      f"zone_buy.years\t{ny}"]
+                      f"zone_buy.years\t{ny}",
+                      f"zone_buy.years_negative\t{ny - pos}",
+                      # The per-year excesses in full, because "negative in 5 of 5 years" is
+                      # the sentence the board has to be able to write without re-running.
+                      "zone_buy.year_excess\t" + _cell(", ".join(
+                          f"{y} {q.excess_mean:+.2%}" for y, q in sorted(ys.items())
+                          if q.n >= 10))]
     lines += [
         f"families_edge\t{len(strong)}",
         f"families_edge_names\t{_cell(', '.join(strong))}",
         f"families_weak\t{len(weak)}",
         f"families_weak_names\t{_cell(', '.join(weak))}",
+        f"families_negative\t{len(bad)}",
+        f"families_negative_names\t{_cell(', '.join(bad))}",
     ]
     lines += fam_lines
 
@@ -2484,6 +2853,31 @@ def write_summary(r: Result, leakage: tuple[str, str, int] | None = None,
     if r.cal.buckets:
         lines += [f"calibration.bottom_bucket_win\t{r.cal.buckets[0][1]:.4f}",
                   f"calibration.top_bucket_win\t{r.cal.buckets[-1][1]:.4f}"]
+
+    # The BOARD'S OWN score, which is a different number from the one above and used to be
+    # reported as if the one above had measured it. Both travel, under names that say which
+    # is which, so no renderer can attribute one score's result to the other again.
+    lines += [
+        f"swing_score.n\t{r.swing.n}",
+        f"swing_score.ic\t{r.swing.ic:.4f}",
+        f"swing_score.spread_win\t{r.swing.spread_win:.4f}",
+        f"swing_score.spread_excess\t{r.swing.spread_excess:.4f}",
+        f"swing_score.buckets\t{len(r.swing.buckets)}",
+        f"swing_score.ranks\t{r.swing.ranks}",
+        f"swing_score.note\t{_cell(r.swing.note)}",
+    ]
+    if r.swing.buckets:
+        lines += [f"swing_score.bottom_bucket_win\t{r.swing.buckets[0][1]:.4f}",
+                  f"swing_score.top_bucket_win\t{r.swing.buckets[-1][1]:.4f}",
+                  f"swing_score.bottom_bucket_excess\t{r.swing.buckets[0][2]:.4f}",
+                  f"swing_score.top_bucket_excess\t{r.swing.buckets[-1][2]:.4f}"]
+
+    # --- the fragility of anything that cleared the bar ----------------------
+    lines += [f"round_trip_low\t{ROUND_TRIP[0]}", f"round_trip_high\t{ROUND_TRIP[1]}"]
+    for name, phs in r.phases:
+        for ph in phs:
+            lines.append("\t".join(("phase", _cell(name), str(ph.phase), str(ph.n),
+                                    f"{ph.excess:.4f}", f"{ph.p_value:.4f}")))
     lines += [f"error\t{_cell(e)}" for e in r.errors]
 
     p = path or summary_path()
@@ -2512,6 +2906,7 @@ def read_summary(path: str | None = None) -> Summary | None:
     etabs: list[EdgeTable] = []
     erows: list[EdgeRow] = []
     labs: list[tuple] = []
+    phs: list[tuple] = []
     with open(p, "r", encoding="utf-8", errors="replace") as fh:
         for ln in fh:
             ln = ln.rstrip("\r\n")
@@ -2520,8 +2915,12 @@ def read_summary(path: str | None = None) -> Summary | None:
             c = ln.split("\t")
             k = c[0]
             if k == "family" and len(c) >= 12:
+                # The last two cells were added after the significance audit; a digest
+                # written before it parses back with them at 0.0 rather than not at all.
                 fams.append(FamilyRow(c[1], c[2], _i(c[3]), _f(c[4]), _f(c[5]), _f(c[6]),
-                                      _f(c[7]), _f(c[8]), _i(c[9]), _i(c[10]), c[11]))
+                                      _f(c[7]), _f(c[8]), _i(c[9]), _i(c[10]), c[11],
+                                      _f(c[12]) if len(c) > 12 else 0.0,
+                                      _f(c[13]) if len(c) > 13 else 0.0))
             elif k == "fold" and len(c) >= 9:
                 folds.append((c[1], c[2], c[3], _i(c[4]), _i(c[5]), _f(c[6]), _f(c[7]), _f(c[8])))
             elif k == "stability" and len(c) >= 7:
@@ -2538,10 +2937,12 @@ def read_summary(path: str | None = None) -> Summary | None:
                                      (_f(c[11]), _f(c[12]), _f(c[13]))))
             elif k == "label" and len(c) >= 4:
                 labs.append((c[1], c[2], _i(c[3])))
+            elif k == "phase" and len(c) >= 6:
+                phs.append((c[1], _i(c[2]), _i(c[3]), _f(c[4]), _f(c[5])))
             else:
                 meta[k] = c[1] if len(c) > 1 else ""
     return Summary(meta, tuple(fams), tuple(folds), tuple(stab), tuple(imp), tuple(grp),
-                   tuple(etabs), tuple(erows), tuple(labs))
+                   tuple(etabs), tuple(erows), tuple(labs), tuple(phs))
 
 
 # ---------------------------------------------------------------------------
@@ -2558,6 +2959,36 @@ def _demo() -> None:
     """
     syms = universe()
     assert len(syms) >= 30, f"only {len(syms)} symbols qualify; the study needs at least 30"
+
+    # -- the control must sample WITHOUT replacement, and the bar must be resolvable --
+    # Degenerate on purpose: if the family IS the whole pool then a without-replacement
+    # draw has no freedom at all and must reproduce the family exactly on every draw.
+    # With replacement it cannot -- that is what the audited version did, and it made the
+    # null ~30% too wide at the coverage these families actually run at.
+    fake = [Obs("A", "2024-01-01", (), (), (0.0, 0.0, x), 0.0, 0.0, 0, 0, 0, 0.0, 0,
+                (0, 0), 0.0, None) for x in (-0.10, 0.00, 0.25)]
+    c_all = control(fake, {"2024-01-01": fake}, draws=200)
+    assert abs(c_all.mean - _mean([o.ret for o in fake])) < 1e-12 and c_all.p_value == 1.0, (
+        f"control() is sampling WITH replacement: an exhaustive draw returned mean "
+        f"{c_all.mean} / p {c_all.p_value} instead of the family's own mean and p=1.0")
+    # ...and a strict subset must still be free: the middle of three is beaten by 2 of 3.
+    c_one = control(fake[1:2], {"2024-01-01": fake}, draws=2000)
+    assert 0.60 < c_one.p_value < 0.74, f"a 1-of-3 draw is not uniform, got p={c_one.p_value}"
+    # A p-value quantised to 1/draws must be finer than the bar it is compared against,
+    # or the corrected threshold is reachable only at exactly zero.
+    assert 1.0 / CONTROL_DRAWS <= 0.05 / len(families()) / 3, (
+        f"CONTROL_DRAWS={CONTROL_DRAWS} cannot resolve the Bonferroni bar "
+        f"{0.05 / len(families()):.5f} -- raise it")
+
+    # -- the leave-family-out excess is the identity excess/(1 - coverage), per date --
+    # Checked here rather than on the study because the aggregate mixes dates with
+    # different coverages and the identity only holds date by date.
+    fdm = {"2024-01-01": (0.0, 0.0, _mean([o.ret for o in fake]))}
+    one = perf("member", fake[:1], fdm, "long", {"2024-01-01": fake})
+    assert abs(one.excess_lfo - (fake[0].ret - _mean([o.ret for o in fake[1:]]))) < 1e-12, (
+        f"excess vs non-members is {one.excess_lfo}, not the member minus the rest")
+    assert abs(one.excess_lfo * (1.0 - one.coverage) - one.excess_mean) < 1e-12, (
+        "the leave-one-out excess does not equal excess / (1 - coverage) on a single date")
 
     # -- section 100: the percentile column must equal history.pit exactly ----
     probe = [math.sin(i * 1.7) * 100 + i for i in range(400)]
@@ -2608,6 +3039,10 @@ def _demo() -> None:
     # column in the report is quietly wrong.
     assert abs(r.baseline.excess_mean) < 1e-9, (
         f"the universe does not demean to zero ({r.baseline.excess_mean}) -- the control is broken")
+    # ...and so must its leave-family-out excess: buy-and-hold has no non-members.
+    assert abs(r.baseline.excess_lfo) < 1e-9, (
+        f"the baseline's leave-family-out excess is {r.baseline.excess_lfo}, not zero")
+    assert r.swing.note, "the board's own swing score must always carry a measured verdict"
     assert r.baseline.coverage > 0.99, "buy-and-hold must hold the whole universe by definition"
     per_date = Counter(o.date for o in r.obs)
     assert _mean([float(v) for v in per_date.values()]) >= 10, (
