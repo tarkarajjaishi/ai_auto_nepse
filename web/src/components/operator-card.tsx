@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 
-import { api, type Row } from "@/lib/api";
+import { api, type Row, type Setup } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 /**
@@ -34,6 +34,8 @@ function has(row: Row, key: string): boolean {
 const int = (v: number) =>
   v.toLocaleString(undefined, { maximumFractionDigits: 0, signDisplay: "exceptZero" });
 const plain = (v: number) => Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 0 });
+const fmtPx = (v: number | null | undefined) =>
+  v == null ? "—" : v.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
 /** A "show the math" row: what was measured, the arithmetic, and the result against its threshold. */
 function Calc({
@@ -308,6 +310,43 @@ export function OperatorCard({ row, defaultOpen }: { row: Row; defaultOpen: bool
 }
 
 /**
+ * What happened after the LAST trigger.
+ *
+ * Everything else on this panel is a forecast. This is the only part that reports a result, and it
+ * reports the losses too — a screen that shows its predictions and hides its outcomes is not
+ * evidence, it is advertising.
+ */
+function Outcome({ o }: { o: NonNullable<Setup["outcome"]> }) {
+  const said: Record<string, { text: string; tone: string }> = {
+    t2: { text: "Both targets reached — full winner", tone: "text-up" },
+    t1: { text: "Target 1 reached", tone: "text-up" },
+    stopped: { text: "Stopped out — the trade lost", tone: "text-down" },
+    open: { text: "Still open — neither target nor stop hit yet", tone: "text-muted-foreground" },
+  };
+  const v = said[o.verdict] ?? said.open;
+  return (
+    <div className="border-t border-border px-3 py-2">
+      <p className="text-[12px] leading-snug">
+        <strong>Did it work?</strong> From that entry (Rs {fmtPx(o.entry)}) →{" "}
+        <strong className={v.tone}>{v.text}</strong> · best move since{" "}
+        <strong className={o.peak_pct >= 0 ? "text-up" : "text-down"}>
+          {o.peak_pct >= 0 ? "+" : ""}
+          {o.peak_pct.toFixed(1)}%
+        </strong>
+      </p>
+      <Calc
+        tone={o.verdict === "stopped" ? "fail" : o.verdict === "open" ? "neutral" : "pass"}
+        rows={[
+          { label: "target 1", formula: `Rs ${fmtPx(o.t1)}`, result: o.t1_date ?? "not reached", ok: Boolean(o.t1_date) },
+          { label: "target 2", formula: `Rs ${fmtPx(o.t2)}`, result: o.t2_date ?? "not reached", ok: Boolean(o.t2_date) },
+          { label: "stop", formula: `Rs ${fmtPx(o.stop)}`, result: o.sl_date ?? "not hit", ok: !o.sl_date },
+        ]}
+      />
+    </div>
+  );
+}
+
+/**
  * Is the move this stock's own, or is the whole sector doing it?
  *
  * The distinction is the difference between "someone is working this stock" and "banks were up
@@ -381,16 +420,38 @@ function RelativeStrength({ row, buy }: { row: Row; buy: boolean }) {
  * reader should be able to check it session by session rather than take the summary's word. The
  * bars are drawn from the numbers in the same row, so the picture cannot disagree with the table.
  */
+/** South-Asian readable form. 4,09,109 shares means nothing until it is "4.09 lakh". */
+function words(v: number): string {
+  const a = Math.abs(v);
+  const sign = v < 0 ? "-" : "";
+  if (a >= 1e7) return `${sign}${(a / 1e7).toFixed(2)} crore`;
+  if (a >= 1e5) return `${sign}${(a / 1e5).toFixed(2)} lakh`;
+  if (a >= 1e3) return `${sign}${(a / 1e3).toFixed(1)} thousand`;
+  return `${sign}${a.toFixed(0)}`;
+}
+
+/** The windows the card's prose refers to — 1 month is 22 sessions, not 30 days. */
+const WINDOWS: { label: string; days: number }[] = [
+  { label: "7 days", days: 7 },
+  { label: "15 days", days: 15 },
+  { label: "1 month", days: 22 },
+];
+
 function BrokerLedger({ symbol, broker }: { symbol: string; broker: string }) {
-  const [days, setDays] = useState(20);
+  const [win, setWin] = useState(WINDOWS[0]);
+  const days = win.days;
   const q = useQuery({
     queryKey: ["ledger", symbol, broker, days],
     queryFn: ({ signal }) => api.ledger(symbol, broker, days, signal),
     retry: false,
   });
 
-  const rows = q.data?.sessions ?? [];
+  // Newest FIRST, and labelled by how many sessions ago it was: "1d" is today. The card's prose
+  // talks about "the last 3 days" and "still going", which only reads against a newest-first list.
+  const asc = q.data?.sessions ?? [];
+  const rows = [...asc].reverse();
   const scale = Math.max(1, ...rows.map((r) => Math.max(Math.abs(r.net), r.sold)));
+  const totals = q.data?.totals;
 
   return (
     <div className="rounded-md border border-border">
@@ -399,16 +460,18 @@ function BrokerLedger({ symbol, broker }: { symbol: string; broker: string }) {
           Broker {broker} in {symbol}, day by day
         </span>
         <span className="ml-auto flex items-center gap-1">
-          {[10, 20, 60].map((d) => (
+          {WINDOWS.map((w) => (
             <button
-              key={d}
-              onClick={() => setDays(d)}
+              key={w.label}
+              onClick={() => setWin(w)}
               className={cn(
                 "rounded px-1.5 py-0.5 font-mono text-[11px] transition-colors",
-                d === days ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-accent",
+                w.label === win.label
+                  ? "bg-primary/15 text-primary"
+                  : "text-muted-foreground hover:bg-accent",
               )}
             >
-              {d}d
+              {w.label}
             </button>
           ))}
         </span>
@@ -424,17 +487,27 @@ function BrokerLedger({ symbol, broker }: { symbol: string; broker: string }) {
             <table className="w-full text-[11.5px]">
               <thead className="sticky top-0 bg-card">
                 <tr className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                  <th className="px-3 py-1.5 text-left font-medium">Day</th>
                   <th className="px-3 py-1.5 text-left font-medium">Date</th>
                   <th className="px-2 py-1.5 text-right font-medium">Bought</th>
                   <th className="px-2 py-1.5 text-right font-medium">Sold</th>
                   <th className="px-2 py-1.5 text-right font-medium">Net</th>
                   <th className="px-2 py-1.5 text-right font-medium">vs prev</th>
+                  <th className="px-2 py-1.5 text-right font-medium">vs prev %</th>
                   <th className="w-[34%] px-3 py-1.5 text-left font-medium">net · sold</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
+                {rows.map((r, i) => {
+                  // vs_prev arrives against the PREVIOUS session in file order; reversed, the
+                  // comparison for row i is with row i+1. Recomputing here would be a second
+                  // answer to the same question, so the sign is read from the row it belongs to.
+                  const prev = rows[i + 1];
+                  const pct =
+                    prev && prev.net ? ((r.net - prev.net) / Math.abs(prev.net)) * 100 : null;
+                  return (
                   <tr key={r.date} className="border-t border-border/50">
+                    <td className="px-3 py-1 font-mono text-muted-foreground">{i + 1}d</td>
                     <td className="px-3 py-1 font-mono text-muted-foreground">{r.date}</td>
                     <td className="px-2 py-1 text-right font-mono tabular-nums">{plain(r.bought)}</td>
                     <td className="px-2 py-1 text-right font-mono tabular-nums">{plain(r.sold)}</td>
@@ -447,7 +520,10 @@ function BrokerLedger({ symbol, broker }: { symbol: string; broker: string }) {
                       {int(r.net)}
                     </td>
                     <td className="px-2 py-1 text-right font-mono tabular-nums text-muted-foreground">
-                      {r.vs_prev === null ? "—" : int(r.vs_prev)}
+                      {prev ? int(r.net - prev.net) : "—"}
+                    </td>
+                    <td className="px-2 py-1 text-right font-mono tabular-nums text-muted-foreground">
+                      {pct === null ? "—" : `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`}
                     </td>
                     <td className="px-3 py-1">
                       {/* two bars on one baseline: net above, sold below, same scale */}
@@ -467,21 +543,51 @@ function BrokerLedger({ symbol, broker }: { symbol: string; broker: string }) {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
-          {q.data && (
-            <p className="border-t border-border px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
-              {rows.length} sessions · bought {plain(q.data.totals.bought)} · sold{" "}
-              {plain(q.data.totals.sold)} · net{" "}
-              <span className={q.data.totals.net >= 0 ? "text-up" : "text-down"}>
-                {int(q.data.totals.net)}
-              </span>
-            </p>
+          {totals && (
+            <>
+              <div className="grid grid-cols-3 gap-px border-t border-border bg-border">
+                <Total label="Total buy quantity" v={totals.bought} />
+                <Total label="Total sell quantity" v={totals.sold} />
+                <Total label="Net kept (buy − sell)" v={totals.net} signed />
+              </div>
+              {/* "In words" is not decoration here. 4,09,109 shares is a number you skim past;
+                  "4.09 lakh" is one you can hold, and this card is asking the reader to judge a
+                  size against a company's free float. */}
+              <p className="border-t border-border px-3 py-1.5 text-[11.5px] leading-snug text-muted-foreground">
+                In words — over the last {win.label}, broker {broker} bought{" "}
+                <strong className="text-foreground">{words(totals.bought)}</strong> and sold{" "}
+                <strong className="text-foreground">{words(totals.sold)}</strong> — net{" "}
+                <strong className={totals.net >= 0 ? "text-up" : "text-down"}>
+                  {totals.net >= 0 ? "buying" : "selling"} {words(Math.abs(totals.net))}
+                </strong>{" "}
+                shares.
+              </p>
+            </>
           )}
         </>
       )}
+    </div>
+  );
+}
+
+function Total({ label, v, signed }: { label: string; v: number; signed?: boolean }) {
+  return (
+    <div className="bg-card px-3 py-2">
+      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div
+        className={cn(
+          "font-mono text-[13px] font-semibold tabular-nums",
+          signed ? (v >= 0 ? "text-up" : "text-down") : "",
+        )}
+      >
+        {signed ? int(v) : plain(v)} shares
+      </div>
+      <div className="font-mono text-[10.5px] text-muted-foreground">{words(v)}</div>
     </div>
   );
 }
@@ -548,31 +654,64 @@ function TradeSetup({ symbol }: { symbol: string }) {
 
       <div className="grid grid-cols-2 gap-px bg-border sm:grid-cols-4">
         {[
-          { k: "Entry", v: d.entry, tone: "" },
+          { k: "Entry (buy)", v: d.entry, tone: "" },
           { k: "Target 1", v: d.target1, tone: "text-up" },
           { k: "Target 2", v: d.target2, tone: "text-up" },
-          { k: "Stop", v: d.stop, tone: "text-down" },
-        ].map((t) => (
-          <div key={t.k} className="bg-card px-3 py-2">
-            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.k}</div>
-            <div className={cn("font-mono text-[13px] font-semibold tabular-nums", t.tone)}>
-              {t.v?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? "—"}
+          { k: "Stop loss", v: d.stop, tone: "text-down" },
+        ].map((t) => {
+          // The distance from entry is the number a reader actually weighs — "Rs 653" says
+          // nothing until you know it is +5.4% away.
+          const away = t.v != null && d.entry ? (t.v / d.entry - 1) * 100 : null;
+          return (
+            <div key={t.k} className="bg-card px-3 py-2">
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.k}</div>
+              <div className={cn("font-mono text-[13px] font-semibold tabular-nums", t.tone)}>
+                Rs {t.v?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? "—"}
+              </div>
+              {away != null && away !== 0 && (
+                <div
+                  className={cn(
+                    "font-mono text-[10.5px] tabular-nums",
+                    away >= 0 ? "text-up" : "text-down",
+                  )}
+                >
+                  {away >= 0 ? "+" : ""}
+                  {away.toFixed(1)}%
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <p className="border-t border-border px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
-        risk {d.risk_pct?.toFixed(2)}% · R:R {d.rr?.toFixed(2)} · ATR{" "}
-        {d.atr?.toFixed(2)}
-        {d.buy_date && (
-          <>
-            {" · "}
-            triggered {d.buy_date}
-            {d.days_active != null && ` (${d.days_active}d ago)`}
-          </>
-        )}
+        risk {d.risk_pct?.toFixed(2)}% per share · reward:risk to T2 ≈ {d.rr?.toFixed(2)}:1 ·
+        support {fmtPx(d.support)} / resistance {fmtPx(d.resistance)} · ATR(14) {d.atr?.toFixed(2)}
       </p>
+
+      {d.buy_date && (
+        <p className="border-t border-border px-3 py-1.5 text-[12px] leading-snug">
+          <strong>Buy signal date</strong> — triggered on{" "}
+          <span className="font-mono">{d.buy_date}</span>
+          {d.days_active != null &&
+            ` (${d.days_active === 0 ? "today" : d.days_active === 1 ? "yesterday" : `${d.days_active} sessions ago`})`}
+          {d.buy_close != null && <> at Rs {fmtPx(d.buy_close)}</>}
+          {d.runup != null && (
+            <>
+              . Price is{" "}
+              <strong className={d.runup >= 0 ? "text-up" : "text-down"}>
+                {d.runup >= 0 ? "+" : ""}
+                {d.runup.toFixed(1)}%
+              </strong>{" "}
+              from the trigger now
+            </>
+          )}
+          .
+        </p>
+      )}
+
+      {d.outcome && <Outcome o={d.outcome} />}
+
       {d.still_reason && (
         <p className="border-t border-border px-3 py-1.5 text-[12px] leading-snug text-muted-foreground">
           {d.still_reason}

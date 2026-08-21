@@ -165,11 +165,28 @@ export type Setup = {
   risk_pct: number;
   rr: number;
   atr: number;
+  support: number | null;
+  resistance: number | null;
   buy_date: string | null;
+  buy_close: number | null;
   days_active: number | null;
+  /** % price has moved since the trigger */
+  runup: number | null;
   still_buy: boolean;
   still_reason: string;
   liquid: boolean;
+  /** what happened AFTER the last trigger — the only backward-looking thing on the panel */
+  outcome: {
+    entry: number;
+    t1: number;
+    t2: number;
+    stop: number;
+    t1_date: string | null;
+    t2_date: string | null;
+    sl_date: string | null;
+    peak_pct: number;
+    verdict: "t1" | "t2" | "stopped" | "open";
+  } | null;
 };
 
 /** One supply/demand zone: a band of price, live from `from` until price closes through it. */
