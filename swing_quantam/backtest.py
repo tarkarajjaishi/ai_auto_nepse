@@ -57,6 +57,15 @@ Nothing here is calibrated. Section 114 is explicit that a score may not be
 called a probability until it is, so :func:`probabilistic` runs a reliability
 check and prints the word NOT CALIBRATED when the check fails, which on this
 archive it does.
+
+Two artefacts come out of a run, and the second one is the point. ``backtest.txt``
+is this module's report, written for a human and read by nobody. ``backtest_summary.txt``
+(:func:`write_summary` / :func:`read_summary`) is the same verdict in ``key<TAB>value``
+form, small enough that :mod:`swing_quantam.__main__` reads it once per board build --
+so the board that prints an entry zone and a 0-100 score also prints, beside them, the
+measurement that neither has a demonstrated edge. The study costs ~470 s and the board
+rebuild is 22 minutes, so re-running it per build is not an option; carrying the answer
+forward in a file is.
 """
 
 from __future__ import annotations
@@ -1868,6 +1877,37 @@ def _yeartable(title: str, years: dict[str, Perf]) -> list[str]:
     return out
 
 
+def bonferroni(r: Result) -> tuple[float, int]:
+    """(corrected threshold, families tested). Screening N rules costs N times the alpha."""
+    tested = sum(1 for _, _, p, _, _ in r.fams if p.usable)
+    return 0.05 / max(1, tested), tested
+
+
+def verdict(p: Perf, c: Control, years: dict[str, Perf],
+            bonf: float) -> tuple[str, int, int]:
+    """EDGE / weak / no edge / SUPPRESSED, plus the per-year count behind it.
+
+    Lifted out of :func:`report` so that the text report and the board's section 98
+    cannot drift into disagreeing about what a family was judged to be. Three states,
+    not two, and the reason is arithmetic: screening fifteen families and announcing
+    whichever ones clear p<0.05 finds two of them on data with nothing in it, so only
+    the Bonferroni-corrected threshold earns the word EDGE and the naive one earns
+    the word "weak". Neither threshold is chosen after looking at the answer.
+
+    Returns ``(verdict, years with positive excess, years with n>=10)``.
+    """
+    if not p.usable:
+        return "SUPPRESSED", 0, 0
+    yrs = [q for q in years.values() if q.n >= 10]
+    pos = sum(1 for q in yrs if q.excess_mean > 0)
+    ok = p.excess_mean > 0 and bool(yrs) and pos / len(yrs) >= 0.6
+    if ok and c.p_value < bonf:
+        return "EDGE", pos, len(yrs)
+    if ok and c.p_value < 0.05:
+        return "weak", pos, len(yrs)
+    return "no edge", pos, len(yrs)
+
+
 def report(r: Result) -> str:
     """The whole study as text. Every claim carries its sample size beside it."""
     L: list[str] = []
@@ -2093,8 +2133,7 @@ def report(r: Result) -> str:
     # ones clear p<0.05 is the error that manufactures a finding out of noise, so
     # the corrected threshold is what earns the word EDGE and the naive one only
     # earns "weak". Both are shown; neither is chosen after looking.
-    tested = sum(1 for _, _, p, _, _ in r.fams if p.usable)
-    bonf = 0.05 / max(1, tested)
+    bonf, tested = bonferroni(r)
     strong, weak = [], []
     add(f"  criterion: positive date-demeaned excess, positive in >=60% of years with n>=10, and")
     add(f"  a control p below {bonf:.4f} (0.05 Bonferroni-corrected for {tested} screened families).")
@@ -2102,22 +2141,16 @@ def report(r: Result) -> str:
     add("  produces on data with no signal in it.")
     add("")
     for n, s, p, c, ys in r.fams:
-        if not p.usable:
+        v, pos, ny = verdict(p, c, ys, bonf)
+        if v == "SUPPRESSED":
             add(f"  {n:<26}{'SUPPRESSED':<9} n={p.n}, below the {MIN_OBS}-observation floor")
             continue
-        yrs = [q for q in ys.values() if q.n >= 10]
-        pos = sum(1 for q in yrs if q.excess_mean > 0)
-        ok = p.excess_mean > 0 and yrs and pos / len(yrs) >= 0.6
-        if ok and c.p_value < bonf:
-            verdict = "EDGE"
+        if v == "EDGE":
             strong.append(n)
-        elif ok and c.p_value < 0.05:
-            verdict = "weak"
+        elif v == "weak":
             weak.append(n)
-        else:
-            verdict = "no edge"
-        add(f"  {n:<26}{verdict:<9} excess {p.excess_mean:+.2%}, control p {c.p_value:.2f}, "
-            f"positive in {pos}/{len(yrs)} years")
+        add(f"  {n:<26}{v:<9} excess {p.excess_mean:+.2%}, control p {c.p_value:.2f}, "
+            f"positive in {pos}/{ny} years")
     add("")
     add(f"  {len(strong)} of {tested} testable families survive the corrected threshold"
         f"{': ' + ', '.join(strong) if strong else '.'}")
@@ -2126,6 +2159,285 @@ def report(r: Result) -> str:
     add("  Anything not marked EDGE should not be traded, and no threshold in this file was moved")
     add("  to make one appear.")
     return "\n".join(L)
+
+
+# ---------------------------------------------------------------------------
+# the machine-readable summary -- writer and parser, deliberately side by side
+# ---------------------------------------------------------------------------
+#
+# WHY this file exists at all. :func:`report` writes 34 KB of prose to
+# ``backtest.txt`` and nobody opens it. Meanwhile the board prints an entry zone,
+# a target and a 0-100 score for 481 symbols, and the measurement saying those have
+# no demonstrated edge lives only in that unopened file. A board that shows the
+# target and hides the verdict is not neutral, it is advertising. So the verdict has
+# to reach the board -- and the board is rebuilt in 22 minutes while this study costs
+# ~470 s, so it cannot be recomputed per build. One small tab-separated digest,
+# written when the study runs and read once when the board is built, is the whole
+# mechanism.
+#
+# Storage rule: plain ``.txt``, ``key<TAB>value``. No JSON, no CSV. Repeated keys
+# (``family``, ``fold``, ``stability``, ``importance``, ``group_importance``) carry a
+# row of values after the key; every other key carries exactly one.
+#
+# Writer and parser are in this module, next to each other, for the same reason
+# :mod:`store` keeps its own pair together: a format whose reader lives elsewhere
+# drifts, and a silently mis-parsed verdict is worse than no verdict.
+
+#: File name beside ``backtest.txt`` in ``Master_data/swing_quantam/``.
+SUMMARY = "backtest_summary.txt"
+
+
+def summary_path() -> str:
+    return os.path.join(loader.OUT, SUMMARY)
+
+
+class FamilyRow(NamedTuple):
+    """One section 98 rule family, as the board reads it back."""
+
+    name: str
+    side: str
+    n: int
+    win: float
+    mean: float
+    median: float
+    excess: float
+    control_p: float
+    years_positive: int
+    years: int
+    verdict: str
+
+    @property
+    def usable(self) -> bool:
+        """False when the family was below the sample floor -- then no rate is real."""
+        return self.verdict != "SUPPRESSED"
+
+
+class Summary(NamedTuple):
+    """``backtest_summary.txt`` parsed back.
+
+    ``meta`` is every single-value key; the tuples are the repeated-key tables. The
+    accessors return None rather than 0.0 for a key that is not there, because a
+    missing metric rendered as zero is a lie and this whole artefact exists to stop
+    one being told.
+    """
+
+    meta: dict[str, str]
+    families: tuple[FamilyRow, ...]
+    folds: tuple[tuple[str, str, str, int, int, float, float, float], ...]
+    stability: tuple[tuple[str, float, float, float, float, float], ...]
+    importance: tuple[tuple[str, float, float], ...]
+    groups: tuple[tuple[str, float], ...]
+
+    def num(self, key: str) -> float | None:
+        try:
+            return float(self.meta[key])
+        except (KeyError, ValueError):
+            return None
+
+    def get(self, key: str, default: str = "") -> str:
+        return self.meta.get(key) or default
+
+    def family(self, name: str) -> FamilyRow | None:
+        return next((f for f in self.families if f.name == name), None)
+
+
+def _cell(v: object) -> str:
+    """A tab or a newline would silently reshape a row; nothing else needs escaping."""
+    return str(v).replace("\t", " ").replace("\r", " ").replace("\n", " ").strip()
+
+
+def _f(s: str) -> float:
+    try:
+        return float(s)
+    except ValueError:
+        return 0.0
+
+
+def _i(s: str) -> int:
+    try:
+        return int(s)
+    except ValueError:
+        return 0
+
+
+def _perf_lines(label: str, p: Perf) -> list[str]:
+    """Every scalar field of a :class:`Perf`, as ``label.field<TAB>value``.
+
+    Generated from ``Perf._fields`` rather than hand-listed: a metric added upstream
+    then reaches the board without a second edit, and -- more to the point -- cannot
+    go missing from it without anyone noticing.
+    """
+    out = []
+    for f in p._fields:
+        v = getattr(p, f)
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            continue
+        out.append(f"{label}.{f}\t{v:.6g}" if isinstance(v, float) else f"{label}.{f}\t{v}")
+    return out
+
+
+def write_summary(r: Result, leakage: tuple[str, str, int] | None = None,
+                  ex_dates: int = -1, path: str | None = None) -> str:
+    """Write the board-readable digest of ``r`` beside the human report.
+
+    ``leakage`` is ``(symbol, cut date, rows proved identical)`` from
+    :func:`leakage_check` and ``ex_dates`` the count of corporate actions inside the
+    window -- both are computed by :func:`_demo`, not by :func:`run`, so they are
+    passed in rather than recomputed. Absent, section 100 on the board says the guard
+    was not re-proved by this run instead of implying that it was.
+    """
+    bonf, tested = bonferroni(r)
+    ics = [f.ic for f in r.folds]
+    lines: list[str] = [
+        "# swing_quantam backtest summary -- key<TAB>value, written by backtest.write_summary()",
+        "# Read with backtest.read_summary(). Rebuild with:",
+        '#   python -c "from swing_quantam import backtest; backtest._demo()"',
+        f"run_date\t{time.strftime('%Y-%m-%d')}",
+        f"runtime_seconds\t{r.seconds:.0f}",
+        f"universe\t{len(r.symbols)}",
+        f"universe_symbols\t{_cell(', '.join(r.symbols))}",
+        f"observations\t{len(r.obs)}",
+        f"decision_dates\t{len({o.date for o in r.obs})}",
+        f"start\t{START}",
+        f"end\t{END}",
+        f"horizon\t{PRIMARY}",
+        f"horizons\t{', '.join(str(h) for h in HORIZONS)}",
+        f"entry_lag\t{ENTRY_LAG}",
+        f"target\t{TARGET}",
+        f"stop\t{STOP}",
+        f"grid_stride\t{GRID_STRIDE}",
+        f"zone_stride\t{ZONE_STRIDE}",
+        f"min_obs\t{MIN_OBS}",
+        f"control_draws\t{CONTROL_DRAWS}",
+        f"families_tested\t{tested}",
+        f"bonferroni_p\t{bonf:.4f}",
+    ]
+    lines += _perf_lines("baseline", r.baseline)
+
+    # The board prints an entry zone, so the family the board itself would trade gets
+    # its whole Perf written out -- section 93 is about THAT rule, not about an average
+    # of fifteen. The rest travel as the compact section 98 table below.
+    strong, weak = [], []
+    fam_lines: list[str] = []
+    for name, side, p, c, ys in r.fams:
+        v, pos, ny = verdict(p, c, ys, bonf)
+        if v == "EDGE":
+            strong.append(name)
+        elif v == "weak":
+            weak.append(name)
+        # A suppressed family gets blanks, not zeros. MIN_OBS exists because a rate off
+        # nine events is a number-shaped opinion, and a 0.0000 in a data file is quoted
+        # as a measurement by whoever reads it next.
+        cells = ["", "", "", "", ""] if v == "SUPPRESSED" else [
+            f"{p.win_rate:.4f}", f"{p.mean:.4f}", f"{p.median:.4f}",
+            f"{p.excess_mean:.4f}", f"{c.p_value:.4f}",
+        ]
+        fam_lines.append("\t".join(["family", _cell(name), side, str(p.n)] + cells
+                                   + [str(pos), str(ny), v]))
+        if name == "zone_buy":
+            lines += _perf_lines("zone_buy", p)
+            lines += [f"zone_buy.side\t{side}", f"zone_buy.control_p\t{c.p_value:.4f}",
+                      f"zone_buy.verdict\t{v}", f"zone_buy.years_positive\t{pos}",
+                      f"zone_buy.years\t{ny}"]
+    lines += [
+        f"families_edge\t{len(strong)}",
+        f"families_edge_names\t{_cell(', '.join(strong))}",
+        f"families_weak\t{len(weak)}",
+        f"families_weak_names\t{_cell(', '.join(weak))}",
+    ]
+    lines += fam_lines
+
+    # --- section 99 ---------------------------------------------------------
+    lines.append(f"walkforward.folds\t{len(r.folds)}")
+    if r.folds:
+        lines += [
+            f"walkforward.mean_oos_ic\t{_mean(ics):.4f}",
+            f"walkforward.folds_positive\t{sum(1 for i in ics if i > 0)}",
+            f"walkforward.top_decile\t{_mean([f.top_decile for f in r.folds]):.4f}",
+            f"walkforward.bottom_decile\t{_mean([f.bottom_decile for f in r.folds]):.4f}",
+        ]
+        for f in r.folds:
+            lines.append("\t".join(("fold", f"{f.train[0]}-{f.train[1]}", f.validate[0], f.test[0],
+                                    str(f.n_train), str(f.n_test), f"{f.ic:.4f}",
+                                    f"{f.top_decile:.4f}", f"{f.bottom_decile:.4f}")))
+
+    # --- section 100 --------------------------------------------------------
+    lines += [f"leakage.pit_lookback\t{PIT_LOOKBACK}", f"leakage.pit_min\t{PIT_MIN}"]
+    if leakage:
+        lines += [f"leakage.symbol\t{leakage[0]}", f"leakage.cut\t{leakage[1]}",
+                  f"leakage.rows_identical\t{leakage[2]}"]
+    if ex_dates >= 0:
+        lines.append(f"leakage.ex_dates_in_window\t{ex_dates}")
+
+    # --- sections 103 and 104 -----------------------------------------------
+    lines.append(f"stability.features\t{len(r.stab)}")
+    for s in r.stab[:8]:
+        lines.append("\t".join(("stability", s.feature, f"{s.ic_overall:.4f}",
+                                f"{s.year_sign_agreement:.4f}", f"{s.dist_drift:.4f}",
+                                f"{s.extreme_sensitivity:.4f}", f"{s.missing_sensitivity:.4f}")))
+    lines += [f"importance.features\t{len(r.imp)}", "importance.shap\tnot implemented"]
+    for f, (pm, ab) in sorted(r.imp.items(), key=lambda kv: -kv[1][0])[:8]:
+        lines.append("\t".join(("importance", f, f"{pm:.4f}", f"{ab:.4f}")))
+    for g, d in sorted(r.groups.items(), key=lambda kv: -kv[1]):
+        lines.append("\t".join(("group_importance", g, f"{d:.4f}")))
+
+    # --- section 114 --------------------------------------------------------
+    lines += [
+        f"calibration.calibrated\t{'yes' if r.cal.calibrated else 'no'}",
+        f"calibration.slope\t{r.cal.slope:.4f}",
+        f"calibration.mean_abs_error\t{r.cal.mean_abs_error:.4f}",
+        f"calibration.note\t{_cell(r.cal.note)}",
+        f"calibration.buckets\t{len(r.cal.buckets)}",
+    ]
+    if r.cal.buckets:
+        lines += [f"calibration.bottom_bucket_win\t{r.cal.buckets[0][1]:.4f}",
+                  f"calibration.top_bucket_win\t{r.cal.buckets[-1][1]:.4f}"]
+    lines += [f"error\t{_cell(e)}" for e in r.errors]
+
+    p = path or summary_path()
+    os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
+    with open(p, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+    return p
+
+
+def read_summary(path: str | None = None) -> Summary | None:
+    """Parse the summary back. **None when the backtest has never been run.**
+
+    None is a real answer and every caller has to print it as one. A board that just
+    omits its backtest sections reads as "this was considered and found irrelevant",
+    which is the exact opposite of what an unrun study means.
+    """
+    p = path or summary_path()
+    if not os.path.isfile(p):
+        return None
+    meta: dict[str, str] = {}
+    fams: list[FamilyRow] = []
+    folds: list[tuple] = []
+    stab: list[tuple] = []
+    imp: list[tuple] = []
+    grp: list[tuple] = []
+    with open(p, "r", encoding="utf-8", errors="replace") as fh:
+        for ln in fh:
+            ln = ln.rstrip("\r\n")
+            if not ln or ln.startswith("#"):
+                continue
+            c = ln.split("\t")
+            k = c[0]
+            if k == "family" and len(c) >= 12:
+                fams.append(FamilyRow(c[1], c[2], _i(c[3]), _f(c[4]), _f(c[5]), _f(c[6]),
+                                      _f(c[7]), _f(c[8]), _i(c[9]), _i(c[10]), c[11]))
+            elif k == "fold" and len(c) >= 9:
+                folds.append((c[1], c[2], c[3], _i(c[4]), _i(c[5]), _f(c[6]), _f(c[7]), _f(c[8])))
+            elif k == "stability" and len(c) >= 7:
+                stab.append((c[1], _f(c[2]), _f(c[3]), _f(c[4]), _f(c[5]), _f(c[6])))
+            elif k == "importance" and len(c) >= 4:
+                imp.append((c[1], _f(c[2]), _f(c[3])))
+            elif k == "group_importance" and len(c) >= 3:
+                grp.append((c[1], _f(c[2])))
+            else:
+                meta[k] = c[1] if len(c) > 1 else ""
+    return Summary(meta, tuple(fams), tuple(folds), tuple(stab), tuple(imp), tuple(grp))
 
 
 # ---------------------------------------------------------------------------
@@ -2237,6 +2549,34 @@ def _demo() -> None:
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(text + "\n")
     print(f"\nwritten: {path}")
+
+    # -- the board's copy, and proof it survives the round trip ---------------
+    spath = write_summary(r, leakage=(probe_sym, "2025-06-30", n_cmp), ex_dates=fakes)
+    s = read_summary()
+    assert s is not None, "the summary was written and then could not be read back"
+    assert len(s.families) == len(r.fams), f"{len(s.families)} families read back of {len(r.fams)}"
+    bonf, tested = bonferroni(r)
+    for (name, side, p, c, ys), got in zip(r.fams, s.families):
+        want, pos, ny = verdict(p, c, ys, bonf)
+        assert got.name == name and got.verdict == want, f"{name}: {got.verdict!r} != {want!r}"
+        assert (got.years_positive, got.years) == (pos, ny), name
+        if got.usable:
+            assert abs(got.excess - p.excess_mean) < 5e-5, name
+        else:
+            # A rate off fewer than MIN_OBS occurrences must not survive as a number.
+            assert got.win == 0.0 and got.excess == 0.0, f"{name}: a suppressed rate was written"
+    # Every key section 93/98/114 renders from must be present, or the board shows a
+    # blank cell that reads as zero -- which is the failure this artefact exists to stop.
+    for key in ("run_date", "universe", "observations", "decision_dates", "horizon",
+                "target", "stop", "families_tested", "bonferroni_p",
+                "baseline.n", "baseline.win_rate", "baseline.mean", "baseline.median",
+                "baseline.profit_factor", "baseline.max_drawdown",
+                "calibration.calibrated", "calibration.note"):
+        assert s.get(key), f"the summary is missing {key}"
+    assert s.num("baseline.n") == r.baseline.n
+    assert s.family("zone_buy") is not None, "the board's own signal is not in the summary"
+    print(f"written: {spath} ({len(s.families)} families, {len(s.folds)} folds, "
+          f"{len(s.stability)} stability rows, {len(s.importance)} importance rows)")
 
 
 if __name__ == "__main__":

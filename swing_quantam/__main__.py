@@ -36,6 +36,14 @@ Four consequences of "load once" that are easy to get wrong:
 * ``--upto`` is threaded into the single ``load_last`` call and nothing else reads the
   filesystem, so point-in-time is enforced in one place instead of sixty. ``zones`` and
   ``timeframes`` are handed ``history=ses`` for the same reason.
+* Sections 93-104 and 114 are MEASUREMENTS of the sections above, not more of them, and the
+  study behind them costs ~470 s — three times a whole 593-symbol build. It is never run
+  here. :func:`main` reads the small ``backtest_summary.txt`` digest once (same threading
+  pattern as 69-71) and hands it to every ``build_symbol``. Unlike the market pass, a
+  MISSING digest is reported rather than skipped: those sections still render and say the
+  study has not been run, because a section that quietly vanishes reads as "considered and
+  found irrelevant" — the exact opposite of a null result. Sections 107, 108 and 115 are
+  the spec's own honesty text and render unconditionally.
 
 MEASURED COST (this machine, warm page cache, HISTORY=120, sections 4-92 all live):
 ``python -m swing_quantam --limit 10`` takes **11 s (1.1 s per symbol)**, plus a flat
@@ -85,6 +93,14 @@ try:  # pragma: no cover
     from . import zones  # type: ignore
 except ImportError:
     zones = None  # type: ignore
+# Sections 93-104 and 114 are MEASUREMENTS of the sections above, not more of them. The
+# study behind them costs ~470 s and is never run here; this import only brings in the
+# parser for the small digest it leaves behind. Guarded like the two above so a missing
+# module degrades to "not run" instead of taking the whole build down.
+try:  # pragma: no cover
+    from . import backtest as bt  # type: ignore
+except ImportError:
+    bt = None  # type: ignore
 
 
 #: Below this many sessions the build is refused. 30 is ``max(loader.WINDOWS)``: with
@@ -310,6 +326,417 @@ def _market_sections(mp: hist.MarketPass) -> list[Section]:
     ]
 
 
+# ── 93-115: what the sections above are actually worth ─────────────────────────────────
+#
+# Sections 82-92 print an entry zone, a target, a stop and a 0-100 score. The measurement
+# of whether any of that has ever paid was already computed — by :mod:`swing_quantam.backtest`,
+# into a 34 KB report at Master_data/swing_quantam/backtest.txt that no reader opens. A board
+# that shows the target and keeps the verdict in a file nobody reads is not neutral; it is
+# advertising. So the verdict is rendered here, beside the signal, in the reader's own view.
+#
+# The study costs ~470 s and the full board build is 22 minutes, so it is NEVER re-run here.
+# main() reads one small tab-separated digest once and threads it in, exactly as it does for
+# the sections 69-71 market pass.
+
+#: What a reader sees when the study has never been run. The command is spelled out because
+#: "no data" with no way to get it is a shrug, and — more importantly — because a section
+#: that is silently OMITTED reads as "this was considered and found irrelevant", which is the
+#: opposite of what an unrun study means. Every backtest-derived section renders either way.
+_NOT_RUN = ('not run; build it with `python -c "from swing_quantam import backtest; '
+            'backtest._demo()"`')
+
+_NO_SUMMARY = "there is no Master_data/swing_quantam/backtest_summary.txt on disk"
+
+#: Section 107, the spec's own list. Floorsheet records EXECUTED transactions and nothing
+#: else, so everything here is outside what the data can reach — not merely unmeasured.
+_S107: tuple[tuple[str, str], ...] = (
+    ("actual investor identity", "NOT knowable from the floorsheet"),
+    ("investor account", "NOT knowable from the floorsheet"),
+    ("client identity behind a broker", "NOT knowable from the floorsheet"),
+    ("investor cost basis", "NOT knowable from the floorsheet"),
+    ("investor holdings", "NOT knowable from the floorsheet"),
+    ("why a transaction happened", "NOT knowable from the floorsheet"),
+    ("actual profit or loss", "NOT knowable from the floorsheet"),
+    ("unexecuted orders", "NOT knowable from the floorsheet"),
+    ("full order book", "NOT knowable from the floorsheet"),
+    ("hidden liquidity", "NOT knowable from the floorsheet"),
+    ("future bids and offers", "NOT knowable from the floorsheet"),
+    ("news", "NOT knowable from the floorsheet"),
+    ("fundamentals", "NOT knowable from the floorsheet"),
+    ("corporate announcements", "NOT knowable from the floorsheet"),
+    ("sentiment outside executed transactions", "NOT knowable from the floorsheet"),
+    ("broker activity", "is NOT investor identity"),
+    ("broker buying", "is NOT guaranteed accumulation"),
+    ("broker selling", "is NOT guaranteed distribution"),
+    ("pattern", "is NOT manipulation"),
+    ("high concentration", "is NOT insider activity"),
+    ("a repeated broker pair", "is NOT wrongdoing"),
+)
+
+#: Section 108, verbatim in substance: the sentences this system may and may not produce.
+_S108: tuple[tuple[str, str], ...] = (
+    ('"Broker 58 had net buying."', "CAN say"),
+    ('"Net buying increased over 3D/7D."', "CAN say"),
+    ('"Broker breadth expanded."', "CAN say"),
+    ('"Volume concentration increased."', "CAN say"),
+    ('"Executed volume clustered around Rs X."', "CAN say"),
+    ('"The current pattern historically resembles prior accumulation setups."', "CAN say"),
+    ('"The model identifies a candidate entry zone."', "CAN say"),
+    ('"Historical backtest shows X% favourable outcomes for this setup."', "CAN say"),
+    ('"Investor X bought."', "CANNOT say"),
+    ('"Broker 58 is definitely smart money."', "CANNOT say"),
+    ('"This broker is an insider."', "CANNOT say"),
+    ('"This is manipulation."', "CANNOT say"),
+    ('"The price will definitely rise."', "CANNOT say"),
+    ('"The stock will definitely reach Rs X."', "CANNOT say"),
+    ('"There are hidden buy orders at Rs X."', "CANNOT say"),
+)
+
+#: Section 115. Every note says where THIS package stops, because the spec's rule is only
+#: useful next to an honest statement of what the engine does and does not do for you.
+_S115: tuple[tuple[str, str, str], ...] = (
+    ("position sizing", "must be SEPARATE from signal generation",
+     "nothing in this package sizes a position; section 88's invalidation is a flow/price "
+     "level, not a risk-managed stop"),
+    ("risk per trade", "must be predefined",
+     "decided before the trade, not after an entry zone has been seen"),
+    ("maximum portfolio exposure", "must be controlled", "not modelled anywhere in this package"),
+    ("correlated positions", "must be considered",
+     "NEPSE sectors move together — several names from one sector is one position, not several"),
+    ("slippage and transaction costs", "must be included in backtests",
+     "the study behind sections 93-104 measures GROSS returns entered at the next session's "
+     "open and includes NEITHER, so every return above is optimistic by the round trip"),
+    ("partial exits", "should be modelled",
+     "section 86 gives two profit levels; it does not model an exit schedule across them"),
+    ("gap risk", "CANNOT be eliminated",
+     "NEPSE's circuit is +/-15% — a stop level is a level, not a fill"),
+    ("execution at the desired zone", "CANNOT be guaranteed by floorsheet data",
+     "the floorsheet records what traded, never what was resting"),
+)
+
+
+def _num(s, key: str, fmt: str = "{:+.2%}") -> str:
+    """A summary number, formatted — or the words "not computed". Never a blank.
+
+    A missing metric that renders as an empty cell reads as a zero, and this whole
+    block of sections exists to stop a null result being read as a positive one.
+    """
+    v = s.num(key)
+    return "not computed" if v is None else fmt.format(v)
+
+
+def _evidence_sections(s, upto: str | None = None) -> list[Section]:
+    """Sections 93, 98-100, 103, 104, 107, 108, 114 and 115 from one backtest digest.
+
+    ``s`` is a ``backtest.Summary`` or None. None is a first-class outcome, not an error:
+    every backtest-derived section still renders and says so in words. The three honesty
+    sections (107, 108, 115) are the spec's own text and never depend on a run at all.
+
+    ``upto`` is the point-in-time cut, and it matters here for a reason that is easy to
+    miss: the study is dated. It was RUN on one date over data ending on another, and both
+    are normally later than a rebuild's cut. Printing "0 of 15 families have an edge" into
+    a rebuild dated before the study measured it is look-ahead — the same look-ahead
+    ``--upto`` exists to prevent — and it is the kind that would quietly flatter a backtest
+    OF this board, because a reader (or a strategy) could act at date D on a verdict that
+    did not exist until later. So a study that postdates the cut is withheld and said to be
+    withheld, exactly like one that was never run.
+
+    The numbers are otherwise reproduced exactly as measured. The rules behind the entry
+    zones this board prints do not clear their controls, and softening that here would
+    defeat the only reason the block exists.
+    """
+    why, gone = _NO_SUMMARY, _NOT_RUN
+    if s is not None and upto and max(s.get("end", "9999-99-99"),
+                                      s.get("run_date", "9999-99-99")) > upto:
+        gone = f"not available at {upto}"
+        why = (f"the backtest was run {s.get('run_date', 'at an unrecorded date')} over data "
+               f"ending {s.get('end', 'unrecorded')} — both AFTER this point-in-time cut of "
+               f"{upto}, so quoting it here would be look-ahead")
+        s = None
+    absent = s is None
+
+    # ── 93: expected value, for the rule the board itself would trade ──────────────────
+    if absent:
+        s93 = [Row("expected value", gone, why)]
+        n93 = ("Sections 82-92 above print an entry zone, a target and a stop. Whether following "
+               "them has ever paid is NOT knowable from this file until the backtest is run.")
+    else:
+        zb = s.family("zone_buy")
+        s93 = [
+            Row("measured rule", "zone_buy",
+                "the board's own BUY ZONE / STRONG BUY ZONE signal, backtested exactly as "
+                "sections 84-88 emit it"),
+            Row("observations", _num(s, "zone_buy.n", "{:,.0f}"),
+                f"stock-days, of {s.get('observations', '?')} in the study"),
+            Row("win rate", _num(s, "zone_buy.win_rate", "{:.1%}"),
+                f"loss rate {_num(s, 'zone_buy.loss_rate', '{:.1%}')} — compare with the "
+                f"baseline's {_num(s, 'baseline.win_rate', '{:.1%}')}, not with 50%"),
+            Row("average favourable movement", _num(s, "zone_buy.mfe_mean"),
+                f"median {_num(s, 'zone_buy.mfe_median')} — the best price reached inside the "
+                f"{s.get('horizon', '?')}-session horizon"),
+            Row("average adverse movement", _num(s, "zone_buy.mae_mean"),
+                f"median {_num(s, 'zone_buy.mae_median')} — the worst price reached"),
+            Row("expected value", _num(s, "zone_buy.expected_value"),
+                "win rate x average win minus loss rate x average loss, per trade, gross"),
+            Row("expectancy", _num(s, "zone_buy.expectancy", "{:+.2f}R"),
+                "the same arithmetic per unit of risk: expected return per 1.0 of average loss"),
+            Row("payoff", _num(s, "zone_buy.payoff", "{:.2f}"), "average win / average loss"),
+            Row("profit factor", _num(s, "zone_buy.profit_factor", "{:.2f}"),
+                f"baseline {_num(s, 'baseline.profit_factor', '{:.2f}')}"),
+            Row("max drawdown", _num(s, "zone_buy.max_drawdown", "{:.1%}"),
+                f"non-overlapping holding periods; baseline "
+                f"{_num(s, 'baseline.max_drawdown', '{:.1%}')}"),
+            Row("date-demeaned excess", _num(s, "zone_buy.excess_mean"),
+                f"median {_num(s, 'zone_buy.excess_median')}, control p "
+                f"{_num(s, 'zone_buy.control_p', '{:.2f}')}, positive in "
+                f"{s.get('zone_buy.years_positive', '?')}/{s.get('zone_buy.years', '?')} years "
+                f"-> {s.get('zone_buy.verdict', 'not computed')}"),
+            Row("baseline mean", _num(s, "baseline.mean"),
+                f"median {_num(s, 'baseline.median')} — buy-and-hold EVERY stock-day on the "
+                f"same dates. The median is negative while the mean is positive: a thin tail "
+                f"carries this market."),
+        ]
+        n93 = (f"Measured over {s.get('observations', '?')} stock-days on "
+               f"{s.get('universe', '?')} symbols, {s.get('start', '?')} to {s.get('end', '?')}, "
+               f"study run {s.get('run_date', 'unknown')}. Entry is the NEXT session's open on "
+               f"corporate-action ADJUSTED bars. A positive expected value here is mostly the "
+               f"market rising over the window — the only column that says the RULE knew "
+               f"anything is the date-demeaned excess, and for zone_buy it is negative.")
+
+    # ── 98: the rule families, each against its own control ───────────────────────────
+    if absent:
+        s98 = [Row("backtesting", gone, why)]
+        n98 = ("No rule on this board has been measured against a baseline or a control in this "
+               "build. Until the study is run, treat every signal above as untested.")
+    else:
+        s98 = [
+            Row("run date", s.get("run_date", "unknown"),
+                f"the study took {s.get('runtime_seconds', '?')}s and is NOT re-run per board "
+                f"build — these numbers are as old as this date"),
+            Row("universe", s.get("universe", "?"),
+                "symbols, liquidity-stratified, survivorship-biased by construction"),
+            Row("observations", s.get("observations", "?"),
+                f"stock-days over {s.get('decision_dates', '?')} decision dates"),
+            Row("window", f"{s.get('start', '?')} -> {s.get('end', '?')}",
+                f"grid every {s.get('grid_stride', '?')} sessions, zones every "
+                f"{s.get('zone_stride', '?')}"),
+            # STOP is stored as a positive magnitude and is a LOSS; printing it unsigned
+            # would read as a second profit target.
+            Row("horizon", f"{s.get('horizon', '?')} sessions",
+                f"target {_num(s, 'target', '{:+.0%}')} / stop "
+                f"{'not computed' if s.num('stop') is None else format(-s.num('stop'), '.0%')}"
+                f", chosen once, applied to every family, never tuned"),
+            Row("baseline", f"win {_num(s, 'baseline.win_rate', '{:.1%}')}, "
+                            f"mean {_num(s, 'baseline.mean')}, "
+                            f"median {_num(s, 'baseline.median')}",
+                f"n {_num(s, 'baseline.n', '{:,.0f}')}, profit factor "
+                f"{_num(s, 'baseline.profit_factor', '{:.2f}')}, max drawdown "
+                f"{_num(s, 'baseline.max_drawdown', '{:.1%}')} — buy-and-hold every stock-day "
+                f"on the same dates"),
+        ]
+        for f in s.families:
+            if not f.usable:
+                s98.append(Row(f.name, "SUPPRESSED",
+                               f"n {f.n}, below the {s.get('min_obs', '30')}-observation floor "
+                               f"— no rate is reported off a sample that small"))
+                continue
+            s98.append(Row(f.name, f.verdict,
+                           f"n {f.n:,}, win {f.win:.1%}, mean {f.mean:+.2%}, "
+                           f"median {f.median:+.2%}, EXCESS {f.excess:+.2%}, control p "
+                           f"{f.control_p:.2f}, positive in {f.years_positive}/{f.years} years"))
+        s98 += [
+            Row("families with a demonstrated edge",
+                f"{s.get('families_edge', '0')} of {s.get('families_tested', '0')}",
+                f"the corrected bar: control p below {s.get('bonferroni_p', '?')} "
+                f"(0.05 Bonferroni-corrected for the number screened)"
+                + (f" — {s.get('families_edge_names')}" if s.get("families_edge_names") else "")),
+            Row("families clearing the uncorrected 0.05 only", s.get("families_weak", "0"),
+                (s.get("families_weak_names") or "none")
+                + " — which is about what screening this many rules produces on data with no "
+                  "signal in it"),
+        ]
+        n98 = ("EXCESS is the date-demeaned edge: the family's return minus the mean of EVERY "
+               "stock in the universe on the SAME day. On a strong market day every stock looks "
+               "accumulated, so that column — not `mean` — is the one that says whether the rule "
+               "knew anything. `control p` is the share of "
+               f"{s.get('control_draws', '200')} date-matched random-entry draws that matched or "
+               "beat the family. A `short` family is an AVOIDANCE signal, sign-flipped so that "
+               "'right' reads positive: NEPSE has no short selling.")
+
+    # ── 99: walk-forward validation ───────────────────────────────────────────────────
+    if absent:
+        s99 = [Row("walk-forward validation", gone, why)]
+    else:
+        s99 = [
+            Row("scheme", "expanding train -> one validate year -> one test year -> roll",
+                "strict calendar order; a test year is never touched before it is tested"),
+            Row("folds", s.get("walkforward.folds", "0")),
+        ]
+        for tr, va, te, ntr, nte, ic, top, bot in s.folds:
+            s99.append(Row(f"train {tr} / validate {va} / test {te}", ic,
+                           f"n train {ntr:,}, n test {nte:,}, out-of-sample rank IC {ic:+.3f}, "
+                           f"top decile {top:+.2%}, bottom decile {bot:+.2%}, "
+                           f"spread {top - bot:+.2%}"))
+        s99 += [
+            Row("mean out-of-sample rank IC", _num(s, "walkforward.mean_oos_ic", "{:+.3f}"),
+                f"{s.get('walkforward.folds_positive', '0')} of "
+                f"{s.get('walkforward.folds', '0')} folds positive; the IC is against the "
+                f"DATE-DEMEANED forward return, so a rising market cannot inflate it"),
+            Row("whole-history fit", "never used",
+                "weights are fitted on the train block only, the feature subset is chosen on "
+                "the validate block, and backtest.importance() refuses any model that did not "
+                "come out of a fold"),
+        ]
+
+    # ── 100: data leakage controls ────────────────────────────────────────────────────
+    s100 = [
+        Row("information allowed at decision date D", "everything through D, nothing at or after it",
+            "spec section 100"),
+        Row("future volume, prices, broker flow and outcomes", "excluded"),
+        Row("future normalisation statistics", "excluded",
+            "every normalised feature is a trailing percentile of its OWN prior history"
+            + ("" if absent else f" — lookback {s.get('leakage.pit_lookback', '?')} sessions, "
+                                 f"minimum {s.get('leakage.pit_min', '?')} prior observations")),
+        Row("future percentiles", "excluded",
+            "a value enters its own ranking window only AFTER it has been scored, so nothing is "
+            "ranked against itself and appending later data cannot move an earlier row"),
+        Row("future labels", "excluded",
+            "the section 97 outcome labels read the forward path only, and are never computed "
+            "where a feature is built"),
+        Row("entry price", "the OPEN of the session AFTER D",
+            "the floorsheet for D is only complete once D has closed, so entering at D's close "
+            "would be buying on information that arrived at the same instant"),
+        Row("point-in-time on this board", "--upto is threaded into the single load_last call",
+            "nothing else in this build reads the filesystem, so there is exactly one place to "
+            "get it wrong"),
+    ]
+    if absent:
+        s100.append(Row("how it is tested", gone, why))
+    else:
+        ex = s.get("leakage.ex_dates_in_window")
+        s100.append(Row("outcome bars", "corporate-action ADJUSTED",
+                        (f"{ex} ex-dates fall inside the study window; raw bars would book each "
+                         f"one as a fake 12-20% loss" if ex else
+                         "raw bars would book every bonus/rights ex-date as a fake loss")))
+        if s.get("leakage.symbol"):
+            s100.append(Row("how it is tested",
+                            f"{s.get('leakage.symbol')} rebuilt with the archive truncated at "
+                            f"{s.get('leakage.cut')}",
+                            f"{s.get('leakage.rows_identical')} observations came back "
+                            f"byte-identical in features, percentiles AND zone output — a single "
+                            f"forward-looking line anywhere in the panel fails this"))
+        else:
+            s100.append(Row("how it is tested", "not re-proved by the last run",
+                            "backtest.leakage_check() exists but this run recorded no result "
+                            "from it"))
+
+    # ── 103: feature stability ────────────────────────────────────────────────────────
+    if absent:
+        s103 = [Row("feature stability", gone, why)]
+    elif s.stability:
+        s103 = [Row("features measured", s.get("stability.features", "?"),
+                    f"the top {len(s.stability)} by |rank IC| are listed")]
+        s103 += [Row(f, ic,
+                     f"year sign agreement {agree:.0%}, distribution drift {drift:.2f} sd, "
+                     f"sensitivity to the day's largest trade {ex_s:.3f} sd, to a dropped 10% "
+                     f"of rows {ms:.3f} sd")
+                 for f, ic, agree, drift, ex_s, ms in s.stability]
+    else:
+        s103 = [Row("feature stability", "not computed",
+                    "the last backtest run recorded no stability table")]
+
+    # ── 104: feature importance ───────────────────────────────────────────────────────
+    s104 = [
+        Row("source", "walk-forward TEST blocks only",
+            "spec section 104 forbids importance taken from a leaked or whole-history model"),
+        Row("SHAP", "not implemented",
+            "it needs a differentiable or tree model and a background distribution; an "
+            "approximation called SHAP would be worse than none"),
+    ]
+    if absent:
+        s104.append(Row("feature importance", gone, why))
+    else:
+        if s.importance:
+            s104 += [Row(f, pm, f"permutation {pm:+.4f}, ablation {ab:+.4f}")
+                     for f, pm, ab in s.importance]
+        else:
+            s104.append(Row("per-feature importance", "not computed",
+                            "the last run produced no walk-forward model to measure one on"))
+        if s.groups:
+            s104 += [Row(f"group: {g}", d,
+                         "ablation change in out-of-sample IC — positive means removing the "
+                         "whole concept HURT the model") for g, d in s.groups]
+        else:
+            s104.append(Row("feature-group importance", "not computed",
+                            "the last run produced no walk-forward model to measure one on"))
+
+    # ── 114: probabilistic output ─────────────────────────────────────────────────────
+    s114 = [Row("what the scores on this board are", "RANKING measures, NOT probabilities",
+                "spec section 114: before calibration, do not call a score a probability")]
+    if absent:
+        s114.append(Row("calibration", gone,
+                        why + " — so the scores above are uncalibrated AND untested"))
+    else:
+        lo, hi = s.num("calibration.bottom_bucket_win"), s.num("calibration.top_bucket_win")
+        s114 += [
+            Row("calibrated", s.get("calibration.calibrated", "not computed"),
+                "'no' means the number ranks but does not predict"),
+            Row("reliability slope", _num(s, "calibration.slope", "{:.2f}"),
+                "1.00 would mean the score can be read as P(positive return over the horizon)"),
+            Row("mean absolute error", _num(s, "calibration.mean_abs_error", "{:.1%}"),
+                "how far the implied probability sits from the realised rate"),
+            Row("bottom-score bucket win rate", _num(s, "calibration.bottom_bucket_win", "{:.1%}"),
+                f"of {s.get('calibration.buckets', '?')} equal buckets of the walk-forward score"),
+            Row("top-score bucket win rate", _num(s, "calibration.top_bucket_win", "{:.1%}")),
+            Row("does the swing score rank?",
+                "not computed" if lo is None or hi is None else
+                ("weakly" if hi - lo > 0.05 else "NO"),
+                "not computed" if lo is None or hi is None else
+                f"the top bucket wins {hi - lo:+.1%} more often than the bottom, across the "
+                f"whole range of the score"),
+            Row("verdict", s.get("calibration.note", "not computed")),
+        ]
+
+    # ── 107, 108, 115: the spec's honesty sections. Static, always rendered. ───────────
+    s107 = [Row(k, v) for k, v in _S107]
+    s108 = [Row(k, v) for k, v in _S108]
+    s115 = [Row(k, v, n) for k, v, n in _S115]
+
+    return [
+        Section(93, "Expected value", tuple(s93), n93),
+        Section(98, "Backtesting", tuple(s98), n98),
+        Section(99, "Walk-forward validation", tuple(s99),
+                "Fitting on the whole history is the error that makes every backtest in this "
+                "repository look good before it is walked forward. Train, validate, test, roll — "
+                "and never use future floorsheet data to compute a past signal."),
+        Section(100, "Data leakage controls", tuple(s100),
+                "At decision date D the model may use only information available through D. This "
+                "repository has already published a factor that turned out to be nothing but a "
+                "full-sample ranking, which is why the guard below is tested rather than asserted."),
+        Section(103, "Feature stability", tuple(s103),
+                "'year sign agreement' is the share of years whose IC keeps the overall sign — "
+                "under about 70% the feature is not stable enough to trade however good the "
+                "pooled IC looks. Sensitivities are the mean per-day shift in the feature's own "
+                "cross-day standard deviations."),
+        Section(104, "Feature importance", tuple(s104),
+                "Permutation shuffles one feature's column inside the test block and measures the "
+                "fall in out-of-sample rank IC; ablation drops it from the model and re-scores."),
+        Section(107, "Important limitations", tuple(s107),
+                "The floorsheet records EXECUTED transactions and nothing else. Everything in the "
+                "first block is outside what the data can reach — not merely unmeasured here."),
+        Section(108, "What the system can and cannot say", tuple(s108),
+                "The difference is not tone, it is evidence: the CAN list restates what was "
+                "recorded, the CANNOT list asserts identity, intent or the future."),
+        Section(114, "Probabilistic output", tuple(s114),
+                "The 0-100 scores in sections 90-92 are weighted sums whose weights have not been "
+                "fitted or validated out of sample. They order symbols; they do not state odds."),
+        Section(115, "Risk management", tuple(s115),
+                "Position sizing is deliberately NOT this engine's job. Section 88's invalidation "
+                "level is where the flow thesis breaks, not a risk-managed stop, and no number on "
+                "this board tells you how much to buy."),
+    ]
+
+
 # ── the scoring layer (sections 74-92) ─────────────────────────────────────────────────
 
 
@@ -372,7 +799,7 @@ def _optional(mod, sessions, days):
 
 
 def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
-                 market: hist.MarketPass | None = None) -> store.Detail | None:
+                 market: hist.MarketPass | None = None, backtest=None) -> store.Detail | None:
     """Assemble every spec section for one symbol. None when there is too little history.
 
     ``upto`` is the point-in-time guard and is the only date this function trusts;
@@ -382,8 +809,17 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
     rendered from. It defaults to None so a single-symbol call still works — it just says
     those sections were not computed, rather than kicking off a 593-symbol scan inside one
     symbol's build.
+
+    ``backtest`` is the once-per-build ``backtest.read_summary()`` digest behind sections
+    93-104 and 114 — the same thread-it-in pattern, for the same reason. It differs from
+    ``market`` in one way: a missing digest is a REPORTABLE state rather than a reason to
+    skip, so when it is None this function reads the file itself (one small ``.txt``,
+    free) and, if that is absent too, the sections render and say the study has not run.
+    Silently omitting them would read as "considered and found irrelevant".
     """
     symbol = symbol.upper()
+    if backtest is None and bt is not None:
+        backtest = bt.read_summary()
     ses = loader.load_last(symbol, history, upto=upto)
     if len(ses) < MIN_SESSIONS:
         return None
@@ -919,6 +1355,12 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
         warnings.append("sections 82-92 (the zone/score engine) are not built yet — this symbol "
                         "is NOT SCORED, not neutral")
 
+    # ── 93-115: the measurement of everything above, plus the spec's honesty sections ──
+    # Always appended, and always after 92, so the file stays in section order. These do
+    # not depend on the symbol at all — the study is cross-sectional — but they belong in
+    # every detail file, because that is where a reader sees the entry zone.
+    out += _evidence_sections(backtest, upto=upto)
+
     if score is None:
         reasons.append(f"sections 4-73 computed over {len(ses)} sessions ending {last.date}; "
                        "no score exists because the scoring layer did not produce one")
@@ -1032,6 +1474,20 @@ def main(argv: list[str] | None = None) -> int:
               f"{market.brokers} brokers, {len(market.sectors)} sectors, "
               f"{market.skipped} skipped, in {market.seconds:.0f}s", flush=True)
 
+    # Sections 93-104 and 114 are MEASUREMENTS, cross-sectional and symbol-independent, so
+    # like the market pass they are read once and threaded in. Unlike it, this is a single
+    # small .txt read rather than a 45 s scan — and the study that produced it takes ~470 s
+    # and is deliberately NEVER run from here.
+    summary = bt.read_summary() if bt is not None else None
+    if summary is None:
+        print("no backtest summary on disk — sections 93-104/114 will say the study has not "
+              "been run", file=sys.stderr)
+    else:
+        print(f"backtest summary: study run {summary.get('run_date', '?')}, "
+              f"{len(summary.families)} rule families, "
+              f"{summary.get('families_edge', '?')} of {summary.get('families_tested', '?')} "
+              f"with a demonstrated edge", flush=True)
+
     started = time.time()
     rows: list[dict] = []
     thin: list[str] = []
@@ -1041,7 +1497,8 @@ def main(argv: list[str] | None = None) -> int:
     for i, sym in enumerate(syms, 1):
         t0 = time.time()
         try:
-            d = build_symbol(sym, upto=a.upto, history=a.history, market=market)
+            d = build_symbol(sym, upto=a.upto, history=a.history, market=market,
+                             backtest=summary)
         except Exception as exc:
             failed.append((sym, f"{type(exc).__name__}: {exc}"))
             print(f"[{i:>4}/{len(syms)}] {sym:<12} FAILED  {type(exc).__name__}: {exc}", flush=True)
@@ -1143,6 +1600,44 @@ def _demo() -> None:
     m69 = next(s for s in md.sections if s.n == 69)
     assert dict((x.metric, x.value) for x in m69.rows)["session"] == mp.date
     assert all(s.rows and s.note for s in md.sections if s.n in (69, 70, 71))
+
+    # Sections 93-115 must be present on EVERY build, run or not. The failure this guards
+    # against is silent omission: a section that is simply missing reads as "considered and
+    # found irrelevant", which is the opposite of "measured, and it does not work".
+    want = [93, 98, 99, 100, 103, 104, 107, 108, 114, 115]
+    assert [s.n for s in d.sections if s.n >= 93] == want, [s.n for s in d.sections if s.n >= 93]
+
+    # ...and the same when the study has never been run. Every backtest-derived section must
+    # say so in words, and the three honesty sections must render regardless.
+    off = {s.n: s for s in _evidence_sections(None)}
+    assert sorted(off) == want, sorted(off)
+    assert all(s.rows and s.title and s.note for s in off.values()), "an empty evidence section"
+    for n in (93, 98, 99, 100, 103, 104, 114):
+        assert any("not run" in str(x.value) for x in off[n].rows), \
+            f"section {n} hides a missing backtest instead of reporting it"
+    for n in (107, 108, 115):
+        assert not any("not run" in str(x.value) for x in off[n].rows), \
+            f"section {n} is the spec's own text and must not depend on a backtest run"
+    assert len(off[107].rows) == len(_S107) and len(off[108].rows) == len(_S108)
+    assert sum(1 for x in off[108].rows if x.value == "CANNOT say") == 7
+
+    # A DATED study must not leak into a point-in-time rebuild that predates it. The
+    # look-ahead sweep above only catches values that are bare dates; the study's window
+    # end hides inside a longer string, so the rule is asserted directly here too.
+    if bt is not None:
+        live = bt.read_summary()
+        if live is not None:
+            old = {s.n: s for s in _evidence_sections(live, upto="2000-01-01")}
+            for n in (93, 98, 99, 103, 104, 114):
+                assert any("not available at 2000-01-01" in str(x.value) for x in old[n].rows), \
+                    f"section {n} quoted a study from the future into a rebuild dated before it"
+            # ...and it must still be THERE, saying so, not silently dropped.
+            assert sorted(old) == want, sorted(old)
+            assert len(old[107].rows) == len(_S107), "the spec sections must not depend on a cut"
+            # With no cut at all the same digest renders its real, measured verdict.
+            now = {s.n: s for s in _evidence_sections(live)}
+            assert not any("not available" in str(x.value) for x in now[98].rows)
+            assert any(x.metric == "zone_buy" for x in now[98].rows), "section 98 lost its rules"
 
     r = board_row(d)
     assert r["date"] == d.session and r["symbol"] == d.symbol
