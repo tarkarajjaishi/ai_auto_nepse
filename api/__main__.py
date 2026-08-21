@@ -204,6 +204,9 @@ def route(path, query):
         # current, and the symbol is what ended.
         sessions = loader_sessions(arg.upper())
         symbol_last = sessions[-1] if sessions else None
+        # The newest floorsheet session any symbol has, taken from the board rather than by
+        # scanning 593 directories. Cached by tables.read().
+        board_session = (tables.read("swing_quantam") or {}).get("session")
 
         # The broker the 30D window is actually about, lifted out of section 11 so the page can
         # chart it without opening a panel. Named explicitly rather than left for the frontend to
@@ -221,8 +224,13 @@ def route(path, query):
             "archive_session": newest,
             "symbol_last_session": symbol_last,
             "top_broker": top_broker,
+            # "Ended" means this symbol stopped trading while others carried on -- NOT that the
+            # archive is a day behind. The yardstick is therefore the board's own session, which
+            # is the newest floorsheet date ANY symbol has, not the newest price bar: between the
+            # open and the 15:15 fetch every symbol's floorsheet trails today's bar, and comparing
+            # against the bar told every reader their stock had stopped trading.
             "symbol_ended": bool(symbol_last and d.session and d.session >= symbol_last
-                                 and benchmark and symbol_last < benchmark),
+                                 and board_session and symbol_last < board_session),
             "stale": bool(d.session and benchmark and d.session < benchmark),
             # `stale` is False when the session is UNKNOWN as well as when it is current, and
             # those are not the same fact. Without this flag a detail file that lost its session
