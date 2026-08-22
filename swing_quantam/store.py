@@ -188,6 +188,32 @@ def read_detail(symbol: str) -> Detail | None:
     )
 
 
+def prune_excluded(excluded: set[str]) -> list[str]:
+    """Delete detail files for symbols this engine no longer analyses. Returns the names.
+
+    Narrowing the universe leaves the previous build's reports on disk, and a report that
+    is no longer rebuilt is a stale read presented as current — `/api/swingquantam/NABILP`
+    happily served a full 103-section analysis from a build that will never run again.
+    Measured after the mutual-fund/promoter exclusion: 69 such files.
+
+    Deliberately narrow. It removes ONLY symbols in the excluded set — a deliberate policy
+    decision recorded in instruments.txt — and never a symbol that merely failed or was
+    skipped this run, because "the build did not reach it today" is not the same as "this
+    is not analysed", and treating them alike would delete real reports on a bad night.
+    Callers gate it on a FULL run, the same gate that lets the board shrink.
+    """
+    if not excluded or not os.path.isdir(OUT):
+        return []
+    gone = []
+    for f in sorted(os.listdir(OUT)):
+        if not f.endswith(".txt") or f in ("board.txt", "brokers.txt", "probability.txt"):
+            continue
+        if f[:-4] in excluded:
+            os.remove(os.path.join(OUT, f))
+            gone.append(f[:-4])
+    return gone
+
+
 def board_rows() -> int:
     """How many data rows the board on disk currently has. 0 when there is none."""
     path = board_path()

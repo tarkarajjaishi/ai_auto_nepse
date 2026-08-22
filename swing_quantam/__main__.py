@@ -2239,6 +2239,13 @@ def main(argv: list[str] | None = None) -> int:
             # on disk and correct.
             print(f"broker board NOT written: {exc}", file=sys.stderr)
 
+        # Detail files for symbols we no longer analyse would otherwise sit here forever,
+        # served as a current 103-section report by a build that will never run again.
+        dropped = store.prune_excluded(loader.excluded())
+        if dropped:
+            print(f"removed {len(dropped)} detail file(s) for symbols no longer analysed "
+                  f"(mutual funds, indices, promoter shares)")
+
         # Last, because it READS board.txt and the detail files this run just wrote.
         # Seconds, not minutes: daily bars and five numbers per symbol, no floorsheet.
         try:

@@ -76,6 +76,40 @@ def test_rewrite():
     print("  archive rewrites    a shrunken feed cannot overwrite prices or the SWP tables")
 
 
+def test_no_detail_file_survives_for_an_unanalysed_symbol():
+    """A symbol the engine no longer analyses must not still have a report on disk.
+
+    Narrowing the universe (mutual funds, indices, promoter shares) left the previous
+    build's 69 reports in place, and `/api/swingquantam/NABILP` served a full 103-section
+    analysis from a build that will never run again -- a stale read presented as current,
+    which is this project's named failure mode.
+
+    The check is on the SHIPPED directory, not on the code, because that is where the
+    symptom lives: a correct pruner that nobody calls looks identical from the source.
+    """
+    from swing_quantam import loader, store
+
+    out = Path(store.OUT)
+    if not out.is_dir():
+        print("  swing_quantam       detail pruning (board not built yet)")
+        return
+    ex = loader.excluded()
+    boards = {"board.txt", "brokers.txt", "probability.txt"}
+    orphans = sorted(
+        f.stem for f in out.glob("*.txt") if f.name not in boards and f.stem in ex
+    )
+    assert not orphans, (
+        f"{len(orphans)} detail file(s) remain for symbols the engine no longer analyses, "
+        f"e.g. {orphans[:5]} -- a full run must call store.prune_excluded()")
+
+    # and the builder must actually invoke the pruner, or the next narrowing repeats this
+    src = (Path(__file__).parent / "swing_quantam" / "__main__.py").read_text(encoding="utf-8")
+    assert "store.prune_excluded(loader.excluded())" in src, (
+        "the full run no longer prunes detail files for excluded symbols")
+
+    print(f"  swing_quantam       no detail file for any of the {len(ex)} unanalysed symbols")
+
+
 def test_promoter_and_fund_exclusion_uses_the_name_not_the_suffix():
     """swing_quantam must ignore mutual funds, indices and promoter shares -- by NAME.
 
@@ -1229,6 +1263,7 @@ def main():
     print("ops safety:")
     test_rewrite()
     test_promoter_and_fund_exclusion_uses_the_name_not_the_suffix()
+    test_no_detail_file_survives_for_an_unanalysed_symbol()
     test_deploy_ships_paths_with_spaces()
     test_deploy_health()
     test_deploy_ships_all_three_services()
