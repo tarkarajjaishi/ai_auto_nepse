@@ -1490,10 +1490,14 @@ body:has(.accessmodal:popover-open) > .stage > .bgvid {
   .topbar a,
   .topbar button,
   .topbar .intro {
-    min-height: 30rem !important;
-    height: 30rem !important;
+    /* clamp(px, rem, px), and the PIXEL terms are the point. Sized in rem alone these tracked
+       the artboard down with the viewport: measured 8.8px type and a 29px target at 320, on the
+       row that carries the page's only call to action. The rem still governs in between, so the
+       bar keeps its proportions on a tablet. */
+    min-height: clamp(40px, 30rem, 46px) !important;
+    height: clamp(40px, 30rem, 46px) !important;
     padding: 0 9rem !important;
-    font-size: 9rem !important;
+    font-size: clamp(10.5px, 9rem, 13px) !important;
     line-height: 1 !important;
     white-space: nowrap !important;
     display: flex !important;
@@ -2302,6 +2306,23 @@ body:has(.accessmodal:popover-open) > .stage > .bgvid {
 
   .page {
     padding: 18px 16px 44px;
+  }
+
+  /* Tap targets on the blog's own controls. Measured at 375: the pager's page numbers were
+     30x36 and Back/Home 38 tall — every one of them under the 44px minimum, and there are
+     eleven pages, so they are the most-tapped things on the surface. The pager already wraps,
+     so widening them costs a second row and nothing else. */
+  .blogwrap .pg {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Back and Home share .backbtn — Home is a Link wearing the same class, not a second one. */
+  .blogwrap .backbtn {
+    min-height: 44px;
   }
 
   /* The rails go away, and this rule has to be the LAST word on .withaside.
