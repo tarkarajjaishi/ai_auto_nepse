@@ -45,6 +45,7 @@ Pure stdlib on purpose: this runs on a RAM-starved VPS beside the stdlib-only AP
 from __future__ import annotations
 
 import os
+import re
 from typing import NamedTuple
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -205,10 +206,17 @@ class Bar(NamedTuple):
 
 
 #: Instrument types this engine does not analyse, by ``Master_data/instruments.txt``
-#: ``type``. Mutual funds are excluded because a fund's price tracks its NAV, not the
-#: order flow this engine reads: every broker metric here is about who is accumulating a
-#: COMPANY, and a fund unit has no such story.
-_SKIP_TYPES = frozenset({"Mutual Fund", "Index"})
+#: ``type``. Every metric here is about who is accumulating a COMPANY, and none of these
+#: has that story:
+#:
+#: - **Mutual Fund** — the unit price tracks NAV, not the order flow this engine reads.
+#: - **Index** — not tradeable, and has no floorsheet of its own.
+#: - **Bond** — a debenture is a fixed-coupon instrument whose price barely moves, so a
+#:   zone ladder drawn on it has targets and stops a fraction of a percent apart. That
+#:   made the probability screens read as almost-certainties for structural reasons: the
+#:   "most likely to rise" top five were all debentures, on ladders whose whole range was
+#:   narrower than a single day's move in an ordinary share.
+_SKIP_TYPES = frozenset({"Mutual Fund", "Index", "Bond"})
 
 #: Promoter shares are excluded too. They are typed ``Stock``, so they must be caught by
 #: NAME, and the name is the only reliable signal: the suffix is not. `NADEP` and `RRHP`
@@ -218,6 +226,21 @@ _SKIP_TYPES = frozenset({"Mutual Fund", "Index"})
 #: case-insensitively catches all 121 and spares the two lookalikes; an exact-case
 #: "Promoter" test missed 8 of them, NABILP among them.
 _SKIP_NAME = "promot"
+
+#: Debenture tickers, for the ones ``instruments.txt`` has never heard of. VALIDATED
+#: rather than assumed: it matches 0 of the 492 classified Stocks and 0 of the 45
+#: classified Mutual Funds, while matching 48 of the 57 classified Bonds — so on the
+#: data we can check it against, it is never wrong in the dangerous direction.
+#:
+#: There is deliberately NO equivalent for funds. The obvious `MF$` rule looks just as
+#: reasonable and is wrong: `NMBMF` is NMB Laghubitta Bittiya Sanstha and `SWMF` is
+#: Suryodaya Womi Laghubitta — two real microfinance companies. Same trap as the `P`
+#: suffix, where NADEP and RRHP are ordinary firms. A fund ticker cannot be recognised
+#: from its spelling, so unclassified fund-like symbols are REPORTED, not guessed at.
+#: `B\d+` is included and a BARE trailing B is not, and the difference is measured:
+#: `B\d{2,4}$` matches 0 of the 492 Stocks, while `B$` matches 20 of them — ADLB, ANLB,
+#: GILB and friends, which are Laghubitta banks, not bonds.
+_DEBENTURE = re.compile(r"(D|EB|B)\d{2,4}(-\d{2})?(KA|KHA|GA)?$")
 
 _excluded_cache: set[str] | None = None
 
@@ -232,8 +255,13 @@ def excluded() -> set[str]:
     global _excluded_cache
     if _excluded_cache is not None:
         return _excluded_cache
-    path = os.path.join(ROOT, "Master_data", "instruments.txt")
     out: set[str] = set()
+
+    # 1. the exchange's own classification. Keyed BOTH spellings of a range: the file
+    #    writes `NMBD87/88` where the floorsheet directory is `NMBD87-88`, and that one
+    #    character left 38 board symbols looking unclassified — including every debenture
+    #    at the top of the probability screens.
+    path = os.path.join(ROOT, "Master_data", "instruments.txt")
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
             head = fh.readline().rstrip("\n").split("\t")
@@ -245,10 +273,72 @@ def excluded() -> set[str]:
                     continue
                 if f[i_type] in _SKIP_TYPES or _SKIP_NAME in f[i_name].lower():
                     out.add(f[i_sym])
+                    out.add(f[i_sym].replace("/", "-"))
     except (OSError, ValueError):
         return set()
+
+    # 2. sectors.txt is a second, independent classifier and names a few the first misses.
+    try:
+        with open(os.path.join(ROOT, "Master_data", "sectors.txt"),
+                  encoding="utf-8", errors="replace") as fh:
+            head = fh.readline().rstrip("\n").split("\t")
+            i_sym, i_sec = head.index("symbol"), head.index("sector")
+            for line in fh:
+                f = line.rstrip("\n").split("\t")
+                if len(f) > max(i_sym, i_sec) and f[i_sec] in _SKIP_TYPES:
+                    out.add(f[i_sym])
+    except (OSError, ValueError):
+        pass
+
+    if os.path.isdir(FLOORSHEET):
+        listed = os.listdir(FLOORSHEET)
+
+        # 3. the validated debenture spelling, for instruments no classifier listed.
+        #    Spaces stripped first: one ticker really is `NICAD 85-86`.
+        out.update(d for d in listed if _DEBENTURE.search(d.replace(" ", "")))
+
+        # 4. promoter lines the classifier never listed — recognised by their PARENT, not
+        #    by the suffix. A promoter share only exists where the ordinary share does, so
+        #    `X` + P/PO counts only when `X` is itself a traded symbol. Measured against
+        #    the classified data: 0 of the 371 known non-promoter Stocks have such a
+        #    parent, while 117 of the 121 known promoter lines do. That is what makes it
+        #    safe where a bare suffix is not — NADEP and RRHP have no parent, so the two
+        #    ordinary companies a suffix rule would have deleted survive.
+        traded = set(listed)
+        for d in listed:
+            for suf in ("PO", "P"):
+                if d.endswith(suf) and d[: -len(suf)] in traded:
+                    out.add(d)
+                    break
+
     _excluded_cache = out
     return out
+
+
+def unclassified() -> list[str]:
+    """Traded symbols no classifier names, so the build can SAY so rather than assume.
+
+    Everything here is analysed as an ordinary company. Some are not — several are
+    evidently fund schemes — but no rule this module can defend distinguishes them from a
+    real business by ticker alone, and quietly dropping them on a guess would be the same
+    mistake as the `MF$` rule that would have deleted two microfinance companies.
+    """
+    if not os.path.isdir(FLOORSHEET):
+        return []
+    known: set[str] = set()
+    for name in ("instruments.txt", "sectors.txt"):
+        try:
+            with open(os.path.join(ROOT, "Master_data", name),
+                      encoding="utf-8", errors="replace") as fh:
+                fh.readline()
+                for line in fh:
+                    sym = line.split("\t", 1)[0].strip()
+                    if sym:
+                        known.add(sym)
+                        known.add(sym.replace("/", "-"))
+        except OSError:
+            pass
+    return sorted(set(symbols()) - known)
 
 
 def symbols() -> list[str]:

@@ -131,7 +131,18 @@ def test_promoter_and_fund_exclusion_uses_the_name_not_the_suffix():
         assert s in ex, f"{s} is a promoter share and must be excluded"
     for s in ("C30MF", "CMF1", "NIBSF2"):
         assert s in ex, f"{s} is a mutual fund and must be excluded"
-    for s in ("NADEP", "RRHP", "NABIL", "ADBL", "NTC"):
+    # debentures, including the three spellings no classifier lists: a hyphen where
+    # instruments.txt writes a slash, a literal space, and a B-series bond
+    for s in ("JBBD87", "ADBLD83", "LBLD88", "NMBD87-88", "NICAD85-86", "ADBLB86"):
+        assert s in ex, f"{s} is a bond/debenture and must be excluded"
+    # ...and promoter lines the classifier never listed, caught by their parent
+    for s in ("CORBLP", "HEIPO", "WNLBP"):
+        assert s in ex, f"{s} is a promoter line and must be excluded"
+    # every one of these would be deleted by an obvious-looking suffix rule: NADEP/RRHP
+    # end in P, NMBMF/SWMF end in MF and are microfinance companies, ADLB/ANLB/GILB end
+    # in B and are Laghubitta banks.
+    for s in ("NADEP", "RRHP", "NABIL", "ADBL", "NTC", "NMBMF", "SWMF",
+              "ADLB", "ANLB", "GILB", "JBLB"):
         assert s not in ex, (
             f"{s} is an ordinary company and must NOT be excluded -- a ticker-suffix "
             "rule has replaced the name rule")
