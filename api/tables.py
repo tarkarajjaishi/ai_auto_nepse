@@ -32,6 +32,43 @@ BOARDS = {
     "swing_quantam_probability": "swing_quantam/probability.txt",
 }
 
+#: Boards that CANNOT be as current as the archive, and by how many trading sessions.
+#:
+#: This is an allowance, not an exemption, and the difference is the whole point. The
+#: allowance is subtracted from the benchmark, so a board that falls further behind than
+#: its own construction requires still reports stale. Exempting a board outright would
+#: silence the one check that notices its script failing.
+EXPECTED_LAG = {
+    # backtest labels every trade by its OUTCOME, so it cannot score a session until the
+    # forward window that decides the outcome exists. It runs nightly in the same chain as
+    # everything else and lands exactly one session back every time, which read as a
+    # permanent "1 BEHIND" on the badge and trained the reader to ignore it. At lag 1 a
+    # normal run is fresh and a MISSED run is still caught.
+    "backtest": 1,
+}
+
+
+def _sessions_back(date_str, n):
+    """`date_str` moved back `n` TRADING sessions, on the market's own calendar.
+
+    Calendar days would be wrong across a weekend: the Friday board judged on Monday is
+    one session old, not three. Bounded so a run of holidays cannot spin it.
+    """
+    if not date_str or n <= 0:
+        return date_str
+    try:
+        d = datetime.fromisoformat(date_str).date()
+    except (TypeError, ValueError):
+        return date_str
+    left, guard = n, 0
+    while left and guard < 40:
+        d -= timedelta(days=1)
+        guard += 1
+        if market_hours.is_trading_day(d):
+            left -= 1
+    return d.isoformat()
+
+
 # columns that are numbers, so the frontend never parses strings into floats itself
 _TEXT = {"symbol", "date", "verdict", "decision", "grade", "performer", "trend", "stage",
          "structure", "breakout", "pullback", "setup", "flags", "signal", "confirmed",
@@ -85,9 +122,15 @@ def read(board):
     # them reported itself fresh forever — CLAUDE.md's named failure mode, four times over. The
     # producing scripts now emit `date`; this flag is here so the next board that forgets says
     # "I cannot tell" on screen instead of quietly claiming to be up to date.
+    # Against the newest FINISHED session, less whatever this board is structurally unable
+    # to cover. See EXPECTED_LAG — it is an allowance, so a board further behind than its
+    # own construction requires still reports stale.
+    due = _sessions_back(benchmark, EXPECTED_LAG.get(board, 0))
     return {"rows": rows, "columns": cols, "session": session,
-            # Against the newest FINISHED session, not the newest bar. See newest_completed().
-            "stale": bool(session and benchmark and session < benchmark),
+            "stale": bool(session and due and session < due),
+            #: What this board could be at its freshest — `session` is judged against this,
+            #: not against `archive_session`, whenever the two differ.
+            "due_session": due,
             "session_unknown": bool(rows) and session is None,
             "archive_session": newest, "missing": False}
 

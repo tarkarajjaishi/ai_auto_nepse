@@ -16,6 +16,7 @@ Master_data. Every one of these guards a run that goes GREEN while something is 
 """
 import ast
 import re
+import shutil
 import sys
 import tempfile
 import time
@@ -1001,6 +1002,91 @@ def test_every_registered_rebuild_script_exists():
           % (len(jobs.SCRIPTS), len(tables.BOARDS)))
 
 
+def test_expected_lag_is_an_allowance_not_an_exemption():
+    """A board allowed to trail the archive must still report a MISSED run.
+
+    `backtest` cannot be as current as the archive: it labels each trade by its outcome, so
+    it cannot score a session until the forward window exists. It therefore sat one session
+    back forever and the badge read a permanent "1 BEHIND", which trains a reader to ignore
+    the one indicator that is supposed to mean something.
+
+    The fix is an allowance subtracted from the benchmark, NOT an exemption from the check.
+    The distinction is invisible on a healthy day -- both spellings print "fresh" -- and only
+    shows up the day the script actually fails, which is the day it matters.
+
+    This drives `tables.read()` ITSELF against a scratch board. The first version of this
+    test re-implemented the `session < due` comparison inline, which made it pass happily
+    against a mutated `read()` that exempted the board outright -- an assert that could not
+    fail for the regression named in its own docstring. Mutation-tested: replacing the
+    comparison with `False if board in EXPECTED_LAG` now fails this test.
+    """
+    import tempfile
+    from pathlib import Path
+
+    from api import tables
+
+    # trading-session arithmetic, not calendar days: Monday minus one session is Friday
+    assert tables._sessions_back("2026-08-24", 1) == "2026-08-21"
+    assert tables._sessions_back("2026-08-24", 2) == "2026-08-20"
+    assert tables._sessions_back("2026-08-21", 0) == "2026-08-21"
+    assert tables._sessions_back(None, 1) is None
+    assert tables._sessions_back("not-a-date", 1) == "not-a-date"
+
+    lag = tables.EXPECTED_LAG["backtest"]
+    assert lag >= 1, "an allowance of 0 would make the rest of this test vacuous"
+    # ...and a CEILING, because the other way to defeat this check is to widen the
+    # allowance until a broken run fits inside it. backtest needs exactly one session:
+    # it cannot label the newest one until its outcome exists. Anything larger is a
+    # different problem being absorbed, and should be diagnosed rather than allowed for.
+    assert lag == 1, (
+        f"backtest's allowance is {lag} sessions; only 1 is structural, and a wider one "
+        "hides a missed run instead of reporting it")
+    assert all(v <= 1 for v in tables.EXPECTED_LAG.values()), (
+        "no board needs to trail by more than one session on this pipeline")
+
+    bench = "2026-08-21"
+    due = tables._sessions_back(bench, lag)
+    late = tables._sessions_back(due, 1)
+
+    # A scratch dir, never Master_data: a self-check that writes to production is a
+    # scheduled data-loss bug, and the hourly health check runs these.
+    tmp = Path(tempfile.mkdtemp(prefix="lag_selfcheck_"))
+    real_master, real_bench, real_boards = tables.MASTER, tables.newest_completed, dict(tables.BOARDS)
+    try:
+        tables.MASTER = tmp
+        tables.newest_completed = lambda: bench
+        tables.BOARDS["__lag_probe__"] = "probe.txt"
+
+        def verdict(session, board):
+            (tmp / "probe.txt").write_text(f"symbol\tdate\nAAA\t{session}\n", encoding="utf-8")
+            return tables.read(board)["stale"]
+
+        # the SAME file, judged as a board with an allowance and as one without
+        tables.EXPECTED_LAG["__lag_probe__"] = lag
+        assert not verdict(due, "__lag_probe__"), "a board at its allowance must read fresh"
+        assert not verdict(bench, "__lag_probe__"), "a board ahead of its allowance is fresh"
+        assert verdict(late, "__lag_probe__"), (
+            "a board one session past its allowance must STILL report stale -- the "
+            "allowance has become an exemption and a failed run is now invisible")
+
+        del tables.EXPECTED_LAG["__lag_probe__"]
+        assert verdict(due, "__lag_probe__"), "without an allowance, trailing must be stale"
+    finally:
+        tables.MASTER, tables.newest_completed = real_master, real_bench
+        tables.BOARDS.clear()
+        tables.BOARDS.update(real_boards)
+        tables.EXPECTED_LAG.pop("__lag_probe__", None)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    # and the allowance must not leak onto boards that have no reason to trail
+    for board in ("scan", "swing_quantam", "master_signal"):
+        assert tables.EXPECTED_LAG.get(board, 0) == 0, (
+            f"{board} was given a lag allowance -- only a board that CANNOT cover the "
+            "newest session may have one, and the reason belongs in EXPECTED_LAG's comment")
+
+    print(f"  freshness          backtest may trail {lag} session; {lag + 1} is still stale")
+
+
 def test_swing_quantam_board_carries_its_date():
     """A board with no `date` column reports itself fresh forever.
 
@@ -1087,6 +1173,7 @@ def main():
     test_collateral_never_returns_client_pii()
     test_forced_relogin_is_coalesced()
     test_every_registered_rebuild_script_exists()
+    test_expected_lag_is_an_allowance_not_an_exemption()
     test_swing_quantam_board_carries_its_date()
     test_swing_quantam_open_ended_zones_stay_open()
     live_1d.demo()          # today's bar maths + the archive-never-shrinks rule
