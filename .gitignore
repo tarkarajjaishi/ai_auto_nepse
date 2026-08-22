@@ -34,3 +34,7 @@ web/.next/
 web/out/
 web/.env*.local
 
+# A separate 177 MB experiment tree (MiroFish, daily_stock_analysis) that happens to sit
+# inside this repo's directory. Nothing here imports it and none of it was ever tracked,
+# so ignoring it removes it from `git status` without touching history.
+ai_github_train/
