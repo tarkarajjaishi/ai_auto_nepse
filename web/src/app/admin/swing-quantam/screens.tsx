@@ -97,6 +97,48 @@ export function dominance(rows: Row[]): Map<string, number> {
   return out;
 }
 
+/** Pearson r, for the panel's own disclosures. Returns null when either side is flat. */
+function corr(rows: Row[], a: string, b: string): number | null {
+  const p = rows
+    .map((r) => [num(r, a), num(r, b)] as const)
+    .filter((x): x is readonly [number, number] => x[0] !== null && x[1] !== null);
+  if (p.length < 3) return null;
+  const ma = p.reduce((t, x) => t + x[0], 0) / p.length;
+  const mb = p.reduce((t, x) => t + x[1], 0) / p.length;
+  const sa = Math.sqrt(p.reduce((t, x) => t + (x[0] - ma) ** 2, 0) / p.length);
+  const sb = Math.sqrt(p.reduce((t, x) => t + (x[1] - mb) ** 2, 0) / p.length);
+  if (!sa || !sb) return null;
+  return p.reduce((t, x) => t + (x[0] - ma) * (x[1] - mb), 0) / p.length / (sa * sb);
+}
+
+/**
+ * Everything the Probability panel asserts about itself, measured from the rows it is
+ * about to render.
+ *
+ * These were hardcoded from a local run first, and production shipped a board with 348
+ * priced symbols under prose that said 323 — a stale measurement quoted as a live one,
+ * which is the defect this whole board exists to avoid. Numbers that describe the data
+ * must be computed from it.
+ */
+function probStats(rows: Row[]) {
+  const near = rows.filter((r) => Math.abs(num(r, "dist_to_entry") ?? 999) <= 5);
+  const clears = (r: Row) => (num(r, "net_edge") ?? -1) > 0;
+  const fmt = (v: number | null) => (v === null ? "—" : (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2));
+  return {
+    priced: rows.length,
+    clearing: rows.filter(clears).length,
+    near: near.length,
+    nearAndClearing: near.filter(clears).length,
+    medianDist: (() => {
+      const d = rows.map((r) => num(r, "dist_to_entry")).filter((x): x is number => x !== null).sort((a, b) => a - b);
+      return d.length ? d[Math.floor(d.length / 2)].toFixed(1) : "—";
+    })(),
+    rUpRr: fmt(corr(rows, "p_up", "rr1")),
+    rEdgeUp1: fmt(corr(rows, "net_edge", "up1_pct")),
+    rEdgeNone: fmt(corr(rows, "net_edge", "p_none")),
+  };
+}
+
 /** Sort descending on a numeric column; rows missing it go last, never to the top. */
 function byDesc(key: string) {
   return (a: Row, b: Row) => {
@@ -196,6 +238,12 @@ export function Screen({
   const dom = useMemo(
     () => (id === "operator" ? dominance(rows) : new Map<string, number>()),
     [id, rows],
+  );
+
+  // Measured from the rows this panel is about to render — never hardcoded.
+  const stats = useMemo(
+    () => probStats(rows.filter((r) => num(r, "p_up") !== null)),
+    [rows],
   );
 
   const view = useMemo(() => {
@@ -307,25 +355,28 @@ export function Screen({
           it is often the largest of the three — a high net edge sitting beside a{" "}
           <span className="font-mono">p none</span> of 80% is drift, not the ladder
           working. Sorted by <strong>net edge</strong>, never by{" "}
-          <span className="font-mono">p up</span>: measured here, p&nbsp;up correlates
-          −0.50 with reward:risk, so ranking on it just returns the nearest targets. Net
+          <span className="font-mono">p up</span>: on this board p&nbsp;up correlates{" "}
+          {stats.rUpRr} with reward:risk, so ranking on it just returns the nearest
+          targets. Net
           edge charges the same <strong>0.8% round trip</strong> this repo&apos;s own
-          backtest charges — and only <strong>62 of 323</strong> priced symbols clear it.
+          backtest charges — and only <strong>{stats.clearing} of {stats.priced}</strong>{" "}
+          priced symbols clear it.
           <br />
           <br />
           <strong>Then check{" "}
           <span className="font-mono">dist to entry</span> before you read anything
           else.</strong>{" "}
           It is how far today&apos;s price sits from the entry zone the rest of the row
-          describes, and the median row is <strong>−8.8%</strong>: the plan is not live,
-          because you cannot buy at a zone the price is nowhere near. Only{" "}
-          <strong>105 of 323</strong> ladders sit within 5% of price, and only{" "}
-          <strong>13</strong> of those also clear the 0.8% cost. Sort on this column to
-          see them. The ranking is not filtered to them — a number is easier to argue
-          with than a row that was quietly removed. Two milder confounds worth the same
-          suspicion: net edge correlates +0.30 with how far away target 1 is and +0.16
-          with <span className="font-mono">p none</span>, so part of a high score is
-          simply a distant target that rarely resolves either way.
+          describes, and the median row is <strong>{stats.medianDist}%</strong>: the plan
+          is not live, because you cannot buy at a zone the price is nowhere near. Only{" "}
+          <strong>{stats.near} of {stats.priced}</strong> ladders sit within 5% of price,
+          and only <strong>{stats.nearAndClearing}</strong> of those also clear the 0.8%
+          cost. Sort on this column to see them. The ranking is not filtered to them — a
+          number is easier to argue with than a row that was quietly removed. Two milder
+          confounds worth the same suspicion: net edge correlates {stats.rEdgeUp1} with
+          how far away target 1 is and {stats.rEdgeNone} with{" "}
+          <span className="font-mono">p none</span>, so part of a high score is simply a
+          distant target that rarely resolves either way.
         </Note>
       )}
 
