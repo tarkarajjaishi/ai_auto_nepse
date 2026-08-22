@@ -59,7 +59,7 @@ export default function AccessRequestsPage() {
   }, [query.data, q]);
 
   return (
-    <div className="p-6">
+    <div className="p-4 sm:p-6">
       <header className="mb-4 flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2">
           <Inbox className="size-[18px] text-primary" />
@@ -73,13 +73,13 @@ export default function AccessRequestsPage() {
           {q && query.data ? ` · ${rows.length} shown` : ""}
         </span>
 
-        <div className="relative ml-auto">
+        <div className="relative w-full sm:ml-auto sm:w-auto">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-[14px] -translate-y-1/2 text-muted-foreground" />
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search name, email, city, number"
-            className="h-8 w-64 rounded-md border border-border bg-background pl-8 pr-3 text-[13px] outline-none focus:border-primary"
+            className="h-9 w-full rounded-md border border-border bg-background pl-8 pr-3 text-[13px] outline-none focus:border-primary sm:h-8 sm:w-64"
           />
         </div>
       </header>
@@ -90,9 +90,18 @@ export default function AccessRequestsPage() {
         rendered, never executed, and the phone numbers are stored as digits.
       </p>
 
-      <div className="rounded-lg border border-border">
+      {/* ONE markup tree, two layouts. Below lg the table parts are re-declared as blocks and
+          each row becomes a card, so the same <td> carries the value on both surfaces and there
+          is no second copy of the data to drift. Measured first: at 375px the five columns made
+          the table 851px wide and the whole page scrolled sideways to read one lead. */}
+      {/* The switch is lg (1024), not md. Measured at exactly 768: the table comes back and
+          immediately needs 876px, so a tablet got a table that scrolled the page sideways —
+          the very thing this was meant to fix. Cards read perfectly well at 768.
+          overflow-x-auto is the backstop above that: a freakishly long value scrolls inside
+          this box instead of widening the page. */}
+      <div className="overflow-x-auto rounded-lg border border-border">
         <table className="w-full text-[13px]">
-          <thead>
+          <thead className="hidden lg:table-header-group">
             <tr className="border-b border-border font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
               <th className="px-4 py-2 text-left font-medium">Received</th>
               <th className="px-4 py-2 text-left font-medium">Name</th>
@@ -101,7 +110,7 @@ export default function AccessRequestsPage() {
               <th className="px-4 py-2 text-left font-medium">WhatsApp</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="block lg:table-row-group">
             {rows.map((r, i) => (
               <Row key={r.n} r={r} i={i} />
             ))}
@@ -134,6 +143,15 @@ export default function AccessRequestsPage() {
   );
 }
 
+/** The column header, repeated per cell — but only where the header row is hidden. */
+function Label({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="mr-2 inline-block w-[74px] shrink-0 align-top font-mono text-[10px] uppercase tracking-wider text-muted-foreground lg:hidden">
+      {children}
+    </span>
+  );
+}
+
 function Row({ r, i }: { r: AccessRequest; i: number }) {
   const wa = e164(r.whatsapp_code, r.whatsapp);
   return (
@@ -141,21 +159,40 @@ function Row({ r, i }: { r: AccessRequest; i: number }) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ delay: Math.min(i, 20) * 0.02 }}
-      className="border-b border-border/50"
+      /* flex column on a phone so `order` can put the NAME first — the table's own order leads
+         with the timestamp, which is the least useful thing to read first on a card */
+      className="flex flex-col gap-1 border-b border-border/50 px-4 py-3.5 last:border-0 lg:table-row lg:gap-0 lg:px-0 lg:py-0"
     >
-      <td className="whitespace-nowrap px-4 py-2 font-mono text-[12px] text-muted-foreground">
+      <td className="order-2 block font-mono text-[11px] text-muted-foreground lg:order-none lg:table-cell lg:whitespace-nowrap lg:px-4 lg:py-2 lg:text-[12px]">
         {r.received_at}
       </td>
-      <td className="px-4 py-2">{r.full_name}</td>
-      <td className="px-4 py-2 text-muted-foreground">{r.place}</td>
-      <td className="px-4 py-2">
-        {/* mailto/tel/wa.me, because the only thing anyone does with a lead is contact it */}
-        <a href={`mailto:${r.email}`} className="inline-flex items-center gap-1.5 hover:text-primary">
+
+      <td className="order-1 block text-[15px] font-medium lg:order-none lg:table-cell lg:px-4 lg:py-2 lg:text-[13px] lg:font-normal">
+        {r.full_name}
+      </td>
+
+      <td className="order-3 mt-1.5 block text-muted-foreground lg:order-none lg:mt-0 lg:table-cell lg:px-4 lg:py-2">
+        <Label>Living in</Label>
+        {r.place}
+      </td>
+
+      <td className="order-4 block lg:order-none lg:table-cell lg:px-4 lg:py-2">
+        <Label>Email</Label>
+        {/* mailto/wa.me, because the only thing anyone does with a lead is contact it */}
+        <a
+          href={`mailto:${r.email}`}
+          className="inline-flex min-w-0 items-center gap-1.5 hover:text-primary"
+        >
           <Mail className="size-[13px] shrink-0 text-muted-foreground" />
-          {r.email}
+          {/* wraps on a card, truncates in the column. An address has no spaces, so break-all
+              is the only thing that will wrap it — and truncating it on the surface that has
+              room to show it is the wrong way round. */}
+          <span className="break-all lg:truncate">{r.email}</span>
         </a>
       </td>
-      <td className="whitespace-nowrap px-4 py-2">
+
+      <td className="order-5 block lg:order-none lg:table-cell lg:whitespace-nowrap lg:px-4 lg:py-2">
+        <Label>WhatsApp</Label>
         <a
           href={`https://wa.me/${wa.replace("+", "")}`}
           target="_blank"
