@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, Loader2, X } from "lucide-react";
+import { Check, ChevronDown, Loader2, Search, X } from "lucide-react";
 
 /* The access request form.
 
@@ -255,6 +255,12 @@ export function AccessForm() {
       aria-modal="true"
       aria-labelledby="access-modal-title"
       onToggle={(e) => {
+        /* ONLY this element's own toggle. The country-code list is a NESTED popover, and its
+           toggle events arrive at this handler too — so picking a country fired the "closed"
+           branch here and ran reset(), wiping every field the person had already typed. It
+           also fired the "open" branch, which stole focus back to the name input the moment
+           the list appeared. Measured both. */
+        if (e.target !== e.currentTarget) return;
         const state = (e as unknown as { newState?: string }).newState;
         if (state === "closed") reset();
         if (state === "open") setTimeout(() => first.current?.focus(), 0);
@@ -334,18 +340,10 @@ export function AccessForm() {
             <Field id="ax-wa" label="WhatsApp Number" error={show("whatsapp")}>
               {(p) => (
                 <div className="ax-tel">
-                  <select
-                    className="ax-cc"
+                  <DialSelect
                     value={f.whatsapp_code}
-                    onChange={set("whatsapp_code")}
-                    aria-label="WhatsApp country code"
-                  >
-                    {DIAL.map(([code, name]) => (
-                      <option key={`w${code}${name}`} value={code} title={name}>
-                        {code}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(code) => setF((prev) => ({ ...prev, whatsapp_code: code }))}
+                  />
                   <input
                     {...p}
                     aria-label="WhatsApp number"
@@ -419,6 +417,146 @@ export function AccessForm() {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * The dial-code picker.
+ *
+ * A native <select> cannot do what this needs: it renders the SELECTED OPTION'S OWN TEXT when
+ * closed, so showing "+977" in a control narrow enough to sit beside the number and "+977 Nepal"
+ * in the open list is not expressible. Either the closed control reads "+977 Nep…" or the list
+ * is 51 bare numbers nobody outside Nepal can choose from.
+ *
+ * So it is a listbox. Two decisions in it are load-bearing:
+ *
+ *   It is a NESTED [popover]. The list has to escape `.ax-body`, which is `overflow-y: auto` —
+ *   an absolutely positioned list inside it would be cut off at the scroller's edge. A popover
+ *   goes to the top layer, and one opened from inside another popover is NESTED, so opening it
+ *   does not light-dismiss the dialog behind it and Escape closes only this.
+ *
+ *   It is positioned by script, not by CSS. Anchor positioning would do it declaratively but is
+ *   not in every browser this page serves yet, and a top-layer element has no useful containing
+ *   block to fall back on. The trigger's rect is read on open, and the list flips above it when
+ *   there is not room below.
+ */
+function DialSelect({ value, onChange }: { value: string; onChange: (code: string) => void }) {
+  const [q, setQ] = useState("");
+  const [active, setActive] = useState(0);
+  const btn = useRef<HTMLButtonElement>(null);
+  const pop = useRef<HTMLDivElement>(null);
+  const search = useRef<HTMLInputElement>(null);
+
+  const needle = q.trim().toLowerCase();
+  const list = needle
+    ? DIAL.filter(([code, name]) => name.toLowerCase().includes(needle) || code.includes(needle))
+    : DIAL;
+
+  function place() {
+    const b = btn.current, p = pop.current;
+    if (!b || !p) return;
+    const r = b.getBoundingClientRect();
+    /* 265, not the trigger's own width: the trigger is a narrow code-only control, and the
+       list has to fit "+44  United Kingdom" — the whole reason this is not a <select>. Capped
+       to the viewport so a small phone still gets a list that fits on screen. */
+    const width = Math.min(Math.max(r.width, 265), window.innerWidth - 16);
+    const room = window.innerHeight - r.bottom;
+    /* flip up when the trigger is near the bottom — on a landscape phone the dialog itself
+       nearly fills the screen, so "below the trigger" is regularly off-screen */
+    const height = Math.min(280, window.innerHeight - 24);
+    p.style.width = `${width}px`;
+    p.style.maxHeight = `${height}px`;
+    p.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - width - 8))}px`;
+    p.style.top = room > height + 8 ? `${r.bottom + 4}px` : `${Math.max(8, r.top - height - 4)}px`;
+  }
+
+  function choose(code: string) {
+    onChange(code);
+    pop.current?.hidePopover();
+  }
+
+  function onKey(e: React.KeyboardEvent) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      setActive((i) => {
+        const next = e.key === "ArrowDown" ? i + 1 : i - 1;
+        return Math.max(0, Math.min(list.length - 1, next));
+      });
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (list[active]) choose(list[active][0]);
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        ref={btn}
+        className="ax-cc"
+        popoverTarget="ax-dial"
+        aria-label={`Country code, currently ${value}`}
+        aria-haspopup="listbox"
+      >
+        <span>{value}</span>
+        <ChevronDown width={13} height={13} strokeWidth={2} aria-hidden="true" />
+      </button>
+
+      <div
+        /* @ts-expect-error -- see the note on the dialog itself: React 19 passes `popover`
+           through but the DOM typings in this version do not declare it. */
+        popover="auto"
+        id="ax-dial"
+        ref={pop}
+        className="ax-dial"
+        onToggle={(e) => {
+          if (e.target !== e.currentTarget) return;
+          const state = (e as unknown as { newState?: string }).newState;
+          if (state === "open") {
+            place();
+            setQ("");
+            setActive(Math.max(0, DIAL.findIndex(([c]) => c === value)));
+            setTimeout(() => search.current?.focus(), 0);
+          }
+        }}
+      >
+        <div className="ax-dial-search">
+          <Search width={13} height={13} strokeWidth={2} aria-hidden="true" />
+          <input
+            ref={search}
+            value={q}
+            onChange={(e) => {
+              setQ(e.target.value);
+              setActive(0);
+            }}
+            onKeyDown={onKey}
+            placeholder="Search country or code"
+            aria-label="Search country or dial code"
+            aria-controls="ax-dial-list"
+          />
+        </div>
+
+        <ul className="ax-dial-list" id="ax-dial-list" role="listbox" aria-label="Country code">
+          {list.map(([code, name], i) => (
+            <li key={`${code}${name}`}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={code === value}
+                className={`ax-dial-opt${i === active ? " ax-dial-on" : ""}`}
+                onMouseEnter={() => setActive(i)}
+                onClick={() => choose(code)}
+              >
+                <span className="ax-dial-code">{code}</span>
+                <span className="ax-dial-name">{name}</span>
+                {code === value && <Check width={13} height={13} strokeWidth={3} aria-hidden="true" />}
+              </button>
+            </li>
+          ))}
+          {list.length === 0 && <li className="ax-dial-none">No country matches that.</li>}
+        </ul>
+      </div>
+    </>
   );
 }
 

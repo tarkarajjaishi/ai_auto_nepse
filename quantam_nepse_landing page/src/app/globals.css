@@ -949,16 +949,116 @@ body:has(.accessmodal:popover-open) > .stage > .bgvid {
   gap: 8rem;
 }
 
+/* A BUTTON now, not a <select>. See DialSelect in access-form.tsx: a native select renders the
+   selected option's own text, so it cannot show "+977" closed and "+977 Nepal" open. */
 .ax-cc {
-  padding-right: 4rem;
-  /* the native select arrow is drawn by the UA in its own colour; hiding the
-     option text overflow keeps a long country name from widening the column */
-  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4rem;
+  padding-right: 7rem;
+  cursor: pointer;
+  text-align: left;
 }
 
-.ax-cc option {
-  background: #06180f;
+/* ---- the dial-code list ----------------------------------------------------------------
+   A NESTED popover, so it is in the top layer: `.ax-body` is `overflow-y: auto`, and a list
+   positioned inside it would be cut off at the scroller's edge. Placement is set from script
+   (the trigger's rect), because a top-layer element has no useful containing block. */
+.ax-dial {
+  position: fixed;
+  margin: 0;
+  padding: 0;
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1rem solid rgba(50, 213, 131, 0.34);
+  border-radius: 12rem;
+  background: linear-gradient(160deg, #0a2116, #04120c);
+  box-shadow: 0 20rem 50rem rgba(0, 0, 0, 0.6);
   color: #ecf5f1;
+}
+
+.ax-dial:popover-open {
+  display: flex;
+}
+
+.ax-dial::backdrop {
+  background: transparent;
+}
+
+.ax-dial-search {
+  display: flex;
+  align-items: center;
+  gap: 7rem;
+  flex-shrink: 0;
+  padding: 9rem 11rem;
+  border-bottom: 1rem solid rgba(50, 213, 131, 0.2);
+  color: #9ccbb4;
+}
+
+.ax-dial-search input {
+  width: 100%;
+  border: 0;
+  background: none;
+  color: #ecf5f1;
+  font: inherit;
+  font-size: 12rem;
+  outline: none;
+}
+
+.ax-dial-search input::placeholder {
+  color: #587a6a;
+}
+
+.ax-dial-list {
+  margin: 0;
+  padding: 5rem;
+  overflow-y: auto;
+  list-style: none;
+  scrollbar-width: thin;
+}
+
+.ax-dial-opt {
+  display: flex;
+  align-items: center;
+  gap: 9rem;
+  width: 100%;
+  padding: 8rem 9rem;
+  border: 0;
+  border-radius: 7rem;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 12.5rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* One highlight, driven by `active` — hover and keyboard share it, so arrowing down and
+   moving the mouse cannot light up two rows at once. */
+.ax-dial-on {
+  background: rgba(50, 213, 131, 0.16);
+}
+
+.ax-dial-code {
+  min-width: 46rem;
+  color: #6ce9a6;
+  font-variant-numeric: tabular-nums;
+}
+
+.ax-dial-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ax-dial-none {
+  padding: 12rem;
+  font-size: 12rem;
+  color: #9ccbb4;
+  text-align: center;
 }
 
 .ax-bad .ax-in,
@@ -1281,6 +1381,11 @@ body:has(.accessmodal:popover-open) > .stage > .bgvid {
   /* 44 and not 40: it was measuring 39px, and this is the control someone reaches for when
      they have changed their mind. Escape and an outside tap also close the panel, but neither
      is discoverable on a phone. */
+  .ax-dial-opt {
+    /* a list row is a tap target too */
+    min-height: 40px;
+  }
+
   .accessmodal .ax-close {
     width: clamp(44px, 34rem, 46px);
     height: clamp(44px, 34rem, 46px);
