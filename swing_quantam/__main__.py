@@ -78,7 +78,7 @@ import traceback
 
 # ``history`` is aliased because ``history`` is also the name of build_symbol's
 # session-count parameter, and the module is used all through that function.
-from . import brokers, features, flow, loader, network, store, structure
+from . import broker_board, brokers, features, flow, loader, network, store, structure
 from . import history as hist
 from .store import Row, Section
 
@@ -221,6 +221,11 @@ _HIST_METRICS = (
     ("concentration", lambda d: d.concentration),
     ("flow quality", lambda d: d.flow_quality),
 )
+
+#: Sections 53-55 and 60 are named "flow" by the spec, but a stock has no net flow to measure
+#: (section 15) — they run on the daily tilt instead, and say so.
+_TILT_NOTE = ("A stock's own net broker flow is zero by construction, so \"flow\" here is the daily "
+              "flow TILT: the top net buyer's share of volume minus the top net seller's.")
 
 _NOT_COMPUTED = "market-wide: takes a symbol list, would turn one symbol's build into a full market scan"
 
@@ -1043,7 +1048,8 @@ def _optional(mod, sessions, days):
 
 
 def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
-                 market: hist.MarketPass | None = None, backtest=None) -> store.Detail | None:
+                 market: hist.MarketPass | None = None, backtest=None,
+                 book: "network.MarketBook | None" = None) -> store.Detail | None:
     """Assemble every spec section for one symbol. None when there is too little history.
 
     ``upto`` is the point-in-time guard and is the only date this function trusts;
@@ -1053,6 +1059,11 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
     rendered from. It defaults to None so a single-symbol call still works — it just says
     those sections were not computed, rather than kicking off a 593-symbol scan inside one
     symbol's build.
+
+    ``book`` is the once-per-build ``network.market_book`` scan behind sections 38 and 39.
+    Same thread-it-in reason as ``market``: affinity is a broker's share of its OWN market-wide
+    activity, so it cannot be answered from one symbol's files. Both sections shipped as
+    "computed: no" for exactly as long as nothing computed it.
 
     ``backtest`` is the once-per-build ``backtest.read_summary()`` digest behind sections
     93-104 and 114 — the same thread-it-in pattern, for the same reason. It differs from
@@ -1084,7 +1095,11 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
     sd = fseries[None]  # == flow.stock_days(ses): the stock's own daily net-flow series
     st = structure.analyse(win[w30], baseline=ses)
     pm = network.pairs(win[w30])
-    bstock = network.broker_stock(win[w30])
+    # cum_net is section 37's "historical cumulative flow" — a DIFFERENT item from
+    # "net quantity", so it must span more than the 30D window or the two rows print one
+    # number. fseries already covers all of `ses`, so this costs no extra aggregation.
+    bstock = network.broker_stock(
+        win[w30], hist_net={b: sum(d.net_qty for d in rows) for b, rows in fseries.items() if b is not None})
     # ranking() re-aggregates the whole window internally, so rank each side ONCE at the
     # deepest limit any section needs and slice it — five calls became two.
     rank_acc = flow.ranking(win[w30], side="accumulation", limit=5)
@@ -1177,21 +1192,56 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
     add(5, "Basic market statistics", _rows(features.stats(last)),
         "Executed transactions only — the floorsheet records no orders, no bids, no asks.")
     add(6, "Price analysis", _by_window(lambda w: pstat[w]))
-    add(7, "Volume analysis", _by_window(lambda w: features.volume(win[w])))
-    add(8, "Turnover analysis", _by_window(lambda w: features.turnover(win[w])))
+    # Cuts from the FULL loaded history, not from each window — otherwise every window's
+    # "large trades" is its own top decile and the percentage is 10.0 everywhere.
+    cuts = features.size_cuts(ses)
+    add(7, "Volume analysis", _by_window(lambda w: features.volume(win[w], cuts)),
+        f"Large = {cuts[0]:,.0f}+ shares, small = under {cuts[1]:,.0f}; both cuts are the "
+        f"P90/P25 of the whole {len(ses)}-session history, so a window's share of large "
+        f"trades is comparable across windows and across symbols.")
+    add(8, "Turnover analysis", _by_window(lambda w: features.turnover(win[w])),
+        "Amount concentration is the section 7 size HHI in rupees, not an independent "
+        "reading: over a window whose rate moves a few percent the two agree to ~0.3% "
+        "(measured across 481 symbols).")
 
     vset = features.vwap_set(ses)
     top_bs = sorted(bstock.values(), key=lambda b: b.buy_qty + b.sell_qty, reverse=True)[:5]
-    v_rows = [Row(f"{k} vwap" if k != "sessions" else "sessions", v) for k, v in vset.items()]
+    # `sessions` is dropped, not printed. features.vwap_set returns it so a library caller
+    # slicing four days can tell a real 30D VWAP from a four-day one wearing its name — but
+    # build_symbol refuses any symbol with fewer than MIN_SESSIONS (30) sessions, so on THIS
+    # board the row was 30 on 481 of 481, sd exactly 0. A column that cannot vary is not a
+    # measurement; the note below carries the fact instead.
+    v_rows = [Row(f"{k} vwap", v) for k, v in vset.items() if k != "sessions"]
     v_rows.append(Row("last trade vs 30D vwap",
                       features.vwap_distance(last.trades[-1].rate, vset.get("30d", 0.0)),
                       "normalised distance (price - vwap) / vwap"))
     v_rows += _top_rows(top_bs, ("broker", "buy_vwap", "sell_vwap", "buy_qty", "sell_qty"), prefix="broker #")
-    add(9, "VWAP analysis", v_rows, "Broker VWAPs are over the 30D window, by gross activity.")
+    add(9, "VWAP analysis", v_rows,
+        f"Broker VWAPs are over the 30D window, by gross activity. Every window VWAP here is "
+        f"backed by its full depth: the build refuses a symbol with fewer than {MIN_SESSIONS} "
+        f"sessions (112 of 593 were skipped for that), so there is no short window wearing a "
+        f"long window's name — the row that used to say so was {MIN_SESSIONS} on every symbol. "
+        f"This symbol has {len(ses)} sessions loaded; section 4 carries that count.")
 
     p_rows = _by_window(lambda w: prof[w])
     p_rows.append(_seq("30D hvn", prof[w30].hvn, note="high-volume nodes"))
     p_rows.append(_seq("30D lvn", prof[w30].lvn, note="low-volume nodes"))
+    # Both were computed and neither was emitted — _rows skips containers, so a dict field
+    # of a NamedTuple silently never reaches the report.
+    _tp, _cp = prof[w30].turnover_at_price, prof[w30].count_at_price
+    if _tp:
+        p_rows.append(Row("30D highest-turnover price", max(_tp, key=_tp.get),
+                          "most MONEY changed hands here; the POC is the most SHARES. On this "
+                          "archive the two agree on 234 of 240 symbol-windows, because turnover "
+                          "at a price is just price x volume there"))
+    p_rows.append(_seq("30D turnover at price",
+                       [f"{q}@{store._fmt(_tp[q])}" for q in sorted(_tp, key=_tp.get, reverse=True)],
+                       note="price@turnover, heaviest first"))
+    p_rows.append(_seq("30D trade count at price",
+                       [f"{q}@{_cp[q]}" for q in sorted(_cp, key=_cp.get, reverse=True)],
+                       note="price@trades, busiest first — the busiest price by TRADES differs "
+                            "from the POC on 138 of 240 symbol-windows, so this is not the POC "
+                            "restated"))
     add(10, "Volume-at-price / executed price profile", p_rows,
         "The profile is of EXECUTED prices only — it is not an order-book depth profile.")
 
@@ -1237,11 +1287,17 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
 
     add(13, "Net broker flow",
         _by_window(lambda w: sf[w], only=("volume", "turnover", "trades", "brokers", "dealers",
-                                          "gross_qty", "net_qty",
+                                          "net_qty",
                                           "net_buyers", "net_sellers", "neutral")),
         "\"dealers\" is how many of \"brokers\" are NEPSE's dealer account rather than a member "
         "broker executing for clients. It is included in every count and breadth figure here, so "
-        "it is named rather than left to be assumed away.")
+        "it is named rather than left to be assumed away. "
+        "\"net qty\" is NOT buy minus sell — that is identically 0 at stock level. It is the sum "
+        "of the POSITIVE broker nets: shares that changed hands net BETWEEN brokers after each "
+        "broker's own two-way churn cancels. It is non-negative by construction (0 negatives in "
+        "1,924 shipped symbol-windows) and can never show net selling; the signed figure is "
+        "section 15's top-buyer/top-seller tilt. The gross quantity is not printed: it is "
+        "exactly 2x the \"volume\" row above, because every share is bought once and sold once.")
 
     n_rows: list[Row] = []
     for r in rank_acc[:3]:
@@ -1272,9 +1328,6 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
     for w in loader.WINDOWS:
         f_ = sf[w]
         i_rows += [
-            Row(f"{w}D net qty", f_.net_qty, "shares that changed hands net between brokers"),
-            Row(f"{w}D gross qty", f_.gross_qty, "buy + sell, so exactly 2x volume — every share "
-                "is bought once and sold once"),
             Row(f"{w}D top-buyer minus top-seller tilt", f_.top_buyer_share - f_.top_seller_share,
                 "SIGNED: negative means the largest single net actor is a seller"),
             Row(f"{w}D buyer-seller ratio",
@@ -1285,7 +1338,8 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
         "There is NO stock-level buy/sell imbalance and there cannot be one: buy == sell == volume "
         "on every stock every day. The net-to-gross ratio that used to sit here was half of section "
         "16's flow quality under a second name, and could never go negative. The signed figure is "
-        "the top-buyer/top-seller tilt.")
+        "the top-buyer/top-seller tilt. The two quantities are section 13's and are not restated "
+        "here; the ratio behind flow quality is section 16's.")
     add(16, "Flow quality / net-to-gross",
         [Row(f"{w}D flow quality", sf[w].flow_quality,
              "net qty / volume — the CANONICAL net-to-gross figure on this board") for w in loader.WINDOWS],
@@ -1294,21 +1348,30 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
         "only place this quantity is reported — section 15 points here rather than restate it.")
 
     # ── 17-21: accumulation, distribution, persistence, acceleration, reversal ─────────
+    # Spec 17/18 open with "Daily accumulation" and "Cumulative accumulation". _rows skips
+    # containers, so the series need the hand-written _seq row that docstring points at.
+    acc30, dis30 = flow.accumulation(sd[-w30:]), flow.distribution(sd[-w30:])
     add(17, "Accumulation", _by_window(lambda w: flow.accumulation(sd[-w:]),
                                        only=("label", "days", "total_days", "qty", "amt", "pct", "intensity",
                                              "peak", "consistency", "streak", "max_streak", "change",
                                              "accel", "decel", "reversal", "breadth", "quality"))
         + _top_rows(rank_acc,
-                    ("broker", "net_share", "net_qty", "days", "positive_days", "streak", "phase", "persistence"),
-                    prefix="30D accumulator #"),
+                    ("broker", "net_share", "net_qty", "days", "days_on_side", "streak", "phase", "persistence"),
+                    prefix="30D accumulator #")
+        + [_seq("30D daily", acc30.daily, limit=w30),
+           _seq("30D cumulative", acc30.cumulative, limit=w30,
+                note="running sum of the daily column; |last| == intensity x days")],
         "\"Net buying\" is a fact; \"accumulation\" is the inference this section names, not proves.")
     add(18, "Distribution", _by_window(lambda w: flow.distribution(sd[-w:]),
                                        only=("label", "days", "total_days", "qty", "amt", "pct", "intensity",
                                              "peak", "consistency", "streak", "max_streak", "change",
                                              "accel", "decel", "reversal", "breadth", "quality"))
         + _top_rows(rank_dist,
-                    ("broker", "net_share", "net_qty", "days", "positive_days", "streak", "phase", "persistence"),
-                    prefix="30D distributor #"),
+                    ("broker", "net_share", "net_qty", "days", "days_on_side", "streak", "phase", "persistence"),
+                    prefix="30D distributor #")
+        + [_seq("30D daily", dis30.daily, limit=w30),
+           _seq("30D cumulative", dis30.cumulative, limit=w30,
+                note="running sum of the daily column; |last| == intensity x days")],
         "\"net share\" is SIGNED and negative here because these brokers are net sellers — the "
         "same convention as section 17's accumulators, where it is positive. \"distributor #1\" is "
         "the same broker and the same figure as section 12's \"top NET seller\" (measured: same "
@@ -1326,7 +1389,17 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
     add(21, "Flow reversal", _rows(rev))
 
     # ── 22-32: consensus, breadth, concentration, trade structure ──────────────────────
-    add(22, "Broker consensus", _by_window(lambda w: st.consensus[w]))
+    add(22, "Broker consensus",
+        _by_window(lambda w: st.consensus[w],
+                   only=("neutral", "consensus", "weighted_consensus", "dispersion", "entropy",
+                         "top_buyer_dependence", "top_seller_dependence", "accumulation",
+                         "distribution")),
+        "The headcount block — brokers / net buyers / net sellers, their ratio and their shares "
+        "of the roster — is section 23's and is not restated here: it was byte-identical on "
+        "1,924 of 1,924 window-rows. This section keeps the VOTE: the headcount vote, the "
+        "activity-weighted vote, and the dispersion/entropy/dependence around them. "
+        "\"accumulation\"/\"distribution\" here are the broad|mixed|concentrated LABELS, a "
+        "different quantity from section 23's floats of the same name.")
     add(23, "Accumulation / distribution breadth",
         _by_window(lambda w: st.breadth[w])
         + _rows(st.breadth_trend)
@@ -1335,7 +1408,10 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
         "HHI is computed over the WINDOW aggregate, never averaged from daily HHIs.")
     add(25, "Concentration dynamics",
         _rows(st.conc_dynamics) + [_seq("hhi series", st.conc_dynamics.hhi_series)],
-        "Read 30D -> 15D -> 7D -> 3D: the series runs from the longest window to the newest.")
+        "The series runs oldest to newest over four NON-OVERLAPPING 3-day blocks — not the "
+        "nested 30D/15D/7D/3D of section 24. A nested short window sits inside the long one, "
+        "so its HHI is mechanically the higher and \"concentration rising\" came out 4:1 on "
+        "the board. Equal-length blocks split it 1:1. Section 24 keeps the nested levels.")
     add(26, "Pareto analysis", _by_window(lambda w: st.pareto[w]),
         "\"buy volume\" and \"buy turnover\" are the GROSS BUY side — every broker's buy quantity "
         "and buy amount ranked against the window's volume and turnover. They were called "
@@ -1368,9 +1444,23 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
     for w in loader.WINDOWS:
         lv = st.large_value[w]
         empty = "" if lv.trades else "no large trade in this window — undefined, not zero"
+        # The quantity is NOT undefined when the subset is empty: a sum over no trades
+        # is 0, and 0 shares really were reallocated. Only the ratio below is 0/0. The
+        # two rows shared one note, so the qty printed "0" under the word "undefined".
+        empty_qty = "" if lv.trades else "no large trade in this window — nothing was reallocated"
         lc_rows += _rows(lv, prefix=f"{w}D ",
-                         only=("trades", "volume_pct", "turnover_pct", "net_qty", "net_share",
-                               "persistence"))
+                         only=("trades", "volume_pct", "turnover_pct", "persistence"))
+        lc_rows += [
+            Row(f"{w}D large-trade reallocation qty", lv.net_qty,
+                empty_qty or "shares that changed hands NET between brokers inside the "
+                             "large-trade subset"),
+            Row(f"{w}D large-trade reallocation share", lv.net_share if lv.trades else None,
+                empty or "reallocation qty / large-trade volume. NOT a signed net share like "
+                         "sections 12/17/18: buy == sell inside any subset, so this can never "
+                         "be negative (0 of 1,924 board rows were). 1.0 only means no broker "
+                         "was on both sides, which a thin subset gives for free — 149 of the "
+                         "281 rows at 1.0 had 3 or fewer large trades."),
+        ]
         lc_rows += [
             Row(f"{w}D large-buyer hhi", lv.buyer_hhi, empty or "concentration of GROSS buying "
                 "across brokers on large prints"),
@@ -1391,7 +1481,9 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
            Row("large disappearance", st.frag_change.large_disappearance)],
         "Shares here are of LARGE-TRADE volume and rank brokers by GROSS side quantity. Sections "
         "11/12 rank by NET quantity over all trades — the two name a different broker more often "
-        "than not. A blank means the window held no large trades, so the figure is undefined.")
+        "than not. A blank means the window held no large trades, so the figure is undefined. "
+        "\"Reallocation share\" is net-to-gross inside that subset, not a direction — there is "
+        "no large-trade imbalance to report.")
 
     add(29, "Trade-size distribution",
         _by_window(lambda w: st.sizes[w])
@@ -1401,8 +1493,10 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
         "spec asks for them, but a share-count clip metric is price in disguise.")
     add(30, "Broker trade-size signature",
         _top_rows(sorted(st.signatures.values(), key=lambda b: b.trades, reverse=True)[:5],
-                  ("broker", "trades", "median", "p90", "p99", "max", "cv", "skew", "large_ratio",
-                   "small_ratio", "consistency"), prefix="broker #"))
+                  ("broker", "trades", "median", "p90", "p95", "p99", "max", "volatility", "cv",
+                   "skew", "large_ratio", "small_ratio", "consistency", "median_amt"),
+                  prefix="broker #"),
+        "The five most active brokers of the 30D window, by trade count.")
     add(31, "Transaction fragmentation", _by_window(lambda w: st.fragmentation[w]))
     add(32, "Transaction fragmentation change",
         _rows(st.frag_change) + [_seq("series", st.frag_change.series)])
@@ -1416,20 +1510,71 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
     thin = [Row("computed", False, f"needs {2 * PREV_WINDOW} sessions, have {len(ses)}")]
     if prev:
         add(34, "New / returning / exiting brokers",
-            _rows(network.churn(prev, win[w30], ses[: -2 * PREV_WINDOW])))
-        add(35, "Broker rotation", _rows(network.rotation(prev, win[w30])))
+            _rows(network.churn(prev, win[w30], ses[: -2 * PREV_WINDOW])),
+            "\"curr active\" is section 33's \"active\" — the same 30D roster counted again, "
+            "identical on 481 of 481 symbols.")
+        add(35, "Broker rotation", _rows(network.rotation(prev, win[w30])),
+            f"Jaccard distance of the {w30}D roster against the {w30} sessions before it. "
+            "\"new active\" and \"disappearing\" are section 34's \"expansion\" and "
+            "\"exiting\" under other names — identical on 481 of 481 symbols.")
     else:
         add(34, "New / returning / exiting brokers", thin)
         add(35, "Broker rotation", thin)
-    add(36, "Broker rank stability", _rows(network.rank_stability(win[w30])))
+    add(36, "Broker rank stability", _rows(network.rank_stability(win[w30])),
+        "\"ranked\" is section 33's \"active\" — every broker in the window gets a rank; "
+        "identical on 481 of 481 symbols.")
 
     add(37, "Broker x stock matrix",
         _top_rows(sorted(bstock.values(), key=lambda b: abs(b.net_qty), reverse=True)[:5],
                   ("broker", "buy_qty", "sell_qty", "net_qty", "net_amt", "trades", "buy_vwap", "sell_vwap",
                    "volume_pct", "turnover_pct", "cum_net", "persistence", "consistency"), prefix="broker #"),
-        "One symbol only. Affinity needs the market-wide book and is left blank here — see section 38.")
-    add(38, "Broker-stock affinity", [Row("computed", False, _NOT_COMPUTED)])
-    add(39, "Broker stock rotation", [Row("computed", False, _NOT_COMPUTED)])
+        f"One symbol only. Every row is the {w30}D window except cum net, which is the "
+        f"historical net over all {len(ses)} loaded sessions. Affinity needs the market-wide "
+        "book and is left blank here — see section 38.")
+    if book is None:
+        add(38, "Broker-stock affinity", [Row("computed", False, _NOT_COMPUTED)])
+        add(39, "Broker stock rotation", [Row("computed", False, _NOT_COMPUTED)])
+    else:
+        # 38 — of each broker's OWN market-wide activity, how much lands here. Reported for
+        # the brokers this symbol matters most TO, which is the question the section asks;
+        # a broker's biggest counterparty here may still be a rounding error to that broker.
+        w_aff = max(book.windows)
+        # Indexed once by market_book(), not recomputed here — see MarketBook.by_symbol.
+        here = book.affinities(symbol)
+        # Count the FULL list, print the top 5. `len(here[:5])` was 5 on 481 of 481 symbols
+        # — the row named the slice, not the brokers, and read as "every stock on NEPSE is
+        # traded by exactly five brokers".
+        mine = here[:5]
+        add(38, "Broker-stock affinity",
+            [Row("window", w_aff, "sessions, market-wide"),
+             Row("brokers with activity here", len(here),
+                 f"the {len(mine)} with the highest affinity are listed")]
+            + _top_rows(mine, ("broker", "affinity", "rank", "percentile"), prefix="broker #"),
+            "Share of the BROKER's own executions that landed in this stock — not capital "
+            "allocation, which this data cannot see. `rank` is where this stock sits among "
+            "that broker's names; `percentile` compares it to the other brokers active here.")
+
+        # 39 — the same book sliced per window, so rotation costs no extra reads.
+        # gross = buy + sell; BrokerStock carries the two sides, not the sum
+        top_here = [b.broker for b in
+                    sorted(bstock.values(), key=lambda b: -(b.buy_qty + b.sell_qty))[:3]]
+        rot_rows: list[Row] = []
+        for i, b in enumerate(top_here, 1):
+            r = network.rotation_from_book(b, book)
+            rot_rows.append(Row(f"broker #{i}", b))
+            for w in book.windows:
+                rot_rows.append(Row(f"broker #{i} {w}D focus", r.focus[w] or "-",
+                                    f"biggest name by gross qty, {r.shares[w]:.1%} of its activity"))
+            rot_rows.append(Row(f"broker #{i} rotated", r.rotated,
+                                "shortest-window focus differs from the longest"))
+            if r.new_focus:
+                rot_rows.append(Row(f"broker #{i} new focus", ", ".join(r.new_focus[:5])))
+            if r.abandoned:
+                rot_rows.append(Row(f"broker #{i} abandoned", ", ".join(r.abandoned[:5])))
+        add(39, "Broker stock rotation", rot_rows,
+            "Broker ACTIVITY rotation, the spec's wording — nothing here knows about capital. "
+            "The three brokers most active in this stock, and where their own activity sat as "
+            "the window shortened.")
 
     top_pairs = sorted(pm.values(), key=lambda p: p.qty, reverse=True)[:5]
     add(40, "Broker x broker analysis",
@@ -1448,7 +1593,11 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
         "equalled section 24's \"30D broker top1\" on 481 of 481. Read those. It was not replaced "
         "with betweenness or eigenvector centrality — on a graph this dense (median density "
         "0.133, mean degree 17 over a median 75 brokers) eigenvector centrality tracks weighted "
-        "degree back to the same column, and neither has a hypothesis behind it here.")
+        "degree back to the same column, and neither has a hypothesis behind it here. "
+        "\"nodes\", \"edges\" and \"concentration\" are not new measurements either: they are "
+        "section 33's \"active\", section 40's \"pairs\" and section 40's \"pair "
+        "concentration\", identical on 481 of 481 symbols — the graph is built from the same "
+        "window and the same pair map.")
     drift = network.centrality_drift(win[w30])
     add(42, "Network centrality over time", _rows(drift))
     if prev:
@@ -1459,7 +1608,10 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
     else:
         add(43, "Broker-pair persistence", thin)
     add(44, "Repeated transaction patterns",
-        [Row(f"{r.kind} {r.key}", r.count, r.detail) for r in network.repeats(win[w30])[:10]])
+        # No [:10]. repeats(top=3) is already self-bounded at 18 rows, and the slice cut
+        # whole FAMILIES: the pair rows come first, so `large` and the accumulator families
+        # never reached the report on a symbol with many repeated pairs.
+        [Row(f"{r.kind} {r.key}", r.count, r.detail) for r in network.repeats(win[w30])])
 
     sq = network.sequence(last)
     add(45, "Sequence analysis",
@@ -1476,9 +1628,12 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
         _rows(network.self_trades(win[w30]), only=("count", "quantity", "amount", "pct_transactions",
                                                    "pct_volume", "pct_turnover", "sessions_with", "session_pct")),
         "Same broker on both sides means one member firm, not necessarily one client.")
-    cyc = network.cycles(win[w30], pair_map=pm)
+    _CYCLE_CAP = 50
+    cyc = network.cycles(win[w30], pair_map=pm, cap=_CYCLE_CAP)
     add(48, "Circular-pattern candidates",
-        [Row("candidates", len(cyc))]
+        [Row("candidates", len(cyc),
+             "AT LEAST this many — the bounded search stopped at its cap"
+             if len(cyc) >= _CYCLE_CAP else "")]
         + [Row(f"cycle #{i}", "->".join(str(b) for b in c.brokers),
                f"len {c.length}, {c.qty_share:.4f} of volume on {c.days} days")
            for i, c in enumerate(cyc[:3], 1)],
@@ -1506,12 +1661,30 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
     for name, _ in _HIST_METRICS:
         b = hist.baseline(series[name])
         if b:
+            # min/max/p25/p75/p95 were dropped by the old filter for no stated reason —
+            # restored. `var` stays OUT: it is `sd ** 2`, the row above it, and baseline()
+            # literally computes sd from it. `median` stays out: it is `p50`, the same
+            # percentile() call under a second name. Emitting either would put one
+            # measurement on the board twice, which is what this section was audited for.
             base_rows += _rows(b, prefix=f"{name} ",
-                               only=("n", "mean", "median", "sd", "p10", "p50", "p90", "p99", "skew", "kurtosis"))
+                               only=("n", "mean", "sd", "min", "max", "p10", "p25", "p50",
+                                     "p75", "p90", "p95", "p99", "skew", "kurtosis"))
         p = hist.pit(series[name], len(days) - 1)
         if p:
-            z_rows.append(Row(f"{name} z", p.z, f"vs {p.base.n} prior sessions"))
-            pct_rows.append(Row(f"{name} percentile", p.pct, f"vs {p.base.n} prior sessions"))
+            # A baseline that never moved has sd 0, so z is 0/0 — UNDEFINED, not 0. hist.pit
+            # returns 0.0 there because its scoring callers want "no signal", but printed into
+            # this column that reads as "exactly average" beside genuinely computed z-scores.
+            # Same blank-plus-reason the empty large-trade HHI uses in section 28. It is not
+            # cosmetic: when the constant breaks, section 52 prints percentile 0 or 100 for the
+            # same metric on the same board while this row still says 0 (measured on KSBBLP
+            # tilt 2024-05-30 — 0.0 for 20 straight sessions, then +0.183 at percentile 100).
+            vs = f"vs {p.base.n} prior sessions"
+            flat = p.base.sd == 0
+            z_rows.append(Row(f"{name} z", None if flat else p.z,
+                              f"{vs}, which never varied — z is undefined, not 0" if flat else vs))
+            pct_rows.append(Row(f"{name} percentile", p.pct,
+                                f"{vs}, ALL equal to this value — 50 is the tie rule, not a middling rank"
+                                if flat else vs))
         else:
             z_rows.append(Row(f"{name} z", None, "too few prior sessions"))
     add(50, "Historical statistics", base_rows, f"Over the {len(days)} loaded sessions, ending {last.date}.")
@@ -1520,11 +1693,20 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
 
     shape = hist.flow_shape(series["tilt"])
     if shape:
-        add(53, "Flow sharpness", _rows(shape, only=("n", "mean", "median", "sd", "sharpness")))
+        # Same substitution section 70 spells out: there is no stock-level net flow to take a
+        # sharpness/skew/drawdown of, so these run on the daily TILT. Without the note these
+        # sections print bare "mean"/"sd"/"cum" over a share-of-volume spread and read as shares —
+        # they are section 50's "tilt" rows exactly, on all 481 symbols.
+        add(53, "Flow sharpness", _rows(shape, only=("n", "mean", "median", "sd", "sharpness")), _TILT_NOTE)
         add(54, "Flow skew", _rows(shape, only=("skew", "kurtosis", "pos_ratio", "neg_ratio",
-                                                "sign_consistency", "consistency")))
+                                                "flat_ratio", "sign_consistency", "consistency")),
+            _TILT_NOTE + " Ratios are of ALL days in the window. A zero-flow day counts on "
+            "neither side, so pos + neg + flat == 1 and \"sign consistency\" can fall BELOW "
+            "0.5 — on this board it does on 127 of 481 symbols. It is a share of all days, not "
+            "of signed days.")
         add(55, "Flow drawdown", _rows(shape, only=("cum", "peak", "drawdown", "max_drawdown", "trough_i",
-                                                    "days_since_trough", "recovery", "recovery_speed")))
+                                                    "days_since_trough", "recovery", "recovery_speed")),
+            _TILT_NOTE + " Cumulative tilt, so cum/peak/drawdown are in those same units, not shares.")
 
     dv = hist.divergences(days)
     add(56, "Price-flow divergence",
@@ -1553,17 +1735,24 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
         add(59, "Volume-price elasticity", _rows(el))
     fe = hist.flow_efficiency(days)
     if fe:
-        add(60, "Flow efficiency", _rows(fe))
+        add(60, "Flow efficiency", _rows(fe), _TILT_NOTE + " \"flow units\" is the window's summed tilt.")
 
     for n, title, fn, what in ((61, "Absorption-like proxy", hist.absorption_like, "absorption"),
                                (62, "Exhaustion-like proxy", hist.exhaustion_like, "exhaustion")):
         ser = fn(days)
+        scored = [x for x in ser if x is not None]
         cur = ser[-1] if ser else None
-        flagged = sum(1 for x in ser if x is not None and x.score >= PROXY_FLAG)
+        flagged = sum(1 for x in scored if x.score >= PROXY_FLAG)
         rows = [Row("score", cur.score if cur else None),
                 Row("persistence", cur.persistence if cur else None),
                 Row("prior frequency", cur.prior_frequency if cur else None),
-                Row("days scored >= 60", flagged, f"of {len(ser)} sessions")]
+                # Denominator is the SCOREABLE days, not the loaded ones. pit_series emits
+                # nothing until it has min_obs priors, so the first ~60 sessions could never
+                # have been flagged; counting them halved the printed rate and contradicted
+                # the prior frequency printed directly above it.
+                Row("days scored >= 60", flagged,
+                    f"of {len(scored)} scoreable sessions — the first {len(ser) - len(scored)} "
+                    f"of {len(ser)} loaded have too few priors to score")]
         if cur:
             rows += [Row(f"part: {k}", v) for k, v in cur.parts]
         add(n, title, rows,
@@ -1578,7 +1767,7 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
 
     add(64, "Price clustering",
         _by_window(lambda w: pstat[w],
-                   only=("levels", "clustering", "concentration", "dispersion", "freq_price",
+                   only=("levels", "top5_clustering", "concentration", "dispersion", "freq_price",
                          "freq_price_share", "heavy_price", "heavy_price_share"))
         + _rows(days[-1].profile, prefix="last session ",
                 only=("distinct", "dominant", "dominant_share", "hhi", "entropy", "dispersion")))
@@ -1594,11 +1783,22 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
                    "turnover_ratio"), prefix="broker #"),
         f"One session ({last.date}).")
     fqp = hist.flow_quality_by_price(win[w30])
+    # `quality` is a RATIO, so a broker whose only fill is 10 shares below VWAP scores exactly
+    # +-1 and outranks everyone: 62% of emitted rows sat at a bound, median selected size 215
+    # shares. Rank only brokers at or above the window's median size — self-scaling, and the
+    # median can never empty the section.
+    def _fqp_qty(q):
+        return (q.buy_below + q.buy_near + q.buy_above
+                + q.sell_below + q.sell_near + q.sell_above)
+    _floor = sorted(map(_fqp_qty, fqp.values()))[len(fqp) // 2] if fqp else 0
     add(67, "Broker flow quality by price",
-        _top_rows(sorted(fqp.values(), key=lambda q: abs(q.quality), reverse=True)[:5],
+        _top_rows(sorted((q for q in fqp.values() if _fqp_qty(q) >= _floor),
+                         key=lambda q: abs(q.quality), reverse=True)[:5],
                   ("broker", "buy_below", "buy_near", "buy_above", "sell_below", "sell_near",
                    "sell_above", "quality"), prefix="broker #"),
-        "\"Below\"/\"above\" is relative to that session's VWAP — it is not a measure of skill.")
+        "\"Below\"/\"above\" is relative to that session's VWAP — it is not a measure of skill. "
+        "Ranked among brokers at or above the median 30D size, because quality is a ratio: a "
+        "single small fill scores +-1.")
 
     c_rows: list[Row] = []
     for r in rank_acc[:3]:
@@ -1610,7 +1810,9 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
                                   "cum", "max_drawdown"))
     add(68, "Flow consistency score", c_rows,
         "Over the full loaded history for the top 30D net buyers. A persistent net buyer is the "
-        "normal state of a broker, not a finding.")
+        "normal state of a broker, not a finding. \"sign consistency\" is a share of ALL days, "
+        "so a broker that sat out most of the history scores near 0 (min 0.00833 = one day in "
+        "120) — that is inactivity, not disagreement.")
 
     # ── 69-71: market-level, so computed ONCE per build in main() and handed in here ───
     if market is None:
@@ -1619,16 +1821,30 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
     else:
         out += _market_sections(market)
 
-    regs = hist.regimes(days)
+    # The window is passed, not defaulted, so these row NAMES and the number they
+    # hold come from one literal. Bare "tilt z"/"volume z" here were section 51's
+    # names over a different measurement: 51 z-scores the RAW daily series against
+    # all prior sessions, this z-scores the 7-day ROLLING MEAN against a 250-session
+    # trailing baseline. Over the 453 symbols carrying both, the two "tilt z" were
+    # never once equal (r=0.36, mean |diff| 1.02) and disagreed in SIGN on 172 of
+    # them — ADBL printed +0.86 in 51 and -1.27 here. Same collision as section 49.
+    REG_WINDOW = 7
+    regs = hist.regimes(days, window=REG_WINDOW)
     cur_reg = regs[-1] if regs else None
     labelled = [r for r in regs if r is not None]
-    r_rows = ([Row("current regime", cur_reg.label), Row("tilt", cur_reg.tilt),
-               Row("tilt z", cur_reg.tilt_z), Row("volume z", cur_reg.volume_z),
+    r_rows = ([Row("current regime", cur_reg.label),
+               Row(f"{REG_WINDOW}D tilt mean", cur_reg.tilt),
+               Row(f"{REG_WINDOW}D tilt z", cur_reg.tilt_z),
+               Row(f"{REG_WINDOW}D volume z", cur_reg.volume_z),
                _seq("tags", cur_reg.tags)] if cur_reg else
               [Row("current regime", None,
                    f"{len(days)} sessions is too short a point-in-time baseline to classify one")])
     r_rows.append(Row("sessions classified", len(labelled), f"of {len(regs)}"))
-    add(72, "Historical regime classification", r_rows, "Point-in-time: each day is classified on its own past.")
+    add(72, "Historical regime classification", r_rows,
+        f"Point-in-time: each day is classified on its own past. Every number here is over "
+        f"the {REG_WINDOW}-day ROLLING MEAN, z-scored against a 250-session trailing baseline "
+        f"of earlier windows — NOT section 51's z of the raw daily value against all prior "
+        f"sessions. The two disagree in sign on 38% of the board; they are different readings.")
 
     if labelled:
         tr = hist.transitions(regs)
@@ -1756,7 +1972,9 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
             "not this engine's job.")
         add(89, "Entry -> exit map",
             [Row("price", zn.price)]
-            + [Row(f"{lab} band", f"{z.low:g} - {z.high:g}", z.name)
+            # Zone.text, not low-high: the spec's own §89 example prints the two one-sided
+            # zones as "<690" and "770+", and a closed band here would deny they are open.
+            + [Row(f"{lab} band", z.text, z.name)
                for lab, z in (("invalidation", zn.invalidation), ("accumulation", zn.accumulation),
                               ("entry", zn.entry), ("confirmation", zn.confirmation),
                               ("profit 1", zn.profit1), ("profit 2", zn.profit2),
@@ -1793,24 +2011,43 @@ def build_symbol(symbol: str, upto: str | None = None, history: int = HISTORY,
     )
 
 
+def _f(v: object) -> float | None:
+    try:
+        return float(v)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+
+
 def board_row(d: store.Detail) -> dict:
     """The one-line summary of a Detail. ``date`` is the session the numbers are FROM."""
     get = {(s.n, r.metric): r.value for s in d.sections for r in s.rows}
-    return {
+    row = {
         "symbol": d.symbol,
         "signal": d.signal,
         "score": d.score,
         "confidence": d.confidence,
+        # The two halves behind `signal`. `score` is the SWING score, which is a blend and
+        # cannot rank a sell: a symbol that is falling hard scores low on entry, not high on
+        # exit. A cross-sectional "strongest sells" screen has to sort on the exit score, so
+        # both are on the board rather than only inside sections 91/92.
+        "entry_score": get.get((91, "score")),
+        "exit_score": get.get((92, "score")),
         "volume": get.get((5, "volume")),
         "turnover": get.get((5, "turnover")),
         "vwap": get.get((5, "vwap")),
-        "net_qty": get.get((13, "30D net qty")),
+        # Named for what it is. "net_qty" reads as buy minus sell, which is identically 0
+        # at stock level; this is the sum of the positive broker nets.
+        "net_between_brokers": get.get((13, "30D net qty")),
         "flow_quality": get.get((16, "30D flow quality")),
         "persistence": get.get((19, "30D persistence")),
         "direction": get.get((19, "30D direction")),
         "phase": get.get((20, "phase")),
         "reversal": get.get((21, "kind")),
-        "consensus": get.get((22, "30D consensus")),
+        # The WEIGHTED vote, not the headcount one. The headcount vote is (nb-ns)/(nb+ns),
+        # which is identically 2*breadth-1 whenever no broker is flat — 244 of 481 rows were
+        # a rescaled copy of the column next to it. zones.py repointed its own score component
+        # the same way for the same reason (pearson +0.084 against breadth).
+        "consensus": get.get((22, "30D weighted consensus")),
         "breadth": get.get((23, "30D accumulation")),
         "hhi": get.get((24, "30D broker hhi")),
         "large_pct": get.get((27, "30D turnover pct")),
@@ -1838,6 +2075,15 @@ def board_row(d: store.Detail) -> dict:
         "warnings": len(d.warnings),
         "date": d.session,
     }
+    # The guard that would have caught the previous spelling: the headcount vote is
+    # (nb - ns) / (nb + ns), which is 2*breadth - 1 exactly whenever no broker is flat.
+    # float() because a Detail read back from disk carries strings, and this must not be the
+    # thing that decides whether board_row can be called on one.
+    c, b = _f(row.get("consensus")), _f(row.get("breadth"))
+    assert (c is None or b is None or b in (0.0, 0.5, 1.0)
+            or abs(c - (2 * b - 1)) > 1e-9), (
+        f"{row.get('symbol')}: board consensus is a rescaled copy of breadth again")
+    return row
 
 
 # `imbalance` was dropped after the first full build: measured across all 481 rows it was
@@ -1847,7 +2093,8 @@ def board_row(d: store.Detail) -> dict:
 # scores actually weight. Section 15 still reports it per window in the detail, where it is
 # labelled "net / gross quantity" rather than presented as a second independent measure.
 BOARD_COLUMNS = [
-    "symbol", "signal", "score", "confidence", "volume", "turnover", "vwap", "net_qty",
+    "symbol", "signal", "score", "entry_score", "exit_score", "confidence",
+    "volume", "turnover", "vwap", "net_between_brokers",
     "flow_quality", "persistence", "direction", "phase", "reversal", "consensus",
     "breadth", "hhi", "large_pct", "brokers", "dealers", "top_broker", "top_broker_share",
     "anomaly", "regime", "quality", "alignment", "conflict", "age", "entry_low", "entry_high",
@@ -1900,6 +2147,18 @@ def main(argv: list[str] | None = None) -> int:
               f"{market.brokers} brokers, {len(market.sectors)} sectors, "
               f"{market.skipped} skipped, in {market.seconds:.0f}s", flush=True)
 
+    # Sections 38-39 need each broker's activity across the WHOLE market, so like the market
+    # pass they are one scan per build, threaded in. Both sections shipped "computed: no" on
+    # every symbol until this existed — the functions were written and demo-tested, and
+    # nothing ever called them. ~1.3 min for the universe; the cost is printed, not hidden.
+    book = network.market_book(loader.symbols(), upto=a.upto)
+    if not book.symbols:
+        print("market book found no sessions — sections 38-39 will say so", file=sys.stderr)
+        book = None
+    else:
+        print(f"market book: {book.symbols} symbols over {max(book.windows)} sessions, "
+              f"{len(book.totals(max(book.windows)))} brokers, in {book.seconds:.0f}s", flush=True)
+
     # Sections 93-104 and 114 are MEASUREMENTS, cross-sectional and symbol-independent, so
     # like the market pass they are read once and threaded in. Unlike it, this is a single
     # small .txt read rather than a 45 s scan — and the study that produced it takes ~470 s
@@ -1924,7 +2183,7 @@ def main(argv: list[str] | None = None) -> int:
         t0 = time.time()
         try:
             d = build_symbol(sym, upto=a.upto, history=a.history, market=market,
-                             backtest=summary)
+                             backtest=summary, book=book)
         except Exception as exc:
             failed.append((sym, f"{type(exc).__name__}: {exc}"))
             print(f"[{i:>4}/{len(syms)}] {sym:<12} FAILED  {type(exc).__name__}: {exc}", flush=True)
@@ -1965,6 +2224,19 @@ def main(argv: list[str] | None = None) -> int:
               file=sys.stderr)
         return 1
     print(f"wrote {path} ({len(rows)} rows, session {max(r['date'] for r in rows)})")
+
+    # The market-wide broker board, only on a full run: it reads the WHOLE flow archive, so a
+    # --limit pass would be paying 30 s to rewrite a file it did not narrow anyway.
+    if full_run:
+        try:
+            b_rows, b_session, _ = broker_board.scan(upto=a.upto)
+            if b_rows:
+                print(f"wrote {broker_board.write(b_rows, b_session)} "
+                      f"({len(b_rows)} brokers, session {b_session})")
+        except OSError as exc:
+            # A missing broker_flow archive is not a reason to fail a board that is already
+            # on disk and correct.
+            print(f"broker board NOT written: {exc}", file=sys.stderr)
     return 0
 
 
@@ -2033,6 +2305,16 @@ def _demo() -> None:
     want = [93, 94, 95, 96, 97, 98, 99, 100, 103, 104, 107, 108, 114, 115]
     assert [s.n for s in d.sections if s.n >= 93] == want, [s.n for s in d.sections if s.n >= 93]
 
+    # The same rule for 4-92, which nothing pinned: only 21 of them back a board column, so
+    # dropping any other one left every guard here green. Census of the 481 shipped details:
+    # 58, 60 and 73 are the only genuinely conditional blocks (absent on 31/45/28 of them);
+    # 70 and 71 need the market pass this build deliberately skips and are asserted on `md`.
+    # The spec's other 15 numbers (1-3, 101, 102, 105, 106, 109-113, 116-118) are prose,
+    # architecture and output format — realised in the header and the zone engine, not as
+    # a numbered block, so there is nothing for them to emit.
+    gone = sorted(set(range(4, 93)) - {58, 60, 70, 71, 73} - {s.n for s in d.sections})
+    assert not gone, f"sections stopped emitting: {gone}"
+
     # ...and the same when the study has never been run. Every backtest-derived section must
     # say so in words, and the three honesty sections must render regardless.
     off = {s.n: s for s in _evidence_sections(None)}
@@ -2089,6 +2371,16 @@ def _demo() -> None:
     # PROXY_FLAG restates a default that lives in another module; pin it.
     import inspect
     assert inspect.signature(hist.absorption_like).parameters["threshold"].default == PROXY_FLAG
+
+    # A never-varying baseline must print a BLANK z, not 0. SBLPO is a promoter listing that
+    # trades once a day, so tilt/concentration/flow quality have not moved in 35 sessions;
+    # NABIL above covers the ordinary path. Without this the false zero reads as "average".
+    flat = build_symbol("SBLPO")
+    if flat:  # thin symbol: it can fall under MIN_SESSIONS as the archive rolls
+        z51 = {r.metric: r for s in flat.sections if s.n == 51 for r in s.rows}
+        assert z51["tilt z"].value is None and "undefined" in z51["tilt z"].note, \
+            f"a constant baseline printed z={z51['tilt z'].value!r} instead of a blank"
+        assert z51["volume z"].value is not None, "a moving baseline lost its z-score"
 
     print(f"__main__ ok — {sym}: {len(d.sections)} sections, "
           f"{sum(len(s.rows) for s in d.sections)} rows, signal {d.signal}")

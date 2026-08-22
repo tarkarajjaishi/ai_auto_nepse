@@ -350,6 +350,8 @@ export type AuthStatus = {
 
 export type BoardName =
   | "swing_quantam"
+  /** one row per BROKER, market-wide — not per symbol, so it has no `symbol` column */
+  | "swing_quantam_brokers"
   | "swing_pro"
   | "supply_demand"
   | "scan"

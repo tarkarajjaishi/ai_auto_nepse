@@ -58,12 +58,16 @@ class BrokerDay(NamedTuple):
         return self.buy_trades + self.sell_trades
 
     @property
-    def buy_vwap(self) -> float:
-        return self.buy_amt / self.buy_qty if self.buy_qty else 0.0
+    def buy_vwap(self) -> float | None:
+        # None, NOT 0.0. A broker that never bought has no buy VWAP, and 0.0 is a
+        # PRICE — printed in sections 9, 37 and 66 it read as "bought at zero rupees"
+        # on 166 of 2,405 shipped slots. store._fmt renders None as a blank field,
+        # which is the honest answer to a question with no value.
+        return self.buy_amt / self.buy_qty if self.buy_qty else None
 
     @property
-    def sell_vwap(self) -> float:
-        return self.sell_amt / self.sell_qty if self.sell_qty else 0.0
+    def sell_vwap(self) -> float | None:
+        return self.sell_amt / self.sell_qty if self.sell_qty else None
 
     @property
     def imbalance(self) -> float:
@@ -259,7 +263,10 @@ def shares(bd: BrokerDay, flow: StockFlow) -> dict[str, float]:
     return {
         "buy_share": bd.buy_qty / vol if vol else 0.0,
         "sell_share": bd.sell_qty / vol if vol else 0.0,
-        "net_share": bd.net_qty / vol if vol else 0.0,
+        # No "net_share" key: it was bd.net_qty / vol, which is exactly what
+        # flow_intensity() returns two lines down — the same number under two names,
+        # so a reader comparing them learned nothing and a weight applied to both
+        # counted it twice. flow_intensity is the spec's name (section 14).
         "turnover_share": bd.gross_amt / (2 * to) if to else 0.0,
         "trade_share": bd.trades / (2 * tr) if tr else 0.0,
         "flow_intensity": flow_intensity(bd, flow),
@@ -310,6 +317,12 @@ def _demo() -> None:
         assert 0.0 <= b.flow_quality <= 1.0
         if b.buy_qty:
             assert b.buy_vwap > 0
+        else:
+            assert b.buy_vwap is None, "a broker that never bought must have no buy VWAP"
+        if b.sell_qty:
+            assert b.sell_vwap > 0
+        else:
+            assert b.sell_vwap is None
 
     # A window is the sum of its days.
     w = window(ses)

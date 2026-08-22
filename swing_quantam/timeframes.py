@@ -408,7 +408,14 @@ def compare(sessions: Sequence[Session], tilt: Sequence[flow.FlowDay],
 
     by_window_agg = {w: brokers.window(sessions[-w:]) for w in WINDOWS}
     bt = structure.breadth_trend({w: structure.breadth(a) for w, a in by_window_agg.items()})
-    cd = structure.dynamics({w: structure.concentration(a) for w, a in by_window_agg.items()})
+    # Non-overlapping blocks of the SHORTEST window, matching structure.analyse — the
+    # nested by_window_agg slices make every "change" lean the same way by construction.
+    _bw, _n = WINDOWS[0], len(sessions)
+    # Same unfillable-block rule as structure.analyse — see the comment there.
+    _blocks = {_bw * (i + 1): structure.concentration(brokers.window(
+        sessions[_n - _bw * (i + 1): _n - _bw * i]))
+        for i in range(len(WINDOWS)) if _n >= _bw * (i + 1)}
+    cd = structure.dynamics({k: v for k, v in _blocks.items() if v.brokers})
     fa = flow.acceleration(tilt)
 
     vw = features.vwap_set(sessions)

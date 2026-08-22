@@ -24,6 +24,9 @@ BOARDS = {
     # Its own folder rather than a top-level .txt: the floorsheet engine writes a
     # board plus one detail file per symbol, and they belong together.
     "swing_quantam": "swing_quantam/board.txt",
+    # One row per BROKER rather than per symbol — the market-wide 30-session footprint
+    # behind the console's Strong Brokers tab. Same folder, same date-last shape.
+    "swing_quantam_brokers": "swing_quantam/brokers.txt",
 }
 
 # columns that are numbers, so the frontend never parses strings into floats itself
@@ -33,7 +36,9 @@ _TEXT = {"symbol", "date", "verdict", "decision", "grade", "performer", "trend",
          "kind", "window", "sector", "lockin_expiry", "earn_period", "order",
          # scan.txt's chart badge and the date it printed. `badge_since` is a date, and a date
          # that survives _num() only by accident -- name it here rather than rely on that.
-         "badge", "badge_since"}
+         "badge", "badge_since",
+         # brokers.txt: a symbol column that is not called "symbol"
+         "top_symbol"}
 
 
 def _num(v):

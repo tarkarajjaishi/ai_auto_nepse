@@ -1030,6 +1030,39 @@ def test_swing_quantam_board_carries_its_date():
         print("  swing_quantam       dateless rows refused (board not built yet)")
 
 
+def test_swing_quantam_open_ended_zones_stay_open():
+    """Section 89 is the spec's final deliverable, and two of its seven rungs are one-sided.
+
+    `Invalidation` is open below and `Distribution Risk` is open above -- the spec prints them
+    `<690` and `770+`. Both still carry a real `low` and `high` so every consumer can treat every
+    zone alike, so a renderer that reaches for those two floats prints a CLOSED band and silently
+    denies the openness. 481 of 481 shipped blocks did exactly that. Nothing crashes when this
+    breaks; the numbers are all correct. Only the shipped text shows it.
+    """
+    from swing_quantam import store
+
+    d = Path(store.detail_path("ADBL")).parent
+    files = sorted(d.glob("*.txt")) if d.is_dir() else []
+    if not files:
+        print("  swing_quantam       open-ended zones (details not built yet)")
+        return
+    bad = []
+    for f in files:
+        m = re.search(r"^## 89	.*?(?=^## |\Z)", f.read_text(encoding="utf-8", errors="replace"),
+                      re.M | re.S)
+        if not m:
+            continue
+        for line in m.group(0).splitlines():
+            metric, _, rest = line.partition("	")
+            if metric == "invalidation band" and not rest.startswith("<"):
+                bad.append(f"{f.stem} {line.strip()}")
+            if metric == "distribution band" and "+" not in rest.split("	")[0]:
+                bad.append(f"{f.stem} {line.strip()}")
+    assert not bad, (f"{len(bad)} section-89 rows print an open-ended zone as a closed band, "
+                     f"e.g. {bad[0]}")
+    print(f"  swing_quantam       section 89 keeps both one-sided zones open ({len(files)} files)")
+
+
 def main():
     print("ops safety:")
     test_rewrite()
@@ -1055,6 +1088,7 @@ def main():
     test_forced_relogin_is_coalesced()
     test_every_registered_rebuild_script_exists()
     test_swing_quantam_board_carries_its_date()
+    test_swing_quantam_open_ended_zones_stay_open()
     live_1d.demo()          # today's bar maths + the archive-never-shrinks rule
     market_hours.demo()     # the one open/closed switch: defaults, toggles, bad file
     jobs.demo()             # the cross-process rebuild lock: exclusive, breakable, safe

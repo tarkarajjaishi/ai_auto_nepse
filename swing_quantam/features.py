@@ -49,7 +49,7 @@ from __future__ import annotations
 import statistics
 from typing import NamedTuple, Sequence
 
-from .loader import WINDOWS, Session, Trade
+from .loader import VALID, WINDOWS, Quality, Session, Trade
 
 
 # ---------------------------------------------------------------------------
@@ -228,7 +228,7 @@ class PriceStats(NamedTuple):
     heavy_price: float  # most HEAVILY traded rate, by volume
     heavy_price_share: float
     levels: int  # distinct traded rates
-    clustering: float  # share of trades sitting on the 5 busiest rates
+    top5_clustering: float  # share of trades sitting on the 5 busiest rates
     concentration: float  # HHI of volume across rates
     dispersion: float  # stdev / mean, i.e. coefficient of variation
     skew: float
@@ -256,8 +256,13 @@ def price(sessions: Sequence[Session]) -> PriceStats:
         by_count[t.rate] = by_count.get(t.rate, 0) + 1
         by_volume[t.rate] = by_volume.get(t.rate, 0) + t.quantity
 
-    freq_price = max(by_count, key=lambda r: (by_count[r], by_volume[r]))
-    heavy_price = max(by_volume, key=lambda r: (by_volume[r], by_count[r]))
+    # Iterate SORTED so an exact tie resolves to the lowest price — the tie-break
+    # section 10's POC gets for free from its sorted price list. max() over a dict
+    # otherwise takes whichever of the tied rates was inserted first, i.e. whichever
+    # traded first, and sections 6 and 64 then named a different rate from section 10
+    # for the same quantity on 9 symbol-windows.
+    freq_price = max(sorted(by_count), key=lambda r: (by_count[r], by_volume[r]))
+    heavy_price = max(sorted(by_volume), key=lambda r: (by_volume[r], by_count[r]))
     top5 = sorted(by_count.values(), reverse=True)[:5]
 
     return PriceStats(
@@ -284,7 +289,7 @@ def price(sessions: Sequence[Session]) -> PriceStats:
         heavy_price=heavy_price,
         heavy_price_share=by_volume[heavy_price] / volume if volume else 0.0,
         levels=len(by_count),
-        clustering=sum(top5) / len(ts),
+        top5_clustering=sum(top5) / len(ts),
         concentration=_hhi(list(by_volume.values())),
         dispersion=(var ** 0.5) / mean if mean else 0.0,
         skew=_moments(rates)[0],
@@ -335,8 +340,28 @@ class VolumeStats(NamedTuple):
     top10_share: float  # 10 biggest prints as a share of volume
 
 
-def volume(sessions: Sequence[Session]) -> VolumeStats:
-    """Section 7 for an already-sliced window, oldest first."""
+def size_cuts(sessions: Sequence[Session]) -> tuple[float, float]:
+    """The (large, small) trade-size cuts, taken from a LONG baseline.
+
+    Pass the result into :func:`volume` for every window. Computed inside each
+    window instead, ``large_cut`` is that window's own P90, so "large trades are
+    10.0% of trades" comes out at exactly 10.0% on every window of every symbol —
+    a definition restated, not a measurement. Against a fixed baseline the number
+    moves, and 14% of prints in the 90th percentile of the last six months is the
+    thing worth reading.
+    """
+    sizes = sorted(t.quantity for t in _trades(sessions))
+    return (_pct(sizes, 90), _pct(sizes, 25)) if sizes else (0.0, 0.0)
+
+
+def volume(sessions: Sequence[Session],
+           cuts: tuple[float, float] | None = None) -> VolumeStats:
+    """Section 7 for an already-sliced window, oldest first.
+
+    ``cuts`` is ``size_cuts(full_history)``. Omitted, the cuts come from the window
+    itself and the two ``large_*_pct`` fields are pinned by construction — see
+    :func:`size_cuts`.
+    """
     ts = _trades(sessions)
     if not ts:
         return _blank(VolumeStats)
@@ -346,8 +371,7 @@ def volume(sessions: Sequence[Session]) -> VolumeStats:
     var = statistics.variance(sizes) if len(sizes) > 1 else 0.0
     skew, kurt = _moments(sizes)
 
-    large_cut = _pct(sizes, 90)
-    small_cut = _pct(sizes, 25)
+    large_cut, small_cut = cuts if cuts else (_pct(sizes, 90), _pct(sizes, 25))
     # >= for large, strictly < for small, so a degenerate distribution (every trade
     # the same size, which really happens on 1-2 trade sessions) cannot classify a
     # trade as both. The demo asserts large + small <= total on real data.
@@ -365,7 +389,11 @@ def volume(sessions: Sequence[Session]) -> VolumeStats:
         variance=var,
         skew=skew,
         kurtosis=kurt,
-        p90=large_cut,
+        # The WINDOW's own 90th percentile. Aliasing this to `large_cut` was correct
+        # only while the cut came from the window; with a baseline cut it made the
+        # p90/p95/p99 ladder mix two populations and invert (SBID83 3D printed
+        # p90 300 beside p95 29). `large_cut` below still carries the baseline.
+        p90=_pct(sizes, 90),
         p95=_pct(sizes, 95),
         p99=_pct(sizes, 99),
         large_cut=large_cut,
@@ -405,8 +433,7 @@ class TurnoverStats(NamedTuple):
     min_amount: float
     p90_amount: float
     stdev: float
-    concentration: float  # HHI over per-trade amounts
-    top10_share: float
+    amount_concentration: float  # HHI over per-trade AMOUNTS — section 7's is over sizes
     largest_share: float  # single biggest ticket as a share of turnover
 
 
@@ -428,8 +455,11 @@ def turnover(sessions: Sequence[Session]) -> TurnoverStats:
         min_amount=amts[0],
         p90_amount=_pct(amts, 90),
         stdev=statistics.stdev(amts) if len(amts) > 1 else 0.0,
-        concentration=_hhi(amts),
-        top10_share=sum(amts[-10:]) / total if total else 0.0,
+        # No top10_share here. Measured across 481 symbols it tracked `concentration`
+        # almost exactly — the same shape twice, and the spec's section 8 does not ask
+        # for it. VolumeStats keeps its own top10_share, which is a different quantity
+        # (biggest PRINTS as a share of volume) and does not duplicate anything.
+        amount_concentration=_hhi(amts),
         largest_share=amts[-1] / total if total else 0.0,
     )
 
@@ -457,7 +487,10 @@ def vwap_set(symbol_sessions: Sequence[Session]) -> dict[str, float]:
     one wearing its name — a short window presented as a full one is exactly the
     staleness failure this project keeps hitting.
     """
-    out: dict[str, float] = {"sessions": float(len(symbol_sessions))}
+    # Capped at the LONGEST window. This row exists to say whether the 30D VWAP really
+    # had 30 sessions behind it; returning the whole loaded history said 120 on every
+    # symbol and answered a question nobody asked, while hiding the one it was for.
+    out: dict[str, float] = {"sessions": float(min(max(WINDOWS), len(symbol_sessions)))}
     out["1d"] = symbol_sessions[-1].vwap if symbol_sessions else 0.0
     for n in WINDOWS:
         chunk = symbol_sessions[-n:]
@@ -679,13 +712,41 @@ def _demo() -> None:
     assert p.freq_price in {t.rate for t in _trades(hist)}
     assert p.heavy_price in {t.rate for t in _trades(hist)}
     assert 0 < p.levels <= p.trades
-    assert 0 < p.clustering <= 1.0 and 0 < p.concentration <= 1.0
+    assert 0 < p.top5_clustering <= 1.0 and 0 < p.concentration <= 1.0
+    assert p.heavy_price == profile(hist).poc, "sections 6 and 10 disagree on POC"
+    # ...and force the tie, because that assert alone cannot fail. A tie is the only input
+    # the sorted() tie-break changes, and no 30-session window on this archive has one, so
+    # reverting the fix left this demo green. The HIGHER rate is inserted FIRST, which is
+    # exactly what a dict-order max() would have returned.
+    _tie = Session("TIE", "1970-01-02", (
+        Trade(1, 2, 100, 101.0, 10100.0, "a", 10100.0),
+        Trade(1, 2, 100, 100.0, 10000.0, "b", 10000.0),
+    ), Quality(VALID, 100.0, 2, 2, ()))
+    _tp = price([_tie])
+    assert _tp.heavy_price == profile([_tie]).poc == 100.0, "a volume tie must take the LOWER rate"
+    assert _tp.freq_price == 100.0, "a count tie must take the LOWER rate"
     assert -1.0 <= p.price_volume_corr <= 1.0
 
     # -- section 7 ----------------------------------------------------------
     v = volume(hist)
+    # The defect this parameter exists for: own-window cuts pin the share at 10%.
+    short = hist[-3:]
+    assert abs(volume(short).large_trade_pct - 0.10) < 0.02, "self-cut P90 is pinned by definition"
+    assert volume(short, size_cuts(hist)).large_trade_pct != volume(short).large_trade_pct
     assert v.volume == sum(x.volume for x in hist)
     assert v.p90 <= v.p95 <= v.p99 <= v.max_size
+    # ...and pin the invariant EXACTLY, not through the ladder. A monotonicity check on one
+    # symbol is luck: aliasing p90 back to the baseline cut left this demo green on NABIL
+    # (its 3D p95 happens to sit above the 120-session P90) while the board printed
+    # SBID83 "3D p90 300" beside "3D p95 29". p90 is the WINDOW's percentile, so supplying
+    # a baseline cut must not move it at all.
+    _cuts = size_cuts(hist)
+    assert volume(short, _cuts).large_cut != volume(short).large_cut, (
+        "the baseline cut equals this window's own cut, so the next assert proves nothing")
+    assert volume(short, _cuts).p90 == volume(short).p90, (
+        "p90 moved with the baseline cuts — it has been aliased to large_cut again")
+    vc = volume(short, _cuts)
+    assert vc.p90 <= vc.p95 <= vc.p99 <= vc.max_size
     assert v.large_trades + v.small_trades <= v.trades, "large/small trade sets overlap"
     assert v.large_volume + v.small_volume <= v.volume
     assert v.min_size <= v.median_size <= v.max_size
@@ -696,7 +757,7 @@ def _demo() -> None:
     to = turnover(hist)
     assert abs(to.total - sum(x.turnover for x in hist)) < 1.0
     assert to.min_amount <= to.median_amount <= to.max_amount
-    assert 0.0 < to.largest_share <= to.top10_share <= 1.0
+    assert 0.0 < to.largest_share <= 1.0
 
     # -- section 9 ----------------------------------------------------------
     vs = vwap_set(hist)
@@ -738,7 +799,7 @@ def _demo() -> None:
         series["range_utilisation"].append(prx.range_utilisation)
         series["vwap_position"].append(prx.vwap_position)
         series["top_cluster_share"].append(prx.top_cluster_share)
-        series["clustering"].append(px.clustering)
+        series["clustering"].append(px.top5_clustering)
         series["concentration"].append(px.concentration)
         series["dispersion"].append(px.dispersion)
         series["price_volume_corr"].append(px.price_volume_corr)
@@ -760,7 +821,7 @@ def _demo() -> None:
           f"{d.participants} brokers")
     print(f"  30D: vwap {vs['30d']:.2f} (7D {vs['7d']:.2f}, 3D {vs['3d']:.2f}), "
           f"P25/P75 {p.p25:.2f}/{p.p75:.2f}, {p.levels} price levels, "
-          f"freq {p.freq_price:.2f} vs heavy {p.heavy_price:.2f}, clustering {p.clustering:.1%}")
+          f"freq {p.freq_price:.2f} vs heavy {p.heavy_price:.2f}, top-5 clustering {p.top5_clustering:.1%}")
     print(f"  size: median {v.median_size:,.0f}, large cut {v.large_cut:,.0f}+ = "
           f"{v.large_trade_pct:.1%} of trades carrying {v.large_volume_pct:.1%} of volume, "
           f"top-10 prints {v.top10_share:.1%}")

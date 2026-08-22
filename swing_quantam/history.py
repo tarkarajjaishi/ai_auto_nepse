@@ -472,7 +472,9 @@ class FlowShape(NamedTuple):
     kurtosis: float
     pos_ratio: float  # section 68
     neg_ratio: float
-    sign_consistency: float  # share of days on the dominant side, 0.5-1
+    sign_consistency: float  # share of ALL days on the dominant side, 0-1: a zero-flow
+    # day is on neither side, so the 0.5 floor holds only for a series with no zeros
+    flat_ratio: float  # the missing mass — days with exactly zero flow
     consistency: float  # section 68 composite, 0-1
     cum: float  # section 55
     peak: float
@@ -539,6 +541,9 @@ def flow_shape(values: Sequence[float]) -> FlowShape | None:
         kurtosis=kurtosis(xs),
         pos_ratio=pos,
         neg_ratio=neg,
+        # COUNT the zeros; do not subtract. 1.0 - pos - neg lands on -1.1e-16 whenever
+        # there are none, and a share of days cannot be negative.
+        flat_ratio=sum(1 for x in xs if x == 0) / n,
         sign_consistency=sign_consistency,
         consistency=consistency,
         cum=cum,
@@ -1112,17 +1117,23 @@ class Asymmetry(NamedTuple):
     broker: int
     buy_qty: int
     sell_qty: int
-    buy_vwap: float
-    sell_vwap: float
+    # None when the broker never traded that side — 0.0 is a PRICE and read as
+    # "bought at zero rupees". See brokers.BrokerDay.buy_vwap.
+    buy_vwap: float | None
+    sell_vwap: float | None
     buy_median: float
     sell_median: float
     buy_low: float
     buy_high: float
     sell_low: float
     sell_high: float
-    spread: float  # (sell_vwap - buy_vwap) / stock vwap; +ve = sold dearer than bought
-    qty_ratio: float  # buy / sell shares
-    turnover_ratio: float
+    # None when the broker traded only ONE side. 0.0 is a real reading — a broker on
+    # both sides of its own crosses sells at exactly its own buy VWAP — so it cannot
+    # double as "no answer". Measured: 1,054 sentinel rows collided byte-for-byte with
+    # 23 genuinely-zero ones across 40 symbols x 12 sessions.
+    spread: float | None  # (sell_vwap - buy_vwap) / stock vwap; +ve = sold dearer
+    qty_ratio: float | None  # buy / sell shares; None when the broker never sold
+    turnover_ratio: float | None  # None when the broker never sold
 
 
 def price_asymmetry(session: Session) -> dict[int, Asymmetry]:
@@ -1156,9 +1167,12 @@ def price_asymmetry(session: Session) -> dict[int, Asymmetry]:
             buy_high=max((r for r, _ in bp), default=0.0),
             sell_low=min((r for r, _ in sp), default=0.0),
             sell_high=max((r for r, _ in sp), default=0.0),
-            spread=((bd.sell_vwap - bd.buy_vwap) / svwap) if both and svwap else 0.0,
-            qty_ratio=(bd.buy_qty / bd.sell_qty) if bd.sell_qty else float(bd.buy_qty > 0),
-            turnover_ratio=(bd.buy_amt / bd.sell_amt) if bd.sell_amt else float(bd.buy_amt > 0),
+            spread=((bd.sell_vwap - bd.buy_vwap) / svwap) if both and svwap else None,
+            # None, not 1.0. A one-sided broker has no ratio, and the old
+            # float(buy_qty > 0) printed exactly what a broker that bought and sold
+            # the SAME amount prints. store._fmt renders None as a blank field.
+            qty_ratio=(bd.buy_qty / bd.sell_qty) if bd.sell_qty else None,
+            turnover_ratio=(bd.buy_amt / bd.sell_amt) if bd.sell_amt else None,
         )
     return out
 
@@ -2029,7 +2043,11 @@ def _demo() -> None:
     assert fs and fs.n == 30
     assert fs.drawdown <= 1e-12, f"drawdown {fs.drawdown} is positive"
     assert fs.max_drawdown <= fs.drawdown + 1e-12
-    assert 0.0 <= fs.recovery <= 1.0 and 0.5 <= fs.sign_consistency <= 1.0
+    assert 0.0 <= fs.recovery <= 1.0 and 0.0 <= fs.sign_consistency <= 1.0
+    assert fs.sign_consistency == max(fs.pos_ratio, fs.neg_ratio)
+    assert abs(fs.pos_ratio + fs.neg_ratio + fs.flat_ratio - 1.0) < 1e-9
+    # the case the 0.5 floor denied: zeros dilute the dominant side below half
+    assert flow_shape([0.0] * 7 + [0.3, -0.2, 0.4]).sign_consistency == 0.2
     assert 0.0 <= fs.consistency <= 1.0
     assert abs(fs.pos_ratio + fs.neg_ratio) <= 1.0
 
@@ -2076,6 +2094,16 @@ def _demo() -> None:
 
     asym = price_asymmetry(s)
     assert asym and set(asym) == set(brokers.day(s))
+    # A one-sided broker has no spread and no ratios — None, never a sentinel. 0.0 is a
+    # REAL spread (a broker crossing with itself sells at its own buy VWAP), so the two
+    # must not share a printed value. There is always at least one one-sided broker in a
+    # real session; if that ever stops being true this asserts rather than passing vacuously.
+    _one = [a for a in asym.values() if not a.buy_qty or not a.sell_qty]
+    assert _one, "no one-sided broker in this session — the None path went untested"
+    for _a in _one:
+        assert _a.spread is None, "a one-sided broker's spread must be None, not 0.0"
+        if not _a.sell_qty:
+            assert _a.qty_ratio is None and _a.turnover_ratio is None, "x/0 has no value"
     for a in asym.values():
         if a.buy_qty:
             assert a.buy_low <= a.buy_vwap <= a.buy_high

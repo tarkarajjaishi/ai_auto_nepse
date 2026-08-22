@@ -8,10 +8,13 @@ import { Suspense, useMemo, useState } from "react";
 
 import { BrokerFlowBars } from "@/components/broker-flow-bars";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError, api, qk, type SqSection } from "@/lib/api";
 import { TONE_CLASS, compact, type Tone } from "@/lib/format";
 import { cn } from "@/lib/utils";
+
+import { SCREENS, SCREEN_LABEL, Screen, type ScreenId } from "./screens";
 
 /** The one command that rebuilds this board. Printed in every state that needs it — stale,
  *  never-computed — so the reader is never told a number is wrong without being told the fix. */
@@ -40,6 +43,10 @@ function SwingQuantamInner() {
   const params = useSearchParams();
   const router = useRouter();
   const symbol = (params.get("symbol") ?? "NABIL").toUpperCase();
+  // In the URL, not in state: a screen you can send someone is worth more than one that
+  // resets on reload, and the symbol input already works this way.
+  const rawTab = params.get("tab") ?? "symbol";
+  const tab = rawTab === "symbol" || SCREENS.includes(rawTab as ScreenId) ? rawTab : "symbol";
 
   // Re-seed from the URL when something else changes the symbol — same reason as the floorsheet
   // page: without it the input keeps the old symbol while the panels below belong to the new one.
@@ -67,10 +74,22 @@ function SwingQuantamInner() {
     [symbols.data],
   );
 
-  function go(next: string) {
+  // `fromBoard` bypasses the known-symbol guard. That guard is for the free-text Input, and
+  // /api/symbols serves symbols.txt (350 tickers) while the board carries 481 — so clicking
+  // 142 of the screen rows silently did nothing. A symbol that IS on the board is by
+  // construction real, and the detail route answers 404 for anything unbuilt.
+  function go(next: string, nextTab = tab, fromBoard = false) {
     const s = next.trim().toUpperCase();
-    if (!s || !known.has(s)) return;
-    router.push(`/admin/swing-quantam?${new URLSearchParams({ symbol: s })}`);
+    if (!s || (!fromBoard && !known.has(s))) return;
+    router.push(
+      `/admin/swing-quantam?${new URLSearchParams({ symbol: s, tab: nextTab })}`,
+    );
+  }
+
+  function goTab(next: string) {
+    router.push(
+      `/admin/swing-quantam?${new URLSearchParams({ symbol, tab: next })}`,
+    );
   }
 
   const d = q.data;
@@ -108,6 +127,34 @@ function SwingQuantamInner() {
         only as fresh as the last time that ran. Sections start collapsed; click
         one to open it.
       </p>
+
+      {/* The symbol detail and the four cross-sectional screens read the SAME pre-computed
+          board — the screens are filters over board.txt, not a second engine. The symbol
+          input above stays visible on every tab because clicking a screen row fills it. */}
+      <Tabs value={tab} onValueChange={(v) => goTab(String(v))}>
+        {/* `h-auto!` — the bang is load-bearing. TabsList pins its height with
+            `group-data-horizontal/tabs:h-8`, which is a two-selector rule and beats a plain
+            `h-auto`; at 375px these wrap to two rows and the second row rendered 25px OUTSIDE
+            the list's own box. `flex-none` on the triggers for the same class of reason: the
+            component's default `flex-1` stretched a lone wrapped tab across all 337px. */}
+        <TabsList variant="line" className="h-auto! flex-wrap gap-x-2">
+          <TabsTrigger value="symbol" className="flex-none">
+            Symbol
+          </TabsTrigger>
+          {SCREENS.map((s) => (
+            <TabsTrigger key={s} value={s} className="flex-none">
+              {SCREEN_LABEL[s]}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+
+        {SCREENS.map((s) => (
+          <TabsContent key={s} value={s} className="mt-2 space-y-3">
+            <Screen id={s} rebuild={REBUILD} onSymbol={(sym) => go(sym, "symbol", true)} />
+          </TabsContent>
+        ))}
+
+        <TabsContent value="symbol" className="mt-2 space-y-4">
 
       {notComputed && (
         <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/40 p-3.5 text-[13px]">
@@ -343,6 +390,8 @@ function SwingQuantamInner() {
           </div>
         </>
       )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

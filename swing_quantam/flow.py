@@ -676,7 +676,10 @@ class Rank(NamedTuple):
     net_share: float  # window net qty / window volume — the ranking key
     net_qty: int
     days: int
-    positive_days: int
+    #: Days on the side being ranked, NOT days positive. Section 18 ranks distributors,
+    #: where this counts NEGATIVE days — printed under the name "positive_days" it read
+    #: as the opposite of what it held on half of every report.
+    days_on_side: int
     streak: int
     phase: str
     persistence: float
@@ -710,13 +713,20 @@ def ranking(sessions: Sequence[Session], side: str = "accumulation", limit: int 
             net_share=net / volume,
             net_qty=net,
             days=sum(1 for d in days if d.net_qty),
-            positive_days=p.positive if sign > 0 else p.negative,
+            days_on_side=p.positive if sign > 0 else p.negative,
             streak=abs(p.current_run) if (p.current_run > 0) == (sign > 0) else 0,
             phase=a.label,
             persistence=p.positive_pct if sign > 0 else p.negative_pct,
         ))
 
     rows.sort(key=lambda r: sign * r.net_share, reverse=True)
+    # Filter the SIDE, do not merely truncate. With fewer than `limit` brokers actually on
+    # the requested side, the tail of this list is brokers on the OTHER one — so a symbol
+    # with three net buyers still printed ten "top accumulators", seven of them net
+    # sellers, and sections 14, 17 and 18 all read from here. Rows are already sorted by
+    # sign * net_share descending, so this is a truncation at the sign change and nothing
+    # that was genuinely on the side is lost.
+    rows = [r for r in rows if sign * r.net_share > 0]
     return rows[:limit]
 
 
@@ -823,7 +833,7 @@ def _demo() -> None:
           f"{prof.accumulation.days}d (max streak {prof.accumulation.max_streak}), "
           f"distribution {prof.distribution.pct:.2%} over {prof.distribution.days}d")
     print(f"  top accumulator: broker {t.broker} {t.net_share:+.2%} of window volume, "
-          f"{t.positive_days}/30 positive days, {t.phase}")
+          f"{t.days_on_side}/30 days on that side, {t.phase}")
 
 
 if __name__ == "__main__":

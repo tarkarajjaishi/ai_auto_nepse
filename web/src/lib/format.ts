@@ -127,14 +127,25 @@ const PCT_COLS = new Set([
   "price_chg", "regular", "persist_pct", "share_in", "share_out", "block_pct",
 ]);
 
+const MONEY_COLS = new Set([
+  "turnover", "value_rs", "cost_rs", "risk_rs",
+  "net_amt", "gross_amt", "top_symbol_amt",
+]);
+
+// brokers.txt's ratios are 0-1 FRACTIONS, unlike PCT_COLS which are already 0-100. Left to
+// the num() default they were rounded to 2dp of the raw fraction, which printed "0" for a
+// broker with a Rs 1.4b book and collapsed 91 distinct market shares onto 6.
+const RATIO_COLS = new Set(["conviction", "breadth", "top_symbol_share"]);
+
 export function formatCell(col: string, v: Cell): string {
   if (v === null || v === undefined || v === "") return "—";
   if (typeof v !== "number") return String(v);
   if (PRICE_COLS.has(col)) return price(v);
   if (PCT_COLS.has(col)) return pct(v);
-  if (col === "turnover" || col === "value_rs" || col === "cost_rs" || col === "risk_rs") {
-    return compact(v);
-  }
+  if (RATIO_COLS.has(col)) return pct(v * 100);
+  // Rupee columns, compacted. brokers.txt's three are market-wide 30-session sums and run
+  // to ten figures — printed in full they push every other column off a laptop screen.
+  if (MONEY_COLS.has(col)) return compact(v);
   return num(v);
 }
 

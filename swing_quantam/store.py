@@ -65,6 +65,13 @@ def _fmt(v: object) -> str:
     if isinstance(v, float):
         if v != v:  # NaN
             return ""
+        # Snap floating-point dust to zero. `1.0 - pos - neg` and a sum of signed shares
+        # land on +-1.1e-16, and %.6g prints that verbatim — so a share of days shipped as
+        # "-1.11022e-16" on 26 rows, a negative share in scientific notation. Measured on
+        # the whole board there is a five-order gap between the dust (all < 1e-13) and the
+        # smallest real value (7.4e-07), so this cannot swallow a measurement.
+        if abs(v) < 1e-12:
+            v = 0.0
         return f"{v:.6g}"
     return str(v)
 

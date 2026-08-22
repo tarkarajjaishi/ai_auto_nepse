@@ -888,9 +888,17 @@ def zones(
     tilt_here = (sum(pf.tilt[p] * pf.volume[p] for p in near) / nv) if nv else 0.0
 
     # -- contradictions (section 91's explicit penalty term) -------------------
+    # The reason must read the SAME series the predicate does. `conc_dynamics` was
+    # repointed to non-overlapping blocks, so quoting the nested 30D->3D HHI pair beside
+    # `spike` described a comparison that no longer decides anything. hhi_series can be
+    # empty (every block filtered out), and a list literal evaluates every f-string
+    # eagerly, so the index needs a guard rather than a bare [0]/[-1].
+    _cd = st.conc_dynamics
+    _cd_pair = (f"{_cd.hhi_series[0][1]:.3f} -> {_cd.hhi_series[-1][1]:.3f}"
+                if _cd.hhi_series else "n/a")
     checks = [
         (side_dis.change > 0, f"distribution is heavier in the recent half of the window ({side_dis.change:+.4f})"),
-        (st.conc_dynamics.spike, f"broker concentration spiked: HHI {st.concentration[w30].broker.hhi:.3f} -> {conc3.broker.hhi:.3f}"),
+        (_cd.spike, f"broker concentration spiked across non-overlapping 3-session blocks: HHI {_cd_pair}"),
         (st.breadth_trend.trend == "narrowing", f"buying breadth is narrowing ({st.breadth_trend.momentum:+.2f})"),
         (rev.kind == "positive_to_negative", f"flow flipped positive->negative at {rev.flip_at or 'window level'}"),
         (price > prof.value_high, f"price {price:,.2f} is above the value area high {prof.value_high:,.2f}"),

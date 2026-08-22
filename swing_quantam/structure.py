@@ -848,8 +848,11 @@ class Fragmentation(NamedTuple):
 
     The spec's example: 100,000 shares as 10 x 10,000 and as 1,000 x 100 are the
     same volume and different structures. ``frag_ratio`` is the baseline median
-    clip divided by this window's average clip, so >1 means the stock is trading in
-    smaller pieces than its own history and <1 means bigger ones.
+    clip divided by this window's MEDIAN clip — median against median. Against the
+    MEAN it sat below 1 on 97.1% of the shipped board's 1,924 rows and inverted the
+    documented direction on 48.4%, because trade sizes are right-skewed enough that
+    the mean is always well above the median. >1 means the stock is trading in
+    smaller pieces than its own history, <1 means bigger ones.
     """
 
     trades: int
@@ -887,6 +890,7 @@ def fragmentation(sessions: Sequence[Session], th: Thresholds) -> Fragmentation:
     vol = sum(t.quantity for t in trades)
     ordered = sorted(t.quantity for t in trades)
     avg = vol / len(trades)
+    med = _pct(ordered, 50.0)
     big = [t for t in trades if t.quantity >= th.large_qty]
     small = [t for t in trades if t.quantity <= th.small_qty]
     return Fragmentation(
@@ -895,8 +899,8 @@ def fragmentation(sessions: Sequence[Session], th: Thresholds) -> Fragmentation:
         turnover=sum(t.amount for t in trades),
         trades_per_1k=(1000.0 * len(trades) / vol) if vol else 0.0,
         avg_size=avg,
-        median_size=_pct(ordered, 50.0),
-        frag_ratio=(th.median_qty / avg) if avg else 0.0,
+        median_size=med,
+        frag_ratio=(th.median_qty / med) if med else 0.0,
         large_ratio=len(big) / len(trades),
         large_volume_ratio=(sum(t.quantity for t in big) / vol) if vol else 0.0,
         small_ratio=len(small) / len(trades),
@@ -991,6 +995,22 @@ def analyse(
     aggs = {w: brokers.window(per[w]) for w in ws}
 
     conc = {w: concentration(aggs[w]) for w in ws}
+    # Section 25 differences NON-OVERLAPPING blocks of the shortest window, not the
+    # nested 30/15/7/3 above. A 3-day slice sits inside the 30-day one, so its HHI is
+    # mechanically the higher of the two and "concentration is rising" came out on
+    # 91 symbols against 22 falling (spike 58 : release 12). On equal-length blocks
+    # the same 200 symbols split 49:49 and 29:29 — the tilt was the nesting.
+    _bw = ws[-1]
+    _n = len(sessions)
+    # DROP a block the history cannot fill; never clamp it. `max(0, ...)` guarded only the
+    # lower bound, so once _n < _bw*i the UPPER bound went negative and Python read it as
+    # an offset from the end — the oldest block filled from the FRONT and overlapped the
+    # newer ones, which is the exact nesting this replaced. Reachable via zones._trim_at_split
+    # (ILBSP, MSLBP, NMBPO, PROFLP, SBLPO all trim into the 2..8-session wrap range and each
+    # took a fabricated concentration spike and its score penalty).
+    blocks = {_bw * (i + 1): concentration(brokers.window(
+        sessions[_n - _bw * (i + 1): _n - _bw * i]))
+        for i in range(len(ws)) if _n >= _bw * (i + 1)}
     brd = {w: breadth(aggs[w]) for w in ws}
     frag = {w: fragmentation(per[w], th) for w in ws}
 
@@ -1003,7 +1023,7 @@ def analyse(
         breadth=brd,
         breadth_trend=breadth_trend(brd),
         concentration=conc,
-        conc_dynamics=dynamics(conc),
+        conc_dynamics=dynamics({k: v for k, v in blocks.items() if v.brokers}),
         pareto={w: pareto(aggs[w]) for w in ws},
         large_value={w: large(per[w], th, BASIS_RUPEES) for w in ws},
         large_shares={w: large(per[w], th, BASIS_SHARES) for w in ws},
@@ -1030,6 +1050,16 @@ def _demo() -> None:
     assert len(hist) >= 30, f"{sym}: only {len(hist)} sessions"
     ses = hist[-30:]
     st = analyse(ses, baseline=hist)
+
+    # Section 25's blocks must never overlap, and the length that breaks that is SHORT, not
+    # 30: at n=30 every block fills and a bad slice is invisible. zones._trim_at_split really
+    # does hand analyse() 2-8 sessions (5 symbols on the current board), and an unguarded
+    # upper bound wraps a negative index to the FRONT of the list — producing extra,
+    # overlapping blocks that then read as a concentration spike and cost a score penalty.
+    for _n in (2, 4, 5, 6, 7, 8, 12):
+        _series = analyse(ses[-_n:], baseline=hist).conc_dynamics.hhi_series
+        assert len(_series) <= _n // WINDOWS[0], (
+            f"{_n} sessions produced {len(_series)} blocks of {WINDOWS[0]} — the slice wrapped")
 
     # -- 24: concentration invariants, on real data, every window ------------
     for w, c in st.concentration.items():

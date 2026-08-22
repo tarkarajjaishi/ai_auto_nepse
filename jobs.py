@@ -46,6 +46,11 @@ SCRIPTS: dict[str, tuple[str, ...]] = {
     # A shim, not the package: this runs scripts as [python, <script>] and cannot spell
     # `-m swing_quantam`. A top-level swing_quantam.py would shadow the package directory.
     "swing_quantam": ("build_swing_quantam.py",),
+    # Same script, second artefact: a FULL run of the package writes brokers.txt after
+    # board.txt (see swing_quantam/__main__.main). Listed by name so the freshness half of
+    # test_ops can account for it — a board nothing declares is a board nobody can tell is
+    # stale — and so the console's rebuild button targets the right script.
+    "swing_quantam_brokers": ("build_swing_quantam.py",),
     "pipeline": ("daily_update.py", "scan.py", "volume_spike.py", "fetch_swp.py",
                  "operator_scan.py", "supply_demand.py", "swing_pro.py", "backtest.py",
                  "build_swing_quantam.py"),

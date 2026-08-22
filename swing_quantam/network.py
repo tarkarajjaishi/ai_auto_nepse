@@ -47,6 +47,7 @@ Pure stdlib: this runs on a RAM-starved VPS beside the stdlib-only API.
 from __future__ import annotations
 
 import statistics
+import time
 from collections import Counter, defaultdict
 from typing import Iterable, NamedTuple
 
@@ -256,7 +257,10 @@ class Rotation(NamedTuple):
     """
 
     rotation: float  # |symmetric difference| / |union|
-    velocity: float  # rotation per session of the current window
+    # No `velocity`. It was rotation / len(curr), and len(curr) is the window — 30 on every
+    # symbol — so the column was the row above it divided by a constant: a rescale, not a
+    # second measurement. A real velocity needs a varying denominator (e.g. ses[-10:-5] vs
+    # ses[-5:] against the 30D roster), which nothing asks for yet.
     new_active: int
     disappearing: int
     increasing: int  # continuing brokers whose share of gross volume rose
@@ -274,7 +278,7 @@ def rotation(prev: list[Session], curr: list[Session]) -> Rotation:
     prev_set, curr_set = set(pa), set(ca)
     union = prev_set | curr_set
     if not union:
-        return Rotation(0.0, 0.0, 0, 0, 0, 0, 0.0, 0, 0.0, 0.0, False)
+        return Rotation(0.0, 0, 0, 0, 0, 0.0, 0, 0.0, 0.0, False)
 
     fresh = curr_set - prev_set
     gone = prev_set - curr_set
@@ -296,7 +300,6 @@ def rotation(prev: list[Session], curr: list[Session]) -> Rotation:
 
     return Rotation(
         rotation=len(fresh | gone) / len(union),
-        velocity=(len(fresh | gone) / len(union)) / max(1, len(curr)),
         new_active=len(fresh),
         disappearing=len(gone),
         increasing=inc,
@@ -411,22 +414,36 @@ class BrokerStock(NamedTuple):
     buy_trades: int
     sell_trades: int
     trades: int
-    buy_vwap: float
-    sell_vwap: float
+    # None when the broker never traded that side — 0.0 is a PRICE and read as
+    # "bought at zero rupees". See brokers.BrokerDay.buy_vwap.
+    buy_vwap: float | None
+    sell_vwap: float | None
     largest_buy: int
     largest_sell: int
     volume_pct: float  # gross qty / 2*stock volume — every share has two sides
     turnover_pct: float
     accumulation: int  # sessions net-positive
     distribution: int  # sessions net-negative
-    cum_net: int  # cumulative net flow over the window
+    cum_net: int  # net flow over ``hist_net``'s span; == net_qty when none is supplied
     persistence: float  # sessions active / sessions in window
     consistency: float  # |acc - dist| / (acc + dist); 1 = one-directional
     affinity: float | None  # section 38; None unless market totals supplied
 
 
-def broker_stock(sessions: list[Session], totals: dict[int, int] | None = None) -> dict[int, BrokerStock]:
-    """Section 37 for one symbol. ``totals`` from :func:`broker_totals` fills affinity."""
+def broker_stock(
+    sessions: list[Session],
+    totals: dict[int, int] | None = None,
+    hist_net: dict[int, int] | None = None,
+) -> dict[int, BrokerStock]:
+    """Section 37 for one symbol. ``totals`` from :func:`broker_totals` fills affinity.
+
+    ``hist_net`` is per-broker net quantity over a span LONGER than ``sessions`` — the
+    spec's "historical cumulative flow", which is a separate item from "net quantity".
+    Without it ``cum_net`` degenerates to ``net_qty``: the cumulative net over a window
+    IS that window's net, so the two rows carried one number on 2,405/2,405 shipped
+    cells and the sign was the WINDOW's, not history's (ADBL broker 65: -48,183 over
+    30 sessions, +214,038 over 120). Callers that have the longer span must pass it;
+    ``__main__`` gets it free off ``flow.all_series``, which already scans it."""
     if not sessions:
         return {}
     symbol = sessions[0].symbol
@@ -469,7 +486,7 @@ def broker_stock(sessions: list[Session], totals: dict[int, int] | None = None) 
             turnover_pct=bd.gross_amt / (2 * flow.turnover) if flow.turnover else 0.0,
             accumulation=a,
             distribution=d,
-            cum_net=bd.net_qty,
+            cum_net=hist_net.get(b, bd.net_qty) if hist_net else bd.net_qty,
             persistence=active[b] / n,
             consistency=abs(a - d) / directional if directional else 0.0,
             affinity=(bd.gross_qty / totals[b]) if totals and totals.get(b) else None,
@@ -530,6 +547,137 @@ def broker_totals(
             total[b] += bd.gross_qty
             book[b][sym] += bd.gross_qty
     return dict(total), {b: dict(c) for b, c in book.items()}
+
+
+class MarketBook(NamedTuple):
+    """One market-wide scan, sliced per window — the input sections 38 and 39 need.
+
+    WHY THIS EXISTS. Both sections were implemented, demo-tested, and then shipped as
+    ``computed: no`` on every symbol, because each needed its own full-market read:
+    :func:`broker_totals` scans every symbol once, and :func:`stock_rotation` scans them
+    again FOR EVERY BROKER. Called per symbol that is 593 scans; called per broker it is
+    worse. So neither was ever called and two sections of the specification shipped empty.
+
+    The fix is the pattern the market pass already uses: read once per BUILD, slice in
+    memory, thread the result in. Each symbol's sessions are loaded a single time at the
+    longest window and every shorter window is a slice of that same list, so the cost is
+    one scan whatever ``windows`` holds — not one per window and not one per broker.
+    """
+
+    date: str | None  # `upto` as given, for the record
+    windows: tuple[int, ...]
+    symbols: int  # symbols that actually had sessions
+    seconds: float
+    #: window -> broker -> market-wide gross qty in that window
+    total: dict[int, dict[int, int]]
+    #: window -> broker -> symbol -> gross qty
+    book: dict[int, dict[int, dict[str, int]]]
+
+    #: symbol -> that symbol's Affinity rows at the LONGEST window, best first. Section 38
+    #: wants one symbol; :func:`affinity` returns the whole market keyed by broker. Building
+    #: it per symbol meant recomputing 93 brokers x ~500 names 593 times per build and cost
+    #: more than the scan that produced the book.
+    by_symbol: dict[str, tuple[Affinity, ...]]
+
+    def totals(self, window: int) -> dict[int, int]:
+        return self.total.get(window, {})
+
+    def books(self, window: int) -> dict[int, dict[str, int]]:
+        return self.book.get(window, {})
+
+    def affinities(self, symbol: str) -> tuple[Affinity, ...]:
+        return self.by_symbol.get(symbol, ())
+
+
+def market_book(
+    symbols: list[str], windows: tuple[int, ...] = WINDOWS, upto: str | None = None
+) -> MarketBook:
+    """ONE market-wide scan covering every window. Sections 38 and 39 read this.
+
+    **COST.** ``max(windows)`` sessions for every symbol, once. On this archive a session
+    parses in roughly 4 ms, so the 593-symbol universe at 30 sessions is a minute or two —
+    the same order as the market pass, and like it this belongs in :func:`main` once per
+    build, never behind a page load or inside a per-symbol call.
+    """
+    span = max(windows)
+    total: dict[int, Counter[int]] = {w: Counter() for w in windows}
+    book: dict[int, dict[int, Counter[str]]] = {w: defaultdict(Counter) for w in windows}
+    seen = 0
+    started = time.time()
+    for sym in symbols:
+        ses = loader.load_last(sym, span, upto)
+        if not ses:
+            continue
+        seen += 1
+        # ONE aggregation per session, added to every window that contains it — not one
+        # aggregation per window. The windows nest (3 in 7 in 15 in 30), so the obvious
+        # `for w: brokers.window(ses[-w:])` re-aggregates the newest three sessions four
+        # times over and costs 3+7+15+30 = 55 session-aggregations where 30 will do.
+        # Measured on 40 symbols: 1246 ms/symbol the naive way, and the whole 593-symbol
+        # universe is the difference between ~12 and ~7 minutes of a once-per-build pass.
+        for i, sess in enumerate(reversed(ses)):
+            wins = [w for w in windows if i < w]
+            if not wins:
+                break
+            for b, bd in brokers.window([sess]).items():
+                g = bd.gross_qty
+                if not g:
+                    continue
+                for w in wins:
+                    total[w][b] += g
+                    book[w][b][sym] += g
+    tot = {w: dict(c) for w, c in total.items()}
+    bk = {w: {b: dict(c) for b, c in d.items()} for w, d in book.items()}
+
+    # ONE affinity pass over the longest window, inverted to symbol -> rows. Section 38
+    # asks 593 times for one symbol's slice of a market-wide table; computing that table
+    # per call made the section cost more than the scan above it.
+    span_w = max(windows)
+    by_sym: dict[str, list[Affinity]] = defaultdict(list)
+    for rows in affinity(tot.get(span_w, {}), bk.get(span_w, {})).values():
+        for a in rows:
+            by_sym[a.symbol].append(a)
+    return MarketBook(
+        upto, tuple(windows), seen, time.time() - started, tot, bk,
+        {s: tuple(sorted(r, key=lambda a: -a.affinity)) for s, r in by_sym.items()},
+    )
+
+
+def rotation_from_book(broker: int, mb: MarketBook, top: int = 5) -> StockRotation:
+    """Section 39 for one broker with NO I/O — the arithmetic half of :func:`stock_rotation`.
+
+    Same result as that function, computed from a :class:`MarketBook` that was already
+    read. That is what makes the section affordable: the scan happens once per build
+    rather than once per broker.
+    """
+    windows = mb.windows
+    focus: dict[int, str | None] = {}
+    shares: dict[int, float] = {}
+    books: dict[int, dict[str, float]] = {}
+    for w in windows:
+        syms = mb.books(w).get(broker, {})
+        tot = sum(syms.values())
+        books[w] = {s: q / tot for s, q in syms.items()} if tot else {}
+        if syms:
+            sym, q = max(syms.items(), key=lambda kv: kv[1])
+            focus[w], shares[w] = sym, q / tot
+        else:
+            focus[w], shares[w] = None, 0.0
+
+    short, long = min(windows), max(windows)
+    s_book, l_book = books[short], books[long]
+    s_top = {s for s, _ in sorted(s_book.items(), key=lambda kv: -kv[1])[:top]}
+    l_top = {s for s, _ in sorted(l_book.items(), key=lambda kv: -kv[1])[:top]}
+    return StockRotation(
+        broker=broker,
+        focus=focus,
+        shares=shares,
+        rotated=bool(focus[short] and focus[long] and focus[short] != focus[long]),
+        new_focus=tuple(sorted(s_top - l_top)),
+        abandoned=tuple(sorted(l_top - s_top)),
+        increasing=tuple(sorted(s for s in s_book if s_book[s] > l_book.get(s, 0.0) + 1e-9)),
+        decreasing=tuple(sorted(s for s in l_book if l_book[s] > s_book.get(s, 0.0) + 1e-9)),
+    )
 
 
 def affinity(
@@ -940,26 +1088,27 @@ class NetworkDrift(NamedTuple):
     central_changed: bool
     degree_centrality_change: float  # the long window's busiest broker: short degree centrality - long
     weighted_centrality_change: float
-    # There is NO "counterparty expansion" twin to the row below, and there cannot be one.
-    # The windows NEST: the short window is ``sessions[-3:]``, a subset of the long window's
-    # ``sessions[-30:]``, so the short network's edge set is a subset of the long one's and a
-    # broker's degree can only shrink or hold — never grow — going from long to short. The
-    # column shipped anyway and measured 0 on 481 of 481 symbols, sd exactly 0, one distinct
-    # value ever written. Removed rather than left as a permanently-zero column presented as a
-    # measurement (see the repo's note on rules that read correctly, test green, and never fire).
-    # A real expansion measure needs windows that do not nest — e.g. this 30D against the PRIOR
-    # 30D, which section 43's pair_shift already does.
-    counterparty_contraction: int  # brokers with fewer counterparties in the short window
+    # The two rows below compare the last `short` sessions against the `short` BEFORE them —
+    # never the nested 3D-inside-30D pair the rows above use. Nested, the short window's edge
+    # set is a subset of the long one's, so a broker's degree can only shrink: `contraction`
+    # counted essentially every node (it equalled section 41's `nodes` on 220 of 481 symbols,
+    # r = 0.999) and its expansion twin was 0 on 481 of 481. On equal-length adjacent blocks
+    # both move: net spans [-41, +57], median 0, positive on 49% of symbols.
+    #
+    # Jaccard(short edges, long edges) is gone for the same reason — nested, it is identically
+    # |E_short| / |E_long| and could only say a 3-day window holds fewer edges than a 30-day
+    # one. The genuine appearance/disappearance measure is section 43's
+    # ``pair_shift(pairs(prev), pm).turnover_rate``, prior 30D against current 30D.
+    counterparty_contraction: int  # brokers with fewer counterparties than in the block before
+    counterparty_expansion: int  # …and with more
     concentration_change: float
-    restructuring: float  # 1 - Jaccard(short edges, long edges), in [0, 1]
-    stability: float  # Jaccard(short edges, long edges)
 
 
 def centrality_drift(sessions: list[Session], windows: tuple[int, ...] = WINDOWS) -> NetworkDrift:
     """Section 42. Slices one already-loaded window list — no extra I/O."""
     nets = {w: network(sessions[-w:]) for w in windows if sessions}
     if not nets:
-        return NetworkDrift({}, False, 0.0, 0.0, 0, 0.0, 0.0, 0.0)
+        return NetworkDrift({}, False, 0.0, 0.0, 0, 0, 0.0)
 
     short, long = min(nets), max(nets)
     ns, nl = nets[short], nets[long]
@@ -970,10 +1119,13 @@ def centrality_drift(sessions: list[Session], windows: tuple[int, ...] = WINDOWS
     wl = sum(nl.weighted_degree.values()) or 1
     wcc = (ns.weighted_degree.get(ref, 0) / ws - nl.weighted_degree.get(ref, 0) / wl) if ref is not None else 0.0
 
-    con = sum(1 for v, d in nl.degree.items() if d > ns.degree.get(v, 0))
-
-    es, el = set(ns.edge_qty), set(nl.edge_qty)
-    jac = len(es & el) / len(es | el) if (es | el) else 0.0
+    # Adjacent equal-length blocks, both already inside `sessions` — no extra I/O.
+    if len(sessions) >= 2 * short:
+        prev_n, curr_n = network(sessions[-2 * short:-short]), network(sessions[-short:])
+        con = sum(1 for v, d in prev_n.degree.items() if d > curr_n.degree.get(v, 0))
+        exp = sum(1 for v, d in curr_n.degree.items() if d > prev_n.degree.get(v, 0))
+    else:
+        con = exp = 0
 
     return NetworkDrift(
         by_window=nets,
@@ -981,9 +1133,8 @@ def centrality_drift(sessions: list[Session], windows: tuple[int, ...] = WINDOWS
         degree_centrality_change=dcc,
         weighted_centrality_change=wcc,
         counterparty_contraction=con,
+        counterparty_expansion=exp,
         concentration_change=ns.concentration - nl.concentration,
-        restructuring=1.0 - jac,
-        stability=jac,
     )
 
 
@@ -1290,6 +1441,10 @@ def cycles(
         if len(found) >= cap:
             return
         for nxt in adj.get(node, ()):
+            # Re-test per EDGE, not once on entry: a frame that entered under the cap kept
+            # appending down its own neighbour list and five symbols shipped 51 of a cap of 50.
+            if len(found) >= cap:
+                return
             if nxt == start and len(path) in lengths:
                 loop = tuple(path)
                 rot = min(range(len(loop)), key=lambda i: loop[i])
@@ -1385,7 +1540,7 @@ def _metrics(session: Session, dominant: int | None = None) -> dict[str, float]:
         "buyer_concentration": _hhi(b.buy_qty for b in agg.values()),
         "seller_concentration": _hhi(b.sell_qty for b in agg.values()),
         "pair_concentration": _hhi(p.qty for p in pm.values()),
-        "net_flow": flow.flow_quality,
+        "flow_quality": flow.flow_quality,
         "price_concentration": max(rates.values()) / len(trades),
         "trade_frequency": float(len(trades)),
         "participation": float(flow.brokers),
@@ -1409,7 +1564,7 @@ _REASONS = {
     "buyer_concentration": "how few brokers carry the buying",
     "seller_concentration": "how few brokers carry the selling",
     "pair_concentration": "how few buyer-seller pairs carry the volume",
-    "net_flow": "net shares changing hands / volume",
+    "flow_quality": "net shares changing hands / volume",
     "price_concentration": "share of trades printing at one rate",
     "trade_frequency": "transaction count",
     "participation": "brokers active",
@@ -1525,6 +1680,14 @@ def _demo() -> None:
     assert abs(sum(c.volume_pct for c in bs.values()) - 1.0) < 1e-6, "volume shares must sum to 1"
     assert sum(c.net_qty for c in bs.values()) == 0, "net flow must cancel"
     assert all(c.affinity is None for c in bs.values()), "affinity needs market totals, not a guess"
+    # cum_net must be HISTORY's net, not the window's. Without hist_net the two are the
+    # same number by construction, which is the defect; with it they must disagree
+    # somewhere, or the longer span was not actually threaded through.
+    hist = {b: bd.net_qty for b, bd in brokers.window(ses).items()}
+    bs_h = broker_stock(w30, hist_net=hist)
+    assert all(c.cum_net == c.net_qty for c in bs.values()), "no hist_net: cum_net degenerates to net_qty"
+    assert any(c.cum_net != c.net_qty for c in bs_h.values()), "hist_net ignored — cum_net still copies net_qty"
+    assert all(c.cum_net == hist[b] for b, c in bs_h.items()), "cum_net must be the historical net"
 
     # -- 38: market-wide, opt-in, deliberately tiny --------------------------
     shortlist = [s for s in ("NABIL", "NICA", "HBL", "SCB", "EBL", "ADBL") if s in syms][:6]
@@ -1597,8 +1760,10 @@ def _demo() -> None:
 
     drift = centrality_drift(ses, windows=WINDOWS)
     assert set(drift.by_window) == set(WINDOWS)
-    assert 0.0 <= drift.stability <= 1.0
-    assert abs(drift.stability + drift.restructuring - 1.0) < 1e-9
+    # `and`, not `or`: the nesting bug produces exp=0 con=89, and `0 or 89` is truthy —
+    # the guard would have passed under the exact failure its message names.
+    assert drift.counterparty_expansion and drift.counterparty_contraction, (
+        "adjacent blocks must move in BOTH directions - a one-sided pair is the nesting bug")
     assert drift.by_window[3].nodes <= drift.by_window[30].nodes
 
     # The windows NEST, which is the whole reason NetworkDrift has no counterparty_expansion
@@ -1609,7 +1774,7 @@ def _demo() -> None:
     assert set(n3.edge_qty) <= set(n30.edge_qty), "short window must be a subset of the long one"
     grew = [v for v, d in n3.degree.items() if d > n30.degree.get(v, 0)]
     assert not grew, f"nested windows cannot grow a degree, but {grew} did"
-    assert "counterparty_expansion" not in NetworkDrift._fields, "a permanently-zero column came back"
+    assert "stability" not in NetworkDrift._fields, "a nested Jaccard came back"
 
     # -- 45/46: contract order is not file order -----------------------------
     ot = ordered_trades(last)
@@ -1642,8 +1807,11 @@ def _demo() -> None:
         assert all((c.brokers[i], c.brokers[(i + 1) % c.length]) in pm for i in range(c.length))
     # The cliff documented on the class, re-measured every run so it cannot rot.
     assert len(cycles(w30, pair_map=pm, min_share=0.01)) < len(cyc), "threshold does nothing"
-    dense = cycles(w30, pair_map=pm, min_share=0.001, cap=20)
-    assert len(dense) == 20, "the cap is not a cap on a dense graph"
+    # Sweep, not one lucky constant: the old cap=20 assert passed while five symbols
+    # shipped 51 candidates at cap=50, because the overrun depends on where the last
+    # frame happened to be when the count crossed.
+    assert all(len(cycles(w30, pair_map=pm, min_share=0.001, cap=n)) == n
+               for n in range(1, 40)), "the cap must be EXACT at every value, not eventual"
 
     # -- 49: the score must never arrive without its reasons ------------------
     an = anomaly(last, ses[:-1])
@@ -1663,7 +1831,7 @@ def _demo() -> None:
     # reads as a real column. Stock-level buy/sell imbalance died this way; these
     # four are the survivors most at risk of it, so they are re-measured on real
     # data every run rather than trusted.
-    for name in ("net_flow", "broker_concentration", "fragmentation", "price_concentration"):
+    for name in ("flow_quality", "broker_concentration", "fragmentation", "price_concentration"):
         vals = {round(_metrics(s).get(name, 0.0), 6) for s in ses[-40:]}
         assert len(vals) > 5, f"anomaly metric {name} barely varies ({len(vals)} distinct in 40 sessions)"
 
@@ -1692,18 +1860,57 @@ def _demo() -> None:
           f"(reciprocal {top.reciprocal_qty:,} — trade-count confound, not a signal)")
     print(f"  41/42: {net.nodes} nodes, {net.edges} edges, density {net.density:.3f}, "
           f"clustering {net.clustering:.3f}, busiest broker {net.busiest} "
-          f"({net.busiest_share:.1%} of gross); 3D-vs-30D stability {drift.stability:.2f}")
+          f"({net.busiest_share:.1%} of gross); counterparties "
+          f"+{drift.counterparty_expansion}/-{drift.counterparty_contraction}")
     print(f"  45/46: {sq.trades} trades, {sq.reordered} needed reordering by contract, "
           f"buyer switch {sq.buyer_switch:.2f}, {sq.repeated_bigrams} repeated adjacent edges")
     print(f"  47: {st.count:,} self-trades, {st.pct_volume:.2%} of volume, on "
           f"{st.session_pct:.0%} of sessions — flagged for review, not a verdict")
-    print(f"  48: {len(cyc)} circular candidates at the 0.2% default, {len(dense)} at 0.1% "
+    print(f"  48: {len(cyc)} circular candidates at the 0.2% default, "
+          f"{len(cycles(w30, pair_map=pm, min_share=0.001))} at 0.1% "
           f"(anomaly candidates, not proof of manipulation)")
     print(f"  49: AnomalyScore {an.score:.2f} from {len(an.components)} components, "
           f"flagged {list(an.flagged) or 'nothing'}; over 40 sessions the score ran "
           f"{min(spread):.2f}-{max(spread):.2f}, worst {worst.date} ({len(worst.flagged)} flags)")
     for c in worst.components[:3]:
         print(f"      - {c.name}: {c.reason}")
+
+    # -- 38 + 39: the market book, and that its cheap path equals the honest one -----
+    # Both sections shipped "computed: no" on every symbol until market_book existed, so the
+    # invariant that matters is that the once-per-build scan gives the SAME answer as the
+    # per-broker function it replaces — otherwise the cheap path is a different metric
+    # wearing the same name.
+    probe = syms[:12]
+    mb = market_book(probe)
+    assert mb.symbols > 0, "market book read nothing"
+    assert set(mb.windows) == set(WINDOWS)
+    aff = affinity(mb.totals(30), mb.books(30))
+    assert aff, "no affinity rows from a non-empty book"
+    for rows in list(aff.values())[:5]:
+        # a broker's shares of its own activity are a partition: they sum to 1 over the
+        # symbols scanned, and never above it
+        assert abs(sum(r.affinity for r in rows) - 1.0) < 1e-9, "affinity is not a partition"
+        assert all(0.0 <= r.percentile <= 1.0 for r in rows)
+    # The index must BE the table, not a second computation of it — otherwise section 38
+    # silently ships a different number from the one this demo just proved is a partition.
+    flat = sorted((a for rows in aff.values() for a in rows), key=lambda a: (a.symbol, a.broker))
+    idx = sorted((a for rows in mb.by_symbol.values() for a in rows),
+                 key=lambda a: (a.symbol, a.broker))
+    assert flat == idx, "MarketBook.by_symbol disagrees with affinity() over the same book"
+    for sym, rows in list(mb.by_symbol.items())[:5]:
+        assert list(rows) == sorted(rows, key=lambda a: -a.affinity), "by_symbol is not sorted"
+        assert all(a.symbol == sym for a in rows)
+
+    busiest = max(mb.totals(30), key=lambda b: mb.totals(30)[b])
+    fast, slow = rotation_from_book(busiest, mb), stock_rotation(busiest, list(probe))
+    assert fast.focus == slow.focus, (fast.focus, slow.focus)
+    assert fast.shares == slow.shares
+    assert fast.rotated == slow.rotated
+    assert fast.new_focus == slow.new_focus and fast.abandoned == slow.abandoned
+    print(f"  38: affinity for {len(aff)} brokers over {mb.symbols} symbols in "
+          f"{mb.seconds:.0f}s — each broker's shares sum to 1.0")
+    print(f"  39: rotation for broker {busiest} {list(fast.focus.values())}, "
+          f"rotated={fast.rotated} — matches the per-broker function exactly")
 
 
 if __name__ == "__main__":
