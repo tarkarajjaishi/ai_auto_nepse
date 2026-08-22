@@ -242,6 +242,31 @@ _SKIP_NAME = "promot"
 #: GILB and friends, which are Laghubitta banks, not bonds.
 _DEBENTURE = re.compile(r"(D|EB|B)\d{2,4}(-\d{2})?(KA|KHA|GA)?$")
 
+#: Named one by one, because no rule can reach them and a wrong rule is worse than a
+#: list. Every classifier is silent on these and every pattern that would catch them
+#: also catches a real company — `MF$` would delete NMBMF and SWMF, two microfinance
+#: firms, and a bare trailing `D` or `B` would delete the Laghubitta banks.
+#:
+#: The evidence, measured 2026-08-22 rather than inferred from the ticker:
+#:
+#: - **Twelve trade between Rs 8.70 and Rs 10.50**, which is fund-unit NAV. That is
+#:   decisive here because NOT ONE of the 278 analysed companies trades under Rs 15 —
+#:   the cheapest is Rs 181.80 and the 10th percentile is Rs 262. There is no overlap
+#:   to be wrong about.
+#: - **Four have no daily bars at all** (ADBLB, EBLCP, SBBLPO, SHINED): a bond series,
+#:   a convertible line, a promoter line and a debenture, none of which the price feed
+#:   carries.
+#:
+#: Revisit if one of these ever starts trading like a company — `test_ops` checks
+#: exactly that and will say so.
+_SKIP_SYMBOLS = frozenset({
+    # fund units, priced at NAV
+    "CSY", "GBIMESY2", "HLICF", "LSH12", "MBLEF", "MNMF1",
+    "NMBHF2", "RBBF40", "RSY", "RSY2", "SAEF2", "SEF2",
+    # no price history: bond / convertible / promoter / debenture lines
+    "ADBLB", "EBLCP", "SBBLPO", "SHINED",
+})
+
 _excluded_cache: set[str] | None = None
 
 
@@ -255,7 +280,7 @@ def excluded() -> set[str]:
     global _excluded_cache
     if _excluded_cache is not None:
         return _excluded_cache
-    out: set[str] = set()
+    out: set[str] = set(_SKIP_SYMBOLS)
 
     # 1. the exchange's own classification. Keyed BOTH spellings of a range: the file
     #    writes `NMBD87/88` where the floorsheet directory is `NMBD87-88`, and that one

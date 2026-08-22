@@ -110,6 +110,50 @@ def test_no_detail_file_survives_for_an_unanalysed_symbol():
     print(f"  swing_quantam       no detail file for any of the {len(ex)} unanalysed symbols")
 
 
+def test_named_exclusions_still_look_like_funds():
+    """The hand-named skip list must stay justified by the data that justified it.
+
+    `loader._SKIP_SYMBOLS` names 16 instruments one by one because no rule can reach
+    them and every rule that would also deletes a real company. The evidence for the
+    naming was price: twelve trade at Rs 8.70-10.50 (fund-unit NAV) and four have no
+    daily bars, while NOT ONE of the analysed companies trades under Rs 15 -- the
+    cheapest is Rs 181.80. A hand list rots silently, so the evidence is re-checked
+    here rather than trusted.
+    """
+    from swing_quantam import loader
+
+    named = loader._SKIP_SYMBOLS
+    assert named, "the named skip list is empty"
+
+    def close(sym):
+        f = Path(loader.ROOT) / "Master_data" / "symbols" / sym / "1D.txt"
+        if not f.exists():
+            return None
+        rows = [l.rstrip().split("	") for l in f.read_text(encoding="utf-8").splitlines()[1:]]
+        return float(rows[-1][4]) if rows and len(rows[-1]) > 4 else None
+
+    # 1. nothing named has started trading like an ordinary company
+    promoted = [s for s in named if (c := close(s)) is not None and c > 50]
+    assert not promoted, (
+        f"{promoted} now trade above Rs 50 -- they no longer look like fund units, so "
+        "the hand-naming needs revisiting rather than being left to rot")
+
+    # 2. and the gap that made price decisive must still hold
+    analysed = [s for s in loader.symbols()]
+    cheap = [s for s in analysed if (c := close(s)) is not None and c < 15]
+    assert not cheap, (
+        f"analysed companies now trade under Rs 15 ({cheap[:5]}) -- price no longer "
+        "separates fund units from companies, so the naming evidence is stale")
+
+    # 3. every analysed symbol is classified by something
+    assert not loader.unclassified(), (
+        f"{loader.unclassified()} are analysed but unclassified -- either classify them "
+        "or name them in _SKIP_SYMBOLS with the evidence")
+
+    print(f"  universe            {len(analysed)} analysed, all classified; "
+          f"{len(named)} named by hand, all still fund-priced")
+
+
 def test_promoter_and_fund_exclusion_uses_the_name_not_the_suffix():
     """swing_quantam must ignore mutual funds, indices and promoter shares -- by NAME.
 
@@ -1274,6 +1318,7 @@ def main():
     print("ops safety:")
     test_rewrite()
     test_promoter_and_fund_exclusion_uses_the_name_not_the_suffix()
+    test_named_exclusions_still_look_like_funds()
     test_no_detail_file_survives_for_an_unanalysed_symbol()
     test_deploy_ships_paths_with_spaces()
     test_deploy_health()
