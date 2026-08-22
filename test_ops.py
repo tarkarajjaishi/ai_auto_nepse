@@ -199,45 +199,54 @@ def test_promoter_and_fund_exclusion_uses_the_name_not_the_suffix():
           f"promoters excluded by name")
 
 
-def test_deploy_ships_paths_with_spaces():
-    """The ship must send every tracked file, including paths containing a space.
+def test_deploy_ships_the_commit_not_the_working_tree():
+    """The ship must send HEAD, and every file in it, including paths with a space.
 
-    `git ls-files` piped through `.split()` shredded `quantam_nepse_landing page/...` into
-    the two nonexistent names `quantam_nepse_landing` and `page/...`. tar errored on each
-    fragment, ALL 111 files under that directory silently never reached the box (measured:
-    the tree was absent there), the printed count was 379 tokens for 268 real files, and
-    every deploy still said "deploy ok" because only `systemctl is-active` was consulted.
+    Two defects, both of which printed "deploy ok":
 
-    Pinned three ways, because each defect is independently re-introducible.
+    1. `git ls-files` piped through `.split()` shredded `quantam_nepse_landing page/...`
+       into two nonexistent names, so ALL 111 files under it silently never shipped and
+       the printed count was 379 tokens for 268 real files.
+    2. `git ls-files` names tracked PATHS but tar then read them from DISK, so a deploy
+       shipped whatever was dirty. Measured: the box ran an uncommitted
+       `swing_quantam/backtest.py` that no commit contained.
+
+    `git archive HEAD` fixes both -- git streams the commit itself, so there is no path
+    list for a shell to split and no disk read to pick up someone else's edits.
     """
     root = Path(__file__).parent
     src = (root / "deploy.py").read_text(encoding="utf-8")
 
-    # 1. the path list must be NUL-separated, never whitespace-split
-    assert 'run(["git", "ls-files", "-z"]' in src, (
-        "deploy.py must ask git for NUL-separated paths")
-    # narrowly: the GIT call, not every .split() in the file — `ship.stdout.split()`
-    # splits systemctl's one-word answer and is fine.
-    git_lines = [l for l in src.splitlines() if "ls-files" in l]
-    assert git_lines, "deploy.py no longer asks git for the file list"
-    assert all("-z" in l for l in git_lines), "the ls-files call must pass -z"
-    assert not any(".split()" in l for l in git_lines), (
-        "a bare .split() on git output shreds any path containing a space")
+    # 1. the tree is streamed from the COMMIT
+    assert 'subprocess.Popen(["git", "archive", "--format=tar.gz", "HEAD"]' in src, (
+        "vps_ship must stream `git archive HEAD`, not read the working directory")
 
-    # 2. and the real list must round-trip: every entry an existing file
-    out = subprocess.run(["git", "ls-files", "-z"], cwd=root,
-                         capture_output=True, text=True).stdout
-    files = [f for f in out.split(chr(0)) if f and not f.startswith("Master_data/")]
-    missing = [f for f in files if not (root / f).exists()]
-    assert not missing, f"{len(missing)} shipped paths do not exist, e.g. {missing[:3]}"
+    # 2. and no path list is built from the working tree and handed to tar
+    ship = src[src.index("def vps_ship"):src.index("def web_ship")]
+    # the CALL, not the prose: the docstring names `git ls-files` to explain the old bug
+    assert '["git", "ls-files"' not in ship, (
+        "vps_ship builds a path list again -- that is what read from disk and what a "
+        "space in a filename shredded")
+    assert 'Popen(["tar"' not in ship, "tar must no longer be given filenames"
+
+    # 3. the archiver's exit code gates the verdict
+    assert "arch_rc = arch.wait()" in ship and "return arch_rc == 0" in ship, (
+        "git archive can fail while systemctl reports active; its exit must reach the "
+        "verdict, or a partial shipment prints deploy ok")
+
+    # 4. a locally-dirty tracked file must be REPORTED, since it is no longer shipped
+    assert "NOT shipped" in ship, (
+        "not shipping uncommitted edits is correct but silent -- vps_ship must say so")
+
+    # 5. and HEAD really does carry the space-containing paths that used to be dropped
+    out = subprocess.run(["git", "ls-tree", "-r", "HEAD", "--name-only", "-z"],
+                         cwd=root, capture_output=True, text=True).stdout
+    files = [f for f in out.split(chr(0)) if f]
     spaced = [f for f in files if " " in f]
-    assert spaced, "no space-containing tracked path — this test has stopped proving anything"
+    assert files, "HEAD holds no files"
+    assert spaced, "no space-containing path in HEAD -- this test has stopped proving anything"
 
-    # 3. tar's exit code must gate the deploy verdict
-    assert "tar_rc = tar.wait()" in src and "return tar_rc == 0" in src, (
-        "tar can fail while systemctl reports active; its exit code must reach the verdict")
-
-    print(f"  deploy paths        {len(files)} tracked files ship, {len(spaced)} contain a space")
+    print(f"  deploy ships        HEAD, {len(files)} files, {len(spaced)} with a space")
 
 
 def test_deploy_health():
@@ -1320,7 +1329,7 @@ def main():
     test_promoter_and_fund_exclusion_uses_the_name_not_the_suffix()
     test_named_exclusions_still_look_like_funds()
     test_no_detail_file_survives_for_an_unanalysed_symbol()
-    test_deploy_ships_paths_with_spaces()
+    test_deploy_ships_the_commit_not_the_working_tree()
     test_deploy_health()
     test_deploy_ships_all_three_services()
     test_web_bundle_cannot_ship_symlinks()

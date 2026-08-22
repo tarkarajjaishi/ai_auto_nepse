@@ -63,39 +63,67 @@ def git_sync(message):
 
 
 def vps_ship():
-    """Tar the tracked source over SSH and restart the service."""
-    # -z and split on NUL, never .split(). Whitespace-splitting shredded every path
-    # containing a space: `quantam_nepse_landing page/...` became the two nonexistent
-    # names `quantam_nepse_landing` and `page/...`, so tar errored on each fragment and
-    # ALL 111 files under that directory silently never shipped — measured, the tree was
-    # absent on the box while every deploy printed "deploy ok". -z also stops git quoting
-    # unusual paths, which .splitlines() alone would still hand to tar with the quotes on.
-    out = run(["git", "ls-files", "-z"], capture_output=True).stdout
-    files = [f for f in out.split("\0") if f and not f.startswith("Master_data/")]
-    if not files:
-        print("  no tracked files to ship")
+    """Ship the COMMITTED tree over SSH and restart the service.
+
+    `git archive HEAD`, never the working directory. The previous version tarred
+    `git ls-files` -- tracked PATHS, read from disk -- so it shipped whatever happened
+    to be dirty at the time. With a second session editing the same tree that is not
+    hypothetical: the box was found running an uncommitted `swing_quantam/backtest.py`
+    that no commit contained, put there by a deploy that printed "deploy ok". Nothing
+    failed and nothing looked wrong; production simply was not what `main` said. That is
+    the exact drift this module's docstring says it exists to prevent, and it is the
+    fourth silent-success bug found in this file.
+
+    Archiving the commit fixes a second class for free: git streams the tree itself, so
+    there is no path list to hand to tar and therefore nothing to whitespace-split. The
+    `-z`/NUL dance that a space in `quantam_nepse_landing page/` previously required is
+    gone because the shell never sees a filename at all.
+
+    The trade is that uncommitted edits are no longer shipped. That is the point, but it
+    is a surprise if unannounced, so a dirty tracked file is listed rather than ignored.
+    """
+    head = run(["git", "rev-parse", "--short", "HEAD"], capture_output=True).stdout.strip()
+    subject = run(["git", "log", "-1", "--pretty=%s"], capture_output=True).stdout.strip()
+    listing = run(["git", "ls-tree", "-r", "HEAD", "--name-only", "-z"],
+                  capture_output=True).stdout
+    n = len([f for f in listing.split("\0") if f])
+    if not n:
+        print("  HEAD holds no files to ship")
         return False
-    tar = subprocess.Popen(["tar", "czf", "-"] + files, cwd=HERE, stdout=subprocess.PIPE)
+
+    # Say what is NOT going, or the improvement reads as files silently going missing.
+    dirty = [l for l in run(["git", "status", "--porcelain", "--untracked-files=no"],
+                            capture_output=True).stdout.splitlines() if l.strip()]
+    if dirty:
+        print(f"  {len(dirty)} tracked file(s) modified locally and NOT shipped — the box "
+              f"gets {head}, not your working tree. Commit them to ship them:")
+        for l in dirty[:6]:
+            print(f"      {l.strip()}")
+        if len(dirty) > 6:
+            print(f"      ... and {len(dirty) - 6} more")
+
+    print(f"  shipping {head} - {subject}")
+    arch = subprocess.Popen(["git", "archive", "--format=tar.gz", "HEAD"],
+                            cwd=HERE, stdout=subprocess.PIPE)
     ship = subprocess.run(
         ["ssh", "-o", "ConnectTimeout=30", VPS,
          f"cd {APP} && tar xzf - && sudo systemctl restart {API_SERVICE} && sleep 3 && "
          f"systemctl is-active {API_SERVICE}"],
-        stdin=tar.stdout, text=True, capture_output=True)
-    tar.stdout.close()
-    tar_rc = tar.wait()
+        stdin=arch.stdout, text=True, capture_output=True)
+    arch.stdout.close()
+    arch_rc = arch.wait()
+
     # The API is the only Python service a source ship affects — it serves the modules the
     # boards are built from, so shipping without restarting it leaves the terminal running
     # yesterday's Python against today's txt. `chukul` (Streamlit) used to be restarted here
     # too and no longer exists; naming a dead unit makes systemctl fail and the whole deploy
     # report failure.
     states = ship.stdout.split()
-    if tar_rc:
-        # tar's own failure never used to reach this verdict, so a shipment that dropped
-        # files still printed "deploy ok" as long as the unit came back active. Same
-        # silent-failure class as the two already documented above.
-        print(f"  tar exited {tar_rc} — the shipment is INCOMPLETE, some tracked files "
-              f"were not sent")
-    print(f"  {len(files)} file(s) shipped · {API_SERVICE}={states[0] if states else '?'}"
+    if arch_rc:
+        # The archive's own failure has to reach the verdict. A shipment that dropped files
+        # used to still print "deploy ok" as long as the unit came back active.
+        print(f"  git archive exited {arch_rc} — the shipment is INCOMPLETE")
+    print(f"  {n} file(s) shipped · {API_SERVICE}={states[0] if states else '?'}"
           f"{'' if states else '  ' + ship.stderr.strip()}")
     # Exact match. `systemd is-active` answers with one of active / inactive / failed /
     # activating / deactivating, and the substring test this replaces read "inactive" as a
@@ -103,7 +131,7 @@ def vps_ship():
     # check the deploy has.
     # `all(...)` over the list, not states[0] — one unit is shipped today, and the check has
     # to keep covering every unit the day a second one is added. test_ops pins this form.
-    return tar_rc == 0 and len(states) == 1 and all(s == "active" for s in states)
+    return arch_rc == 0 and len(states) == 1 and all(s == "active" for s in states)
 
 
 def web_ship():
