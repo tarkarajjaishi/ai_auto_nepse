@@ -104,8 +104,12 @@ def test_no_detail_file_survives_for_an_unanalysed_symbol():
 
     # and the builder must actually invoke the pruner, or the next narrowing repeats this
     src = (Path(__file__).parent / "swing_quantam" / "__main__.py").read_text(encoding="utf-8")
-    assert "store.prune_excluded(loader.excluded())" in src, (
-        "the full run no longer prunes detail files for excluded symbols")
+    # The CALL, not its exact argument. Pinning `prune_excluded(loader.excluded())`
+    # verbatim broke the moment a second session legitimately widened it to
+    # `excluded() | dormant()` -- an assert that fails on a correct change is worse
+    # than none, because the next person deletes it rather than reading it.
+    assert re.search(r"store\.prune_excluded\(", src), (
+        "the full run no longer prunes detail files for symbols it stopped analysing")
 
     print(f"  swing_quantam       no detail file for any of the {len(ex)} unanalysed symbols")
 
