@@ -137,7 +137,7 @@ const MONEY_COLS = new Set([
 // broker with a Rs 1.4b book and collapsed 91 distinct market shares onto 6.
 const RATIO_COLS = new Set(["conviction", "breadth", "top_symbol_share",
   // probability.txt: first-passage frequencies, 0-1
-  "p_up", "p_down", "p_none", "p_up2"]);
+  "p_up", "p_down", "p_none", "p_up2", "sym_up", "sym_down", "sym_none"]);
 
 // probability.txt again: these are ALREADY in percent of entry, so pct() must not
 // multiply them again. Kept separate from RATIO_COLS for exactly that reason.

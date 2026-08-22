@@ -51,6 +51,16 @@ HORIZON = 20
 #: figure moves several points per observation and reads as precision it lacks.
 MIN_WINDOWS = 100
 
+#: The SYMMETRIC barrier, as a fraction. Same distance up and down, identical for every
+#: symbol — which is the only way a "most likely to rise" ranking means anything across
+#: symbols. Each stock's own ladder has its own geometry (target 1 sits anywhere from
+#: 0.3% to 50% away, the stop from 0.1% to 36%), so ranking symbols by their LADDER's
+#: p_up ranks them by how near their target happens to be: the top of that list came back
+#: with reward:risk 0.26-0.51, and the downside list with stops 0.26-0.67% from price,
+#: which is arithmetic about the level, not a reading about the stock. Fix the distance
+#: and the number becomes a property of the stock: how often it travels +5% before -5%.
+SYMMETRIC = 0.05
+
 #: Round-trip cost, percent. Taken from this repo's own backtest (Master_data/
 #: backtest.txt `cost_pct`), so the gross number here and the shipped edge study
 #: charge the same commission. A gross expectancy is not a result: the median
@@ -183,6 +193,9 @@ class Odds(NamedTuple):
     rr2: float
     t1: Passage
     t2: Passage | None
+    #: The same stock against a SYMMETRIC +-SYMMETRIC barrier, so it can be compared with
+    #: other stocks. None when the history is too short.
+    sym: Passage | None
 
 
 def odds(symbol: str, entry: float, target1: float, target2: float, stop: float,
@@ -208,6 +221,7 @@ def odds(symbol: str, entry: float, target1: float, target2: float, stop: float,
         stop=stop, up1_pct=up1 * 100.0, up2_pct=up2 * 100.0, down_pct=dn * 100.0,
         rr1=up1 / dn if dn else 0.0, rr2=(up2 / dn) if (dn and up2 > 0) else 0.0,
         t1=p1, t2=p2,
+        sym=first_passage(hist, SYMMETRIC, SYMMETRIC, horizon),
     )
 
 
@@ -219,7 +233,7 @@ COLUMNS = [
     "symbol", "signal", "price", "entry", "dist_to_entry", "target1", "target2",
     "stop", "up1_pct", "up2_pct", "down_pct", "rr1", "rr2",
     "p_up", "p_down", "p_none", "open_return", "expectancy", "net_edge",
-    "p_up2", "windows", "date",
+    "p_up2", "sym_up", "sym_down", "sym_none", "windows", "date",
 ]
 
 #: Rows of the detail file the ladder is read from. Cheaper than parsing the whole
@@ -299,6 +313,10 @@ def scan(symbols: Sequence[str] | None = None,
                 "open_return": o.t1.open_return, "expectancy": o.t1.expectancy,
                 "net_edge": o.t1.expectancy - COST_PCT,
                 "p_up2": o.t2.p_up if o.t2 else None,
+                # geometry-free, comparable across symbols — see SYMMETRIC
+                "sym_up": o.sym.p_up if o.sym else None,
+                "sym_down": o.sym.p_down if o.sym else None,
+                "sym_none": o.sym.p_neither if o.sym else None,
                 "windows": o.t1.n,
             })
         rows.append(row)
@@ -384,6 +402,14 @@ def _demo() -> None:
     o = odds("NABIL", 550.0, 570.0, 590.0, 520.0)
     assert o and o.rr1 > 0 and o.t2 and o.t2.p_up < o.t1.p_up
 
+    # The symmetric reading must not depend on the ladder at all: it is a property of the
+    # stock, and two different ladders on the same symbol must agree on it exactly. That is
+    # the whole reason it exists, so it is pinned rather than assumed.
+    other = odds("NABIL", 480.0, 500.0, 505.0, 470.0)
+    assert other and other.sym and o.sym
+    assert other.sym == o.sym, "the symmetric barrier moved with the ladder"
+    assert abs(o.sym.p_up + o.sym.p_down + o.sym.p_neither - 1.0) < 1e-9
+
     print(f"probability ok — NABIL {len(hist)} bars, {HORIZON}-session barrier, "
           f"{time.time() - t0:.1f}s")
     print(f"  symmetric 5%/5%: up {p.p_up:.1%} / down {p.p_down:.1%} / "
@@ -397,6 +423,8 @@ def _demo() -> None:
           f"neither {o.t2.p_neither:.1%} -> expectancy {o.t2.expectancy:+.2f}%")
     print(f"    net of the {COST_PCT}% round trip this repo's backtest charges: "
           f"T1 {o.t1.expectancy - COST_PCT:+.2f}%, T2 {o.t2.expectancy - COST_PCT:+.2f}%")
+    print(f"  symmetric +-{SYMMETRIC:.0%} (ladder-free, comparable across symbols): "
+          f"up {o.sym.p_up:.1%} / down {o.sym.p_down:.1%} / neither {o.sym.p_neither:.1%}")
 
 
 if __name__ == "__main__":

@@ -6,6 +6,8 @@ import { useMemo } from "react";
 
 import { BoardTable } from "@/components/board-table";
 import { api, qk, type Board, type Row } from "@/lib/api";
+import { TONE_CLASS, formatCell } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 /**
  * The four cross-sectional screens behind this page's tabs.
@@ -139,6 +141,117 @@ function probStats(rows: Row[]) {
   };
 }
 
+/** Ladders close enough to today's price to actually be taken. */
+const REACH_PCT = 5;
+
+/**
+ * Top five up, top five down — ranked on the probability itself.
+ *
+ * Restricted to ladders within {@link REACH_PCT}% of current price, and that restriction
+ * is the difference between a list and a curiosity: the median row on this board sits
+ * 8% from its entry zone, so an unrestricted "most likely to rise" is led by plans you
+ * cannot take at any price.
+ *
+ * Ranked on the SYMMETRIC +-5% barrier, not on the ladder's own p_up/p_down. Ranking on
+ * the ladder was tried and was degenerate: every symbol's target and stop sit at a
+ * different distance, so the up-list came back with reward:risk 0.26-0.51 and the
+ * down-list with stops 0.26-0.67% from price — both were ranking "whose barrier is
+ * nearest", which is arithmetic about the level rather than a reading about the stock.
+ * A fixed distance makes the number a property of the symbol and comparable across them.
+ *
+ * The ladder is still shown beside it (T1/T2/Stop), because that is the plan the reader
+ * would actually trade; it is just not what decides the order.
+ */
+function RankCard({
+  title,
+  tone,
+  rows,
+  metric,
+  metricLabel,
+  driver,
+  driverLabel,
+  onSymbol,
+  note,
+}: {
+  title: string;
+  tone: "up" | "down";
+  rows: Row[];
+  metric: string;
+  metricLabel: string;
+  driver: string;
+  driverLabel: string;
+  onSymbol: (s: string) => void;
+  note: string;
+}) {
+  const top = [...rows].sort(byDesc(metric)).slice(0, 5);
+  return (
+    <div className="min-w-0 flex-1 rounded-lg border border-border bg-card">
+      <div className="flex items-baseline gap-2 border-b border-border px-3 py-2">
+        <h3 className={cn("font-heading text-[13px] font-semibold", TONE_CLASS[tone])}>
+          {title}
+        </h3>
+        <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+          by {metricLabel}
+        </span>
+      </div>
+
+      {top.length === 0 ? (
+        <p className="p-3 text-[12px] text-muted-foreground">
+          Nothing within {REACH_PCT}% of its entry zone on this session — which is an
+          answer, not an error.
+        </p>
+      ) : (
+        <table className="w-full text-[12px]">
+          <thead>
+            <tr className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+              <th className="px-2 py-1.5 text-left font-medium">#</th>
+              <th className="px-2 py-1.5 text-left font-medium">Symbol</th>
+              <th className="px-2 py-1.5 text-right font-medium">{metricLabel}</th>
+              <th className="px-2 py-1.5 text-right font-medium">{driverLabel}</th>
+              <th className="px-2 py-1.5 text-right font-medium">T1</th>
+              <th className="px-2 py-1.5 text-right font-medium">T2</th>
+              <th className="px-2 py-1.5 text-right font-medium">Stop</th>
+            </tr>
+          </thead>
+          <tbody>
+            {top.map((r, i) => (
+              <tr
+                key={String(r.symbol)}
+                onClick={() => onSymbol(String(r.symbol))}
+                className="cursor-pointer border-t border-border/50 hover:bg-accent/50"
+              >
+                <td className="px-2 py-1.5 font-mono text-[13px] font-semibold text-muted-foreground">
+                  {i + 1}
+                </td>
+                <td className="px-2 py-1.5 font-medium">{String(r.symbol)}</td>
+                <td className={cn("px-2 py-1.5 text-right font-mono tabular-nums", TONE_CLASS[tone])}>
+                  {formatCell(metric, r[metric])}
+                </td>
+                <td className="px-2 py-1.5 text-right font-mono tabular-nums text-muted-foreground">
+                  {formatCell(driver, r[driver])}
+                </td>
+                <td className="px-2 py-1.5 text-right font-mono tabular-nums">
+                  {formatCell("target1", r.target1)}
+                </td>
+                <td className="px-2 py-1.5 text-right font-mono tabular-nums">
+                  {formatCell("target2", r.target2)}
+                </td>
+                <td className="px-2 py-1.5 text-right font-mono tabular-nums">
+                  {formatCell("stop", r.stop)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <p className="border-t border-border/50 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+        {note}
+      </p>
+    </div>
+  );
+}
+
 /** Sort descending on a numeric column; rows missing it go last, never to the top. */
 function byDesc(key: string) {
   return (a: Row, b: Row) => {
@@ -237,6 +350,20 @@ export function Screen({
   const rows = useMemo(() => q.data?.rows ?? [], [q.data]);
   const dom = useMemo(
     () => (id === "operator" ? dominance(rows) : new Map<string, number>()),
+    [id, rows],
+  );
+
+  // Ladders close enough to today's price to be taken. Both rank cards draw from this,
+  // so "most likely to rise" cannot be led by a plan 33% away.
+  const reachable = useMemo(
+    () =>
+      id === "probability"
+        ? rows.filter(
+            (r) =>
+              num(r, "p_up") !== null &&
+              Math.abs(num(r, "dist_to_entry") ?? 999) <= REACH_PCT,
+          )
+        : [],
     [id, rows],
   );
 
@@ -392,6 +519,33 @@ export function Screen({
           is exactly zero), and share of gross is <span className="font-mono">gross_amt</span>{" "}
           divided by one constant — the same ranking under a second name.
         </Note>
+      )}
+
+      {id === "probability" && (
+        <div className="flex flex-col gap-3 lg:flex-row">
+          <RankCard
+            title="Most likely to rise"
+            tone="up"
+            rows={reachable}
+            metric="sym_up"
+            metricLabel="p +5% first"
+            driver="p_up"
+            driverLabel="p T1"
+            onSymbol={onSymbol}
+            note={`Rose 5% before falling 5%, in this share of its own 20-session windows — the same distance for every symbol, so the ranking is a property of the stock rather than of where its target happens to sit. "p T1" beside it is the ladder's own reading, which is not comparable across symbols. Pool: the ${reachable.length} ladders within ${REACH_PCT}% of price.`}
+          />
+          <RankCard
+            title="Most likely to fall"
+            tone="down"
+            rows={reachable}
+            metric="sym_down"
+            metricLabel="p -5% first"
+            driver="p_down"
+            driverLabel="p stop"
+            onSymbol={onSymbol}
+            note={`Fell 5% before rising 5%, in this share of its own 20-session windows. Same fixed distance, same ${reachable.length}-ladder pool. "p stop" beside it is the ladder's own downside, which is dominated by how near that symbol's stop happens to be and cannot be compared across rows.`}
+          />
+        </div>
       )}
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card">
