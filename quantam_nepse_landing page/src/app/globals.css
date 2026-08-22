@@ -775,14 +775,21 @@ body:has(.stage) {
   position: fixed;
   inset: 0;
   margin: auto;
-  width: min(430rem, calc(100vw - 28px));
+  /* Three terms, and each one is doing work. 430rem keeps it proportional to the artboard;
+     560px is an absolute ceiling, because 430rem is 645px on a 1920 desktop and 697px on a
+     landscape phone — a seven-field form that wide reads as a page, not a dialog; and the vw
+     term is what actually applies on a narrow screen. */
+  width: min(430rem, 560px, calc(100vw - 28px));
   max-height: min(640rem, calc(100dvh - 28px));
-  /* The PANEL does not scroll; .ax-body does. When the scroll lived here, .ax-close — absolute
-     inside it — scrolled away with the content, so on a landscape phone (which this stylesheet
-     treats as mobile via max-height:599px) the content is taller than the box and there was no
-     visible way to close the dialog. */
-  display: flex;
-  flex-direction: column;
+  /* display:none HERE, flex only when OPEN — and the order matters more than it looks.
+     The UA stylesheet hides a closed popover with `[popover]:not(:popover-open) {display:none}`,
+     which is an AUTHOR-defeatable rule: putting `display:flex` on .accessmodal overrode it and
+     the panel rendered on the home page, permanently, without anybody pressing anything. It
+     also fails closed — if `popover` is ever not applied, the panel stays hidden rather than
+     covering the front page with a form nobody can dismiss.
+     The flex column itself is what stops .ax-close scrolling away: the PANEL pins, .ax-body
+     scrolls. */
+  display: none;
   overflow: hidden;
   padding: 26rem 26rem 20rem;
   border: 1rem solid rgba(50, 213, 131, 0.34);
@@ -798,12 +805,44 @@ body:has(.stage) {
 }
 
 .accessmodal:popover-open {
+  display: flex;
+  flex-direction: column;
   animation: ax-in 0.26s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .accessmodal::backdrop {
-  background: rgba(1, 8, 5, 0.74);
-  backdrop-filter: blur(3px);
+  background: rgba(1, 8, 5, 0.72);
+}
+
+/* The blur is applied to the PAGE, not as backdrop-filter on ::backdrop.
+   ::backdrop { backdrop-filter: blur() } computes correctly here and blurs nothing: <html>
+   carries the buy/sell `filter`, and a filtered element is a Backdrop Root, which is the
+   boundary a descendant's backdrop-filter is allowed to sample within. Measured — the computed
+   value was blur(3px) and the cards behind the panel stayed sharp.
+   Filtering the stage itself is unambiguous. `:has()` keeps it declarative: no state, no class
+   toggling, nothing to leave behind if the panel closes in a way the component did not see. */
+body:has(.accessmodal:popover-open) > .stage {
+  filter: blur(5px);
+  transition: filter 0.22s ease;
+}
+
+/* ...and the price of that filter, paid explicitly.
+   A filtered element becomes the containing block for its `position: fixed` descendants, and
+   .window and .bgvid are both fixed children of .stage. The moment the blur applies they stop
+   resolving against the viewport and resolve against the ARTBOARD instead — measured at
+   1580x889 inside a 1920x889 window, so a 170px band down each side lost its dark sheet and
+   the video visibly jumped inward as the dialog opened.
+   Re-stating them in viewport units puts them back exactly where they were. */
+body:has(.accessmodal:popover-open) > .stage > .window,
+body:has(.accessmodal:popover-open) > .stage > .bgvid {
+  inset: auto;
+  left: 50%;
+  top: 50%;
+  translate: -50% -50%;
+  width: 100vw;
+  height: 100dvh;
+  min-width: 100vw;
+  min-height: 100dvh;
 }
 
 @keyframes ax-in {
@@ -903,10 +942,10 @@ body:has(.stage) {
 .ax-tel {
   display: grid;
   /* A FIXED first column, not `auto`. `auto` resolves to max-content, so the select sized
-     itself to its widest option — "+7 Russia / Kazakhstan" — and on a 375px phone that left
-     63px for the number, which is not enough to type one into. The dial code is written first
-     in every option, so the ellipsis eats the country name and never the code. */
-  grid-template-columns: 104rem minmax(0, 1fr);
+     itself to its widest option and left 63px for the number on a 375px phone — not enough to
+     type one into. 74rem is the width the code alone needs (+977, and the four-digit codes)
+     plus the native dropdown arrow; the rest of the row goes to the number. */
+  grid-template-columns: 74rem minmax(0, 1fr);
   gap: 8rem;
 }
 
@@ -1226,6 +1265,29 @@ body:has(.stage) {
        below it, and the pill's own max-width already holds it to the card
        measure. The buttons are centred, so they need no gutter of their own. */
     padding: 0;
+  }
+
+  /* Touch targets inside the dialog, in clamp(px, rem, px) — and the PIXEL terms are the whole
+     point. Everything else here is rem so it tracks the artboard, but a fingertip does not: on
+     a 320px phone the rem is 0.98px, so rem-only heights shrank the fields to 36px and the
+     close button to 32px, well under the 44px minimum, on the exact surface where the input is
+     a thumb. The lower bound holds the floor on a small screen; the upper stops the same rule
+     making a 62px-tall field on a landscape phone, where the rem is capped at 1.62. */
+  .accessmodal .ax-in,
+  .accessmodal .ax-cc {
+    height: clamp(44px, 38rem, 52px);
+  }
+
+  /* 44 and not 40: it was measuring 39px, and this is the control someone reaches for when
+     they have changed their mind. Escape and an outside tap also close the panel, but neither
+     is discoverable on a phone. */
+  .accessmodal .ax-close {
+    width: clamp(44px, 34rem, 46px);
+    height: clamp(44px, 34rem, 46px);
+  }
+
+  .accessmodal .ax-submit {
+    height: clamp(46px, 42rem, 56px);
   }
 
   /* ONE measure for every card. Their ten different widths (128 to 318 design

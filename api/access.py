@@ -33,8 +33,13 @@ NPT = timezone(timedelta(hours=5, minutes=45))
 # A CONSTANT, never built from a request. See the module docstring.
 PATH = MASTER / "access_requests.txt"
 
-FIELDS = ("received_at", "full_name", "country_code", "phone",
-          "whatsapp_code", "whatsapp", "place", "email", "source_ip")
+# WhatsApp only. There was a second phone column and it was dropped: for this audience the
+# WhatsApp number IS the phone number, and asking twice cost a field without adding a way to
+# reach anybody. Removing it changes the ROW SHAPE, so the file was recreated — read_all skips
+# rows whose column count does not match the header, which is the right behaviour and would
+# have silently hidden every older row.
+FIELDS = ("received_at", "full_name", "whatsapp_code", "whatsapp",
+          "place", "email", "source_ip")
 
 # Caps, because the writer is the public. 80 is generous for a name or a city; 254 is the
 # maximum length of an email address in RFC 5321.
@@ -43,8 +48,7 @@ FIELDS = ("received_at", "full_name", "country_code", "phone",
 # recoverable, a full partition is not.
 MAX_BYTES = 5 * 1024 * 1024
 
-MAX = {"full_name": 80, "place": 80, "email": 254, "phone": 20, "whatsapp": 20,
-       "country_code": 6, "whatsapp_code": 6}
+MAX = {"full_name": 80, "place": 80, "email": 254, "whatsapp": 20, "whatsapp_code": 6}
 
 # Practical, not RFC 5322. The full grammar accepts addresses no mail server will take and is a
 # well-known way to write an unreadable regex; this asks for the shape every real address has —
@@ -146,8 +150,7 @@ def validate(payload):
 
     out = {"full_name": name, "place": place, "email": email}
 
-    for code_key, num_key, label in (("country_code", "phone", "phone number"),
-                                     ("whatsapp_code", "whatsapp", "WhatsApp number")):
+    for code_key, num_key, label in (("whatsapp_code", "whatsapp", "WhatsApp number"),):
         code = _clean(payload.get(code_key))
         if not _DIAL.match(code):
             return None, "Please choose a country code for your %s." % label
@@ -278,7 +281,7 @@ def demo():
                     "email": "  Someone@Example.COM "}
             clean, err = validate(good)
             assert err is None, err
-            assert clean["phone"] == "9801234567", clean["phone"]
+            assert clean["whatsapp"] == "9801234567", clean["whatsapp"]
             assert clean["email"] == "someone@example.com", clean["email"]
             # the tab and the newline survive validation as ordinary spaces
             assert "\t" not in clean["full_name"] and "\n" not in clean["place"]
@@ -301,9 +304,9 @@ def demo():
             for bad, why in (
                 ({**good, "email": "not-an-email"}, "email"),
                 ({**good, "email": "a@b"}, "dotless domain"),
-                ({**good, "phone": "12"}, "too short"),
-                ({**good, "phone": "1234567890123456"}, "too long"),
-                ({**good, "country_code": "977"}, "no plus"),
+                ({**good, "whatsapp": "12"}, "too short"),
+                ({**good, "whatsapp": "1234567890123456"}, "too long"),
+                ({**good, "whatsapp_code": "977"}, "no plus"),
                 ({**good, "full_name": " "}, "blank name"),
                 ({**good, "place": ""}, "blank place"),
                 ({**good, "full_name": "12345"}, "digits only"),
@@ -313,7 +316,7 @@ def demo():
             # --- the defects an adversarial review found, each pinned -------------------
             # Devanagari digits: \d is Unicode-aware in Python and matched them, so a number
             # nobody can dial was accepted on a page written for Nepal.
-            assert validate({**good, "phone": "".join(chr(0x0966 + d) for d in range(10))})[1],                 "accepted Devanagari digits as a phone number"
+            assert validate({**good, "whatsapp": "".join(chr(0x0966 + d) for d in range(10))})[1],                 "accepted Devanagari digits as a number"
 
             # ZWNJ is orthography in Devanagari — stripping it misspells the name.
             zwnj = "राम्" + chr(0x200C) + "कृष्ण"
@@ -337,14 +340,14 @@ def demo():
             assert validate({**good, "full_name": chr(0x2460) + chr(0x2461)})[1], "accepted circled digits"
 
             # One repeated digit is not a phone number.
-            assert validate({**good, "phone": "0" * 15})[1], "accepted fifteen zeros"
-            assert validate({**good, "phone": "1111111111"})[1], "accepted ten ones"
+            assert validate({**good, "whatsapp": "0" * 15})[1], "accepted fifteen zeros"
+            assert validate({**good, "whatsapp": "1111111111"})[1], "accepted ten ones"
 
             # A BOM must not rename the first column, and one bad byte must not raise.
             PATH.unlink()
             _tab, _nl = chr(9), chr(10)
             _row = _tab.join(["2026-01-01 00:00:00", "A B", "+977", "9800000001",
-                              "+977", "9800000001", "KTM", "a@b.co", "1.2.3.4"]) + _nl
+                              "KTM", "a@b.co", "1.2.3.4"]) + _nl
             PATH.write_bytes(chr(0xFEFF).encode("utf-8")
                              + (_tab.join(FIELDS) + _nl).encode("utf-8")
                              + _row.encode("utf-8"))

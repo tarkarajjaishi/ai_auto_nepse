@@ -768,8 +768,6 @@ export const api = {
 export type AccessRequest = {
   received_at: string;
   full_name: string;
-  country_code: string;
-  phone: string;
   whatsapp_code: string;
   whatsapp: string;
   place: string;

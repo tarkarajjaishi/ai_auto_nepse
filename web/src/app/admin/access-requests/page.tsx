@@ -49,9 +49,7 @@ export default function AccessRequestsPage() {
         r.email,
         r.place,
         r.received_at,
-        r.phone,
         r.whatsapp,
-        e164(r.country_code, r.phone),
         e164(r.whatsapp_code, r.whatsapp),
       ]
         .join(" ")
@@ -100,7 +98,6 @@ export default function AccessRequestsPage() {
               <th className="px-4 py-2 text-left font-medium">Name</th>
               <th className="px-4 py-2 text-left font-medium">Living in</th>
               <th className="px-4 py-2 text-left font-medium">Email</th>
-              <th className="px-4 py-2 text-left font-medium">Phone</th>
               <th className="px-4 py-2 text-left font-medium">WhatsApp</th>
             </tr>
           </thead>
@@ -138,7 +135,6 @@ export default function AccessRequestsPage() {
 }
 
 function Row({ r, i }: { r: AccessRequest; i: number }) {
-  const phone = e164(r.country_code, r.phone);
   const wa = e164(r.whatsapp_code, r.whatsapp);
   return (
     <motion.tr
@@ -157,12 +153,6 @@ function Row({ r, i }: { r: AccessRequest; i: number }) {
         <a href={`mailto:${r.email}`} className="inline-flex items-center gap-1.5 hover:text-primary">
           <Mail className="size-[13px] shrink-0 text-muted-foreground" />
           {r.email}
-        </a>
-      </td>
-      <td className="whitespace-nowrap px-4 py-2">
-        <a href={`tel:${phone}`} className="inline-flex items-center gap-1.5 font-mono tabular-nums hover:text-primary">
-          <Phone className="size-[13px] shrink-0 text-muted-foreground" />
-          {phone}
         </a>
       </td>
       <td className="whitespace-nowrap px-4 py-2">

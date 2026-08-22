@@ -86,7 +86,7 @@ const DIAL = [
    String.trim() and contains a letter, so the old check enabled the button — while the server
    strips the invisible and sees a one-character name. Hence `clean()` below: the same removal,
    the same collapse, applied before the same rules. */
-const MAX = { full_name: 80, place: 80, email: 254, phone: 20, whatsapp: 20 };
+const MAX = { full_name: 80, place: 80, email: 254, whatsapp: 20 };
 
 const EMAIL =
   /^[^@\s]{1,64}@[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$/;
@@ -110,8 +110,6 @@ function clean(value: string) {
 
 type Fields = {
   full_name: string;
-  country_code: string;
-  phone: string;
   whatsapp_code: string;
   whatsapp: string;
   place: string;
@@ -120,8 +118,6 @@ type Fields = {
 
 const EMPTY: Fields = {
   full_name: "",
-  country_code: "+977",
-  phone: "",
   whatsapp_code: "+977",
   whatsapp: "",
   place: "",
@@ -146,10 +142,7 @@ function errorsFor(f: Fields): Partial<Record<keyof Fields, string>> {
   else if (email.length > MAX.email) e.email = "That email address is too long.";
   else if (!EMAIL.test(email)) e.email = "That does not look like an email address.";
 
-  for (const [key, label] of [
-    ["phone", "phone number"],
-    ["whatsapp", "WhatsApp number"],
-  ] as const) {
+  for (const [key, label] of [["whatsapp", "WhatsApp number"]] as const) {
     const digits = clean(f[key]).replace(SEP, "");
     if (!digits) e[key] = `Your ${label} is required.`;
     else if (!DIGITS.test(digits)) e[key] = `Please enter a valid ${label}.`;
@@ -196,8 +189,7 @@ export function AccessForm() {
        Enter, and a disabled button is a UI state rather than a guarantee. */
     if (!complete || inFlight.current) {
       setTouched({
-        full_name: true, phone: true, whatsapp: true, place: true, email: true,
-        country_code: true, whatsapp_code: true,
+        full_name: true, whatsapp: true, place: true, email: true, whatsapp_code: true,
       });
       return;
     }
@@ -212,9 +204,7 @@ export function AccessForm() {
           full_name: clean(f.full_name),
           place: clean(f.place),
           email: clean(f.email),
-          country_code: f.country_code,
           whatsapp_code: f.whatsapp_code,
-          phone: clean(f.phone).replace(SEP, ""),
           whatsapp: clean(f.whatsapp).replace(SEP, ""),
         }),
       });
@@ -270,11 +260,18 @@ export function AccessForm() {
         if (state === "open") setTimeout(() => first.current?.focus(), 0);
       }}
     >
+      {/* popoverTargetAction, NOT an onClick. The TRIGGER that opens this panel is declarative
+          HTML and therefore live the moment the markup parses — so the panel can be open before
+          this component has hydrated, and until then an onClick handler is not attached and the
+          close button does nothing at all. The user just cannot get out. Expressed this way the
+          button is the browser's own popover control: no JavaScript of ours is involved, so it
+          works in that window and it works if the bundle never arrives. */}
       <button
         type="button"
         className="ax-close"
         aria-label="Close"
-        onClick={() => panel.current?.hidePopover()}
+        popoverTarget="access-modal"
+        popoverTargetAction="hide"
       >
         <X width={16} height={16} strokeWidth={2} aria-hidden="true" />
       </button>
@@ -299,7 +296,8 @@ export function AccessForm() {
               type="button"
               ref={done}
               className="ax-submit"
-              onClick={() => panel.current?.hidePopover()}
+              popoverTarget="access-modal"
+              popoverTargetAction="hide"
             >
               Done
             </button>
@@ -330,40 +328,9 @@ export function AccessForm() {
               )}
             </Field>
 
-            <Field id="ax-phone" label="Phone Number" error={show("phone")}>
-              {(p) => (
-                <div className="ax-tel">
-                  <select
-                    className="ax-cc"
-                    value={f.country_code}
-                    onChange={set("country_code")}
-                    aria-label="Phone country code"
-                  >
-                    {DIAL.map(([code, name]) => (
-                      <option key={`p${code}${name}`} value={code}>
-                        {code} {name}
-                      </option>
-                    ))}
-                  </select>
-                  {/* aria-label, because a <label> names only its FIRST labelable descendant —
-                      which inside .ax-tel is the SELECT. Without this the number field had no
-                      accessible name at all and the visible label named the country picker. */}
-                  <input
-                    {...p}
-                    aria-label="Phone number"
-                    className="ax-in"
-                    value={f.phone}
-                    onChange={set("phone")}
-                    onBlur={blur("phone")}
-                    inputMode="tel"
-                    autoComplete="tel-national"
-                    placeholder="9801234567"
-                    maxLength={MAX.phone}
-                  />
-                </div>
-              )}
-            </Field>
-
+            {/* WhatsApp only. A separate phone number was asked for and removed: for this
+                audience the WhatsApp number IS the phone number, so the second field cost a
+                row of the form without adding a way to reach anybody. */}
             <Field id="ax-wa" label="WhatsApp Number" error={show("whatsapp")}>
               {(p) => (
                 <div className="ax-tel">
@@ -374,8 +341,8 @@ export function AccessForm() {
                     aria-label="WhatsApp country code"
                   >
                     {DIAL.map(([code, name]) => (
-                      <option key={`w${code}${name}`} value={code}>
-                        {code} {name}
+                      <option key={`w${code}${name}`} value={code} title={name}>
+                        {code}
                       </option>
                     ))}
                   </select>
