@@ -204,12 +204,66 @@ class Bar(NamedTuple):
     volume: float
 
 
+#: Instrument types this engine does not analyse, by ``Master_data/instruments.txt``
+#: ``type``. Mutual funds are excluded because a fund's price tracks its NAV, not the
+#: order flow this engine reads: every broker metric here is about who is accumulating a
+#: COMPANY, and a fund unit has no such story.
+_SKIP_TYPES = frozenset({"Mutual Fund", "Index"})
+
+#: Promoter shares are excluded too. They are typed ``Stock``, so they must be caught by
+#: NAME, and the name is the only reliable signal: the suffix is not. `NADEP` and `RRHP`
+#: are ordinary stocks that merely end in P, and would be wrongly dropped by a suffix
+#: rule, while the exchange spells the real ones four ways — "Promoter Share",
+#: "PROMOTER SHARE", "Promotor Share" (sic) and lowercase "promotor". Matching `promot`
+#: case-insensitively catches all 121 and spares the two lookalikes; an exact-case
+#: "Promoter" test missed 8 of them, NABILP among them.
+_SKIP_NAME = "promot"
+
+_excluded_cache: set[str] | None = None
+
+
+def excluded() -> set[str]:
+    """Symbols this engine ignores entirely: mutual funds, indices, promoter shares.
+
+    Read from ``instruments.txt``, which is the exchange's own classification, rather
+    than inferred from the ticker. Returns an empty set when that file is missing — an
+    unreadable classifier must not silently empty the universe.
+    """
+    global _excluded_cache
+    if _excluded_cache is not None:
+        return _excluded_cache
+    path = os.path.join(ROOT, "Master_data", "instruments.txt")
+    out: set[str] = set()
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            head = fh.readline().rstrip("\n").split("\t")
+            i_sym, i_type, i_name = (head.index("symbol"), head.index("type"),
+                                     head.index("name"))
+            for line in fh:
+                f = line.rstrip("\n").split("\t")
+                if len(f) <= max(i_sym, i_type, i_name):
+                    continue
+                if f[i_type] in _SKIP_TYPES or _SKIP_NAME in f[i_name].lower():
+                    out.add(f[i_sym])
+    except (OSError, ValueError):
+        return set()
+    _excluded_cache = out
+    return out
+
+
 def symbols() -> list[str]:
-    """Every symbol with at least one floorsheet session, sorted."""
+    """Every ANALYSABLE symbol with at least one floorsheet session, sorted.
+
+    Excludes mutual funds, indices and promoter shares — see :func:`excluded`. This is
+    the one place the universe is decided, so every board built from it inherits the
+    same list and no screen can disagree with another about what exists.
+    """
     if not os.path.isdir(FLOORSHEET):
         return []
+    skip = excluded()
     return sorted(
-        d for d in os.listdir(FLOORSHEET) if os.path.isdir(os.path.join(FLOORSHEET, d))
+        d for d in os.listdir(FLOORSHEET)
+        if d not in skip and os.path.isdir(os.path.join(FLOORSHEET, d))
     )
 
 

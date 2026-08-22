@@ -17,6 +17,7 @@ Master_data. Every one of these guards a run that goes GREEN while something is 
 import ast
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -73,6 +74,81 @@ def test_rewrite():
         assert "safe_rewrite" in (Path(__file__).parent / "fetch_ohlc.py").read_text(
             encoding="utf-8").split("def write(")[1], "fetch_ohlc.write bypasses the guard"
     print("  archive rewrites    a shrunken feed cannot overwrite prices or the SWP tables")
+
+
+def test_promoter_and_fund_exclusion_uses_the_name_not_the_suffix():
+    """swing_quantam must ignore mutual funds, indices and promoter shares -- by NAME.
+
+    The ticker suffix looks like the obvious rule and is wrong in both directions.
+    `NADEP` and `RRHP` are ordinary companies whose tickers merely end in P, and the
+    exchange spells the real promoter lines four ways -- "Promoter Share", "PROMOTER
+    SHARE", "Promotor Share" (sic) and lowercase "promotor" -- so an exact-case
+    "Promoter" test misses 8 of the 121, NABILP among them.
+
+    Pinned because both failure modes are silent: a wrong rule does not error, it just
+    quietly analyses the wrong universe, and every board downstream inherits it.
+    """
+    from swing_quantam import loader
+
+    ex = loader.excluded()
+    assert ex, "the exclusion set is empty -- instruments.txt unreadable?"
+
+    for s in ("NABILP", "AKBSLP", "ICFCPO", "KBLPO", "MBLPO", "SJLICP", "PMLIP"):
+        assert s in ex, f"{s} is a promoter share and must be excluded"
+    for s in ("C30MF", "CMF1", "NIBSF2"):
+        assert s in ex, f"{s} is a mutual fund and must be excluded"
+    for s in ("NADEP", "RRHP", "NABIL", "ADBL", "NTC"):
+        assert s not in ex, (
+            f"{s} is an ordinary company and must NOT be excluded -- a ticker-suffix "
+            "rule has replaced the name rule")
+
+    # and the universe must actually shrink, or the filter is not wired to the callers
+    universe = loader.symbols()
+    assert universe and not (set(universe) & ex), "excluded symbols reached loader.symbols()"
+
+    print(f"  universe            {len(universe)} analysable; {len(ex)} funds/indices/"
+          f"promoters excluded by name")
+
+
+def test_deploy_ships_paths_with_spaces():
+    """The ship must send every tracked file, including paths containing a space.
+
+    `git ls-files` piped through `.split()` shredded `quantam_nepse_landing page/...` into
+    the two nonexistent names `quantam_nepse_landing` and `page/...`. tar errored on each
+    fragment, ALL 111 files under that directory silently never reached the box (measured:
+    the tree was absent there), the printed count was 379 tokens for 268 real files, and
+    every deploy still said "deploy ok" because only `systemctl is-active` was consulted.
+
+    Pinned three ways, because each defect is independently re-introducible.
+    """
+    root = Path(__file__).parent
+    src = (root / "deploy.py").read_text(encoding="utf-8")
+
+    # 1. the path list must be NUL-separated, never whitespace-split
+    assert 'run(["git", "ls-files", "-z"]' in src, (
+        "deploy.py must ask git for NUL-separated paths")
+    # narrowly: the GIT call, not every .split() in the file — `ship.stdout.split()`
+    # splits systemctl's one-word answer and is fine.
+    git_lines = [l for l in src.splitlines() if "ls-files" in l]
+    assert git_lines, "deploy.py no longer asks git for the file list"
+    assert all("-z" in l for l in git_lines), "the ls-files call must pass -z"
+    assert not any(".split()" in l for l in git_lines), (
+        "a bare .split() on git output shreds any path containing a space")
+
+    # 2. and the real list must round-trip: every entry an existing file
+    out = subprocess.run(["git", "ls-files", "-z"], cwd=root,
+                         capture_output=True, text=True).stdout
+    files = [f for f in out.split(chr(0)) if f and not f.startswith("Master_data/")]
+    missing = [f for f in files if not (root / f).exists()]
+    assert not missing, f"{len(missing)} shipped paths do not exist, e.g. {missing[:3]}"
+    spaced = [f for f in files if " " in f]
+    assert spaced, "no space-containing tracked path — this test has stopped proving anything"
+
+    # 3. tar's exit code must gate the deploy verdict
+    assert "tar_rc = tar.wait()" in src and "return tar_rc == 0" in src, (
+        "tar can fail while systemctl reports active; its exit code must reach the verdict")
+
+    print(f"  deploy paths        {len(files)} tracked files ship, {len(spaced)} contain a space")
 
 
 def test_deploy_health():
@@ -1152,6 +1228,8 @@ def test_swing_quantam_open_ended_zones_stay_open():
 def main():
     print("ops safety:")
     test_rewrite()
+    test_promoter_and_fund_exclusion_uses_the_name_not_the_suffix()
+    test_deploy_ships_paths_with_spaces()
     test_deploy_health()
     test_deploy_ships_all_three_services()
     test_web_bundle_cannot_ship_symlinks()

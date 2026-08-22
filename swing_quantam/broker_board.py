@@ -96,7 +96,19 @@ def calendar(files: list[str] | None = None) -> list[str]:
 
 
 def _files() -> list[str]:
-    return sorted(f for f in os.listdir(FLOW) if f.endswith(".txt"))
+    """The per-symbol flow files, minus the instruments this engine does not analyse.
+
+    Reads the directory rather than ``loader.symbols()`` (the flow archive and the
+    floorsheet archive are not always the same set), so the exclusion has to be applied
+    here too — otherwise a mutual fund's broker flow would still reach the market-wide
+    totals and every broker's shares would be computed over a different universe from
+    the one the symbol board shows.
+    """
+    from .loader import excluded
+
+    skip = excluded()
+    return sorted(f for f in os.listdir(FLOW)
+                  if f.endswith(".txt") and f[:-4] not in skip)
 
 
 def scan(window: int = WINDOW, upto: str | None = None) -> tuple[list[BrokerRow], str, int]:

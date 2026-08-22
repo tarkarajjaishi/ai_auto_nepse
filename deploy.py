@@ -64,8 +64,14 @@ def git_sync(message):
 
 def vps_ship():
     """Tar the tracked source over SSH and restart the service."""
-    files = run(["git", "ls-files"], capture_output=True).stdout.split()
-    files = [f for f in files if not f.startswith("Master_data/")]
+    # -z and split on NUL, never .split(). Whitespace-splitting shredded every path
+    # containing a space: `quantam_nepse_landing page/...` became the two nonexistent
+    # names `quantam_nepse_landing` and `page/...`, so tar errored on each fragment and
+    # ALL 111 files under that directory silently never shipped — measured, the tree was
+    # absent on the box while every deploy printed "deploy ok". -z also stops git quoting
+    # unusual paths, which .splitlines() alone would still hand to tar with the quotes on.
+    out = run(["git", "ls-files", "-z"], capture_output=True).stdout
+    files = [f for f in out.split("\0") if f and not f.startswith("Master_data/")]
     if not files:
         print("  no tracked files to ship")
         return False
@@ -75,13 +81,20 @@ def vps_ship():
          f"cd {APP} && tar xzf - && sudo systemctl restart {API_SERVICE} && sleep 3 && "
          f"systemctl is-active {API_SERVICE}"],
         stdin=tar.stdout, text=True, capture_output=True)
-    tar.stdout.close(), tar.wait()
+    tar.stdout.close()
+    tar_rc = tar.wait()
     # The API is the only Python service a source ship affects — it serves the modules the
     # boards are built from, so shipping without restarting it leaves the terminal running
     # yesterday's Python against today's txt. `chukul` (Streamlit) used to be restarted here
     # too and no longer exists; naming a dead unit makes systemctl fail and the whole deploy
     # report failure.
     states = ship.stdout.split()
+    if tar_rc:
+        # tar's own failure never used to reach this verdict, so a shipment that dropped
+        # files still printed "deploy ok" as long as the unit came back active. Same
+        # silent-failure class as the two already documented above.
+        print(f"  tar exited {tar_rc} — the shipment is INCOMPLETE, some tracked files "
+              f"were not sent")
     print(f"  {len(files)} file(s) shipped · {API_SERVICE}={states[0] if states else '?'}"
           f"{'' if states else '  ' + ship.stderr.strip()}")
     # Exact match. `systemd is-active` answers with one of active / inactive / failed /
@@ -90,7 +103,7 @@ def vps_ship():
     # check the deploy has.
     # `all(...)` over the list, not states[0] — one unit is shipped today, and the check has
     # to keep covering every unit the day a second one is added. test_ops pins this form.
-    return len(states) == 1 and all(s == "active" for s in states)
+    return tar_rc == 0 and len(states) == 1 and all(s == "active" for s in states)
 
 
 def web_ship():
