@@ -27,6 +27,9 @@ BOARDS = {
     # One row per BROKER rather than per symbol — the market-wide 30-session footprint
     # behind the console's Strong Brokers tab. Same folder, same date-last shape.
     "swing_quantam_brokers": "swing_quantam/brokers.txt",
+    # First-passage odds on each symbol's own zone ladder — see swing_quantam/
+    # probability.py for what the number is and, more importantly, what it is not.
+    "swing_quantam_probability": "swing_quantam/probability.txt",
 }
 
 # columns that are numbers, so the frontend never parses strings into floats itself

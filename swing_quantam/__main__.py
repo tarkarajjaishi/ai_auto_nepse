@@ -78,7 +78,8 @@ import traceback
 
 # ``history`` is aliased because ``history`` is also the name of build_symbol's
 # session-count parameter, and the module is used all through that function.
-from . import broker_board, brokers, features, flow, loader, network, store, structure
+from . import broker_board, brokers, features, flow, loader, network, probability
+from . import store, structure
 from . import history as hist
 from .store import Row, Section
 
@@ -2237,6 +2238,17 @@ def main(argv: list[str] | None = None) -> int:
             # A missing broker_flow archive is not a reason to fail a board that is already
             # on disk and correct.
             print(f"broker board NOT written: {exc}", file=sys.stderr)
+
+        # Last, because it READS board.txt and the detail files this run just wrote.
+        # Seconds, not minutes: daily bars and five numbers per symbol, no floorsheet.
+        try:
+            p_rows, p_session = probability.scan()
+            if p_rows:
+                print(f"wrote {probability.write(p_rows, p_session)} "
+                      f"({sum(1 for r in p_rows if r.get('p_up') is not None)} of "
+                      f"{len(p_rows)} symbols priced, session {p_session})")
+        except OSError as exc:
+            print(f"probability board NOT written: {exc}", file=sys.stderr)
     return 0
 
 

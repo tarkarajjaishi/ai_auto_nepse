@@ -352,6 +352,8 @@ export type BoardName =
   | "swing_quantam"
   /** one row per BROKER, market-wide — not per symbol, so it has no `symbol` column */
   | "swing_quantam_brokers"
+  /** first-passage odds on each symbol's zone ladder, priced from its own bar history */
+  | "swing_quantam_probability"
   | "swing_pro"
   | "supply_demand"
   | "scan"

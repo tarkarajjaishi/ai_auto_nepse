@@ -26,7 +26,7 @@ import { api, qk, type Board, type Row } from "@/lib/api";
  * be the buy screen upside down. Strong Sell sorts on `exit_score`, Strong Buy on
  * `entry_score` — sections 91 and 92, now on the board for exactly this reason.
  */
-export const SCREENS = ["buy", "sell", "operator", "brokers"] as const;
+export const SCREENS = ["buy", "sell", "operator", "brokers", "probability"] as const;
 export type ScreenId = (typeof SCREENS)[number];
 
 export const SCREEN_LABEL: Record<ScreenId, string> = {
@@ -34,6 +34,7 @@ export const SCREEN_LABEL: Record<ScreenId, string> = {
   sell: "Strong Sell",
   operator: "Strong Operator",
   brokers: "Strong Brokers",
+  probability: "Probability",
 };
 
 const BUY_SIGNALS = new Set(["STRONG BUY ZONE", "BUY ZONE"]);
@@ -184,8 +185,13 @@ export function Screen({
     queryFn: ({ signal }) => api.board("swing_quantam_brokers", signal),
     enabled: id === "brokers",
   });
+  const prob = useQuery({
+    queryKey: qk.board("swing_quantam_probability"),
+    queryFn: ({ signal }) => api.board("swing_quantam_probability", signal),
+    enabled: id === "probability",
+  });
 
-  const q = id === "brokers" ? brokers : board;
+  const q = id === "brokers" ? brokers : id === "probability" ? prob : board;
   const rows = useMemo(() => q.data?.rows ?? [], [q.data]);
   const dom = useMemo(
     () => (id === "operator" ? dominance(rows) : new Map<string, number>()),
@@ -206,6 +212,12 @@ export function Screen({
         .filter((r) => (dom.get(String(r.symbol)) ?? -9) >= 1.5)
         .map((r) => ({ ...r, dominance: Number((dom.get(String(r.symbol)) ?? 0).toFixed(2)) }))
         .sort(byDesc("dominance"));
+    }
+    if (id === "probability") {
+      // Rows with no p_up were never priced — no daily bar file, or an inverted
+      // ladder. Dropping them is not hiding them: the panel says how many, and a
+      // blank probability beside a real target reads as a low one.
+      return rows.filter((r) => num(r, "p_up") !== null).sort(byDesc("net_edge"));
     }
     return [...rows].sort(byDesc("conviction"));
   }, [id, rows, dom]);
@@ -272,6 +284,51 @@ export function Screen({
         </Note>
       )}
 
+      {id === "probability" && (
+        <Note>
+          For each symbol&apos;s own zone ladder: how often, in <em>its own price
+          history</em>, did price touch <strong>target 1</strong> before the{" "}
+          <strong>stop</strong>, within 20 sessions? A real barrier test on daily highs
+          and lows, not a close-to-close guess. <strong>{view.length}</strong> of{" "}
+          {rows.length} symbols could be priced — the rest have no daily bar file or an
+          inverted ladder, and print nothing rather than a 50/50.
+          <br />
+          <br />
+          <strong>This is a base rate, not a forecast.</strong> It is deliberately{" "}
+          <em>not</em> conditioned on today&apos;s signal: the shipped backtest found
+          this engine&apos;s buy zone significantly negative over 6,964 stock-days, so
+          conditioning on it would attach a number to a rejected claim. What you are
+          reading is geometry and volatility — how near the target is, how far the stop
+          is, and how much this stock moves.
+          <br />
+          <br />
+          Read the three outcomes together. <span className="font-mono">p none</span> is
+          the share of windows that touched <em>neither</em> barrier in 20 sessions, and
+          it is often the largest of the three — a high net edge sitting beside a{" "}
+          <span className="font-mono">p none</span> of 80% is drift, not the ladder
+          working. Sorted by <strong>net edge</strong>, never by{" "}
+          <span className="font-mono">p up</span>: measured here, p&nbsp;up correlates
+          −0.50 with reward:risk, so ranking on it just returns the nearest targets. Net
+          edge charges the same <strong>0.8% round trip</strong> this repo&apos;s own
+          backtest charges — and only <strong>62 of 323</strong> priced symbols clear it.
+          <br />
+          <br />
+          <strong>Then check{" "}
+          <span className="font-mono">dist to entry</span> before you read anything
+          else.</strong>{" "}
+          It is how far today&apos;s price sits from the entry zone the rest of the row
+          describes, and the median row is <strong>−8.8%</strong>: the plan is not live,
+          because you cannot buy at a zone the price is nowhere near. Only{" "}
+          <strong>105 of 323</strong> ladders sit within 5% of price, and only{" "}
+          <strong>13</strong> of those also clear the 0.8% cost. Sort on this column to
+          see them. The ranking is not filtered to them — a number is easier to argue
+          with than a row that was quietly removed. Two milder confounds worth the same
+          suspicion: net edge correlates +0.30 with how far away target 1 is and +0.16
+          with <span className="font-mono">p none</span>, so part of a high score is
+          simply a distant target that rarely resolves either way.
+        </Note>
+      )}
+
       {id === "brokers" && (
         <Note>
           Every member firm&apos;s market-wide footprint over the last 30 sessions, ranked by{" "}
@@ -292,7 +349,10 @@ export function Screen({
           columns={columns}
           hide={["date"]}
           priority={
-            id === "brokers"
+            id === "probability"
+              ? ["symbol", "signal", "net_edge", "p_up", "p_down", "p_none",
+                 "price", "entry", "target1", "target2", "stop", "rr1"]
+              : id === "brokers"
               ? ["broker", "conviction", "net_amt", "gross_amt", "symbols_net_buy", "symbols"]
               : id === "operator"
                 ? ["symbol", "dominance", "top_broker", "top_broker_share", "brokers", "signal"]
@@ -304,7 +364,9 @@ export function Screen({
           // passing a handler anyway painted 91 rows as clickable for a silent no-op.
           onRowClick={id === "brokers" ? undefined : (r) => onSymbol(String(r.symbol))}
           emptyMessage={
-            id === "brokers"
+            id === "probability"
+              ? "No symbol could be priced — the daily bar archive is missing."
+              : id === "brokers"
               ? "No brokers on this board."
               : "Nothing matches this screen on the current session — which is an answer, not an error."
           }

@@ -51,6 +51,7 @@ SCRIPTS: dict[str, tuple[str, ...]] = {
     # test_ops can account for it — a board nothing declares is a board nobody can tell is
     # stale — and so the console's rebuild button targets the right script.
     "swing_quantam_brokers": ("build_swing_quantam.py",),
+    "swing_quantam_probability": ("build_swing_quantam.py",),
     "pipeline": ("daily_update.py", "scan.py", "volume_spike.py", "fetch_swp.py",
                  "operator_scan.py", "supply_demand.py", "swing_pro.py", "backtest.py",
                  "build_swing_quantam.py"),

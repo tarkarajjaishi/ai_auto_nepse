@@ -135,7 +135,14 @@ const MONEY_COLS = new Set([
 // brokers.txt's ratios are 0-1 FRACTIONS, unlike PCT_COLS which are already 0-100. Left to
 // the num() default they were rounded to 2dp of the raw fraction, which printed "0" for a
 // broker with a Rs 1.4b book and collapsed 91 distinct market shares onto 6.
-const RATIO_COLS = new Set(["conviction", "breadth", "top_symbol_share"]);
+const RATIO_COLS = new Set(["conviction", "breadth", "top_symbol_share",
+  // probability.txt: first-passage frequencies, 0-1
+  "p_up", "p_down", "p_none", "p_up2"]);
+
+// probability.txt again: these are ALREADY in percent of entry, so pct() must not
+// multiply them again. Kept separate from RATIO_COLS for exactly that reason.
+const PCT_OF_ENTRY = new Set(["net_edge", "expectancy", "open_return", "dist_to_entry",
+  "up1_pct", "up2_pct", "down_pct"]);
 
 export function formatCell(col: string, v: Cell): string {
   if (v === null || v === undefined || v === "") return "—";
@@ -143,6 +150,7 @@ export function formatCell(col: string, v: Cell): string {
   if (PRICE_COLS.has(col)) return price(v);
   if (PCT_COLS.has(col)) return pct(v);
   if (RATIO_COLS.has(col)) return pct(v * 100);
+  if (PCT_OF_ENTRY.has(col)) return pct(v);
   // Rupee columns, compacted. brokers.txt's three are market-wide 30-session sums and run
   // to ten figures — printed in full they push every other column off a laptop screen.
   if (MONEY_COLS.has(col)) return compact(v);
